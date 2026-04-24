@@ -1,0 +1,45 @@
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=Space+Grotesk:wght@500;700&display=swap");
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 34 100% 98%;
+  --foreground: 207 44% 13%;
+  --card: 0 0% 100%;
+  --muted: 197 27% 92%;
+  --accent: 12 80% 95%;
+  --primary: 194 93% 35%;
+}
+
+.dark {
+  --background: 206 38% 9%;
+  --foreground: 43 80% 95%;
+  --card: 206 34% 14%;
+  --muted: 206 22% 20%;
+  --accent: 190 29% 18%;
+  --primary: 42 90% 60%;
+}
+
+body {
+  background:
+    radial-gradient(circle at 10% 20%, rgba(52, 197, 246, 0.22), transparent 42%),
+    radial-gradient(circle at 88% 4%, rgba(249, 115, 22, 0.22), transparent 38%),
+    hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+.fade-up {
+  animation: fadeUp 380ms ease-out;
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

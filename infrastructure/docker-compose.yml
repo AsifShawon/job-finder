@@ -1,0 +1,155 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: ooi_postgres
+    environment:
+      POSTGRES_DB: ooi
+      POSTGRES_USER: ooi
+      POSTGRES_PASSWORD: ooi
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ooi -d ooi"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: ooi_redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    container_name: ooi_minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+
+  api:
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+    container_name: ooi_api
+    env_file:
+      - ../apps/api/.env.example
+    environment:
+      DATABASE_URL: postgresql+psycopg://ooi:ooi@postgres:5432/ooi
+      REDIS_URL: redis://redis:6379/0
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: raw-docs
+      PYTHONPATH: /workspace/apps/api:/workspace/apps/worker
+    volumes:
+      - ..:/workspace
+    working_dir: /workspace/apps/api
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    depends_on:
+      postgres:
+        condition: service_healthy  # <--- This is the issue
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    ports:
+      - "8000:8000"
+
+  worker:
+    build:
+      context: ..
+      dockerfile: apps/worker/Dockerfile
+    container_name: ooi_worker
+    env_file:
+      - ../apps/api/.env.example
+    environment:
+      DATABASE_URL: postgresql+psycopg://ooi:ooi@postgres:5432/ooi
+      REDIS_URL: redis://redis:6379/0
+      PYTHONPATH: /workspace/apps/api:/workspace/apps/worker
+    volumes:
+      - ..:/workspace
+    working_dir: /workspace/apps/worker
+    command: celery -A worker.celery_app:celery_app worker --loglevel=INFO --pool=solo --concurrency=1
+    depends_on:
+      api:
+        condition: service_started
+      redis:
+        condition: service_healthy
+
+  beat:
+    build:
+      context: ..
+      dockerfile: apps/worker/Dockerfile
+    container_name: ooi_beat
+    env_file:
+      - ../apps/api/.env.example
+    environment:
+      DATABASE_URL: postgresql+psycopg://ooi:ooi@postgres:5432/ooi
+      REDIS_URL: redis://redis:6379/0
+      PYTHONPATH: /workspace/apps/api:/workspace/apps/worker
+    volumes:
+      - ..:/workspace
+    working_dir: /workspace/apps/worker
+    command: celery -A worker.celery_app:celery_app beat --loglevel=INFO
+    depends_on:
+      worker:
+        condition: service_started
+
+  flower:
+    build:
+      context: ..
+      dockerfile: apps/worker/Dockerfile
+    container_name: ooi_flower
+    env_file:
+      - ../apps/api/.env.example
+    environment:
+      DATABASE_URL: postgresql+psycopg://ooi:ooi@postgres:5432/ooi
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      PYTHONPATH: /workspace/apps/api:/workspace/apps/worker
+    volumes:
+      - ..:/workspace
+    working_dir: /workspace/apps/worker
+    command: celery -A worker.celery_app:celery_app flower --port=5555
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "5555:5555"
+
+  web:
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+    container_name: ooi_web
+    environment:
+      SERVER_API_BASE_URL: http://api:8000
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+    volumes:
+      - ..:/workspace
+    working_dir: /workspace/apps/web
+    command: sh -c "npm install && npm run dev -- --hostname 0.0.0.0 --port 3000"
+    depends_on:
+      api:
+        condition: service_started
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres_data:
+  minio_data:
