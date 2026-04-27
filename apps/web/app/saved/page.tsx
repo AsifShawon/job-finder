@@ -1,21 +1,44 @@
+import { Bookmark } from "lucide-react";
+
 import { SavedClient } from "@/app/saved/saved-client";
-import { requireCurrentUser, fetchBackendJsonWithAuth } from "@/lib/server-auth-fetch";
+import { getLocale } from "@/lib/i18n";
+import { fetchBackendJsonWithAuth, requireCurrentUser } from "@/lib/server-auth-fetch";
 import type { OpportunityCard } from "@/lib/types";
 
 export default async function SavedPage() {
   await requireCurrentUser();
+  const locale = await getLocale();
+  const isEn = locale === "en";
   const savedItems = (await fetchBackendJsonWithAuth<OpportunityCard[]>("/api/v1/saved")) ?? [];
 
   return (
-    <div className="space-y-6">
-      <div className="space-y-2">
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Shortlist</p>
-        <h1 className="font-display text-4xl font-bold">Saved opportunities</h1>
-        <p className="max-w-3xl text-sm text-slate-600 dark:text-slate-300">
-          Keep your active shortlist here. Remove items once they are no longer relevant, and revisit detail pages to compare deadlines, trust, and application links.
-        </p>
+    <div className="min-h-screen bg-background">
+      <div className="border-b border-border bg-card">
+        <div className="mx-auto max-w-7xl px-4 py-5">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
+              <Bookmark className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-primary">
+                {isEn ? "Shortlist" : "সংক্ষিপ্ত তালিকা"}
+              </p>
+              <h1 className="text-xl font-bold text-foreground">
+                {isEn ? "Saved Opportunities" : "সংরক্ষিত সুযোগ"}
+              </h1>
+            </div>
+          </div>
+          <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+            {isEn
+              ? "Keep your preferred opportunities here. Compare deadlines, source trust, and application links before applying."
+              : "আপনার পছন্দের সুযোগগুলো এখানে সংরক্ষণ করুন। আবেদনের আগে শেষ তারিখ, বিশ্বাসযোগ্যতা ও লিংক মিলিয়ে নিন।"}
+          </p>
+        </div>
       </div>
-      <SavedClient initialItems={savedItems} />
+
+      <div className="mx-auto max-w-7xl px-4 py-6">
+        <SavedClient initialItems={savedItems} />
+      </div>
     </div>
   );
 }

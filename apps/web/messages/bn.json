@@ -1,0 +1,124 @@
+{
+  "nav": {
+    "brand": "সুযোগ বাংলাদেশ",
+    "tagline": "যাচাইকৃত বিদেশি সুযোগ",
+    "search": "অনুসন্ধান",
+    "copilot": "সহকারী AI",
+    "dashboard": "ড্যাশবোর্ড",
+    "saved": "সংরক্ষিত",
+    "alerts": "সতর্কতা",
+    "admin": "অ্যাডমিন",
+    "signIn": "প্রবেশ করুন",
+    "createAccount": "অ্যাকাউন্ট তৈরি করুন",
+    "member": "সদস্য",
+    "administrator": "প্রশাসক",
+    "language": "EN"
+  },
+  "auth": {
+    "login": "প্রবেশ করুন",
+    "register": "নিবন্ধন করুন",
+    "email": "ইমেইল",
+    "password": "পাসওয়ার্ড",
+    "fullName": "পূর্ণ নাম",
+    "loginButton": "প্রবেশ করুন",
+    "registerButton": "অ্যাকাউন্ট তৈরি করুন",
+    "loginSubmitting": "প্রবেশ করা হচ্ছে...",
+    "registerSubmitting": "অ্যাকাউন্ট তৈরি হচ্ছে...",
+    "loginFailed": "প্রবেশ করা যায়নি। ইমেইল ও পাসওয়ার্ড যাচাই করুন।",
+    "registerFailed": "নিবন্ধন করা যায়নি। তথ্য যাচাই করে আবার চেষ্টা করুন।",
+    "passwordPlaceholder": "আপনার পাসওয়ার্ড লিখুন",
+    "passwordMinPlaceholder": "কমপক্ষে ৮ অক্ষর",
+    "fullNamePlaceholder": "আপনার পূর্ণ নাম",
+    "logout": "প্রস্থান",
+    "noAccount": "অ্যাকাউন্ট নেই?",
+    "hasAccount": "ইতিমধ্যে অ্যাকাউন্ট আছে?"
+  },
+  "onboarding": {
+    "title": "আপনার পছন্দ সেট করুন",
+    "subtitle": "আমরা আপনার জন্য সেরা সুযোগ খুঁজে দেব",
+    "step1Title": "পছন্দের দেশ",
+    "step1Subtitle": "কোন দেশে কাজ বা পড়তে যেতে আগ্রহী?",
+    "step2Title": "আগ্রহের ক্ষেত্র",
+    "step2Subtitle": "কোন সেক্টরে সুযোগ খুঁজছেন?",
+    "step3Title": "বর্তমান অবস্থা",
+    "step3Subtitle": "আপনি বর্তমানে কী করছেন?",
+    "step4Title": "শিক্ষাগত যোগ্যতা",
+    "step4Subtitle": "আপনার সর্বোচ্চ শিক্ষাগত যোগ্যতা কী?",
+    "next": "পরবর্তী",
+    "back": "পূর্ববর্তী",
+    "finish": "সম্পন্ন করুন",
+    "skip": "এখন এড়িয়ে যান",
+    "stepOf": "{current} / {total}",
+    "status": {
+      "student": "শিক্ষার্থী",
+      "employed": "কর্মরত (দেশে)",
+      "unemployed": "বেকার",
+      "seeking_migration": "বিদেশে যেতে আগ্রহী",
+      "other": "অন্যান্য"
+    },
+    "education": {
+      "none": "কোনো ডিগ্রি নেই",
+      "secondary": "এসএসসি / সমমান",
+      "higher_secondary": "এইচএসসি / সমমান",
+      "bachelor": "স্নাতক (অনার্স)",
+      "master": "স্নাতকোত্তর (মাস্টার্স)",
+      "phd": "পিএইচডি"
+    }
+  },
+  "dashboard": {
+    "greeting": "স্বাগতম, {name}",
+    "recommendations": "আপনার জন্য সুপারিশকৃত",
+    "noProfile": "প্রোফাইল সম্পূর্ণ করুন",
+    "noProfileDesc": "আপনার পছন্দ দিন এবং ব্যক্তিগতকৃত সুযোগ পান",
+    "completeProfile": "প্রোফাইল সম্পূর্ণ করুন →",
+    "saved": "সংরক্ষিত সুযোগ",
+    "viewAll": "সব দেখুন",
+    "stats": {
+      "totalOpps": "মোট সুযোগ",
+      "jobs": "চাকরি",
+      "scholarships": "বৃত্তি",
+      "newToday": "আজকের নতুন"
+    }
+  },
+  "opportunity": {
+    "apply": "আবেদন করুন",
+    "save": "সংরক্ষণ করুন",
+    "saved": "সংরক্ষিত",
+    "deadline": "আবেদনের শেষ তারিখ",
+    "country": "দেশ",
+    "sector": "সেক্টর",
+    "salary": "বেতন",
+    "education": "শিক্ষাগত যোগ্যতা",
+    "visa": "ভিসা সহায়তা আছে",
+    "noVisa": "ভিসা সহায়তা নেই",
+    "requirements": "প্রয়োজনীয়তা",
+    "benefits": "সুবিধাসমূহ",
+    "languages": "ভাষার দক্ষতা",
+    "source": "সূত্র",
+    "similar": "অনুরূপ সুযোগ",
+    "types": {
+      "job": "চাকরি",
+      "scholarship": "বৃত্তি",
+      "policy_update": "নীতি আপডেট"
+    },
+    "match": "{score}% মিল",
+    "urgentDeadline": "শেষ হতে {days} দিন বাকি"
+  },
+  "search": {
+    "placeholder": "চাকরি, বৃত্তি বা নীতি খুঁজুন...",
+    "button": "অনুসন্ধান",
+    "filters": "ফিল্টার",
+    "noResults": "কোনো ফলাফল পাওয়া যায়নি",
+    "results": "{total}টি সুযোগ পাওয়া গেছে"
+  },
+  "admin": {
+    "sources": "সোর্স রেজিস্ট্রি",
+    "addSource": "নতুন সোর্স যোগ করুন",
+    "bulkImport": "বাল্ক আমদানি",
+    "crawlAll": "সব ক্রল শুরু করুন",
+    "crawlAllConfirm": "সব সক্রিয় সোর্সের ক্রল শুরু করবেন?",
+    "crawlQueued": "{queued}টি সোর্সের ক্রল শুরু হয়েছে",
+    "importSuccess": "{created}টি সোর্স তৈরি হয়েছে, {skipped}টি এড়ানো হয়েছে",
+    "downloadTemplate": "CSV টেমপ্লেট ডাউনলোড করুন"
+  }
+}

@@ -15,8 +15,14 @@ class Settings(BaseSettings):
     database_url: str
     redis_url: str
 
+    ai_provider: str = "groq"
+    ai_model: str = ""
+    ai_api_key: str = ""
+
     groq_api_key: str = ""
     groq_model: str = "llama-3.3-70b-versatile"
+    mistral_api_key: str = ""
+    mistral_model: str = "mistral-small-latest"
 
     minio_endpoint: str = "minio:9000"
     minio_access_key: str = "minioadmin"
@@ -25,6 +31,9 @@ class Settings(BaseSettings):
     minio_secure: bool = False
 
     crawler_user_agent: str = "OOI-Platform/1.0 (+https://localhost)"
+    enable_scheduled_crawls: bool = False
+    crawler_smoke_mode: bool = False
+    reliefweb_appname: str = "ooi-bd-opportunities-dev"
     rate_limit_copilot: str = "20/minute"
     web_base_url: str = "http://localhost:3000"
 

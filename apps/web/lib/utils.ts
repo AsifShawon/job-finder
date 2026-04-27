@@ -5,11 +5,13 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export function formatDate(value: string | null | undefined): string {
+export type UiLocale = "bn" | "en";
+
+export function formatDate(value: string | null | undefined, locale: UiLocale = "bn"): string {
   if (!value) {
-    return "Not available";
+    return locale === "en" ? "Not available" : "উপলভ্য নয়";
   }
-  return new Intl.DateTimeFormat("en", {
+  return new Intl.DateTimeFormat(locale === "en" ? "en-US" : "bn-BD", {
     timeZone: "UTC",
     year: "numeric",
     month: "short",
@@ -17,11 +19,11 @@ export function formatDate(value: string | null | undefined): string {
   }).format(new Date(value));
 }
 
-export function formatDateTime(value: string | null | undefined): string {
+export function formatDateTime(value: string | null | undefined, locale: UiLocale = "bn"): string {
   if (!value) {
-    return "Not available";
+    return locale === "en" ? "Not available" : "উপলভ্য নয়";
   }
-  return new Intl.DateTimeFormat("en", {
+  return new Intl.DateTimeFormat(locale === "en" ? "en-US" : "bn-BD", {
     timeZone: "UTC",
     year: "numeric",
     month: "short",
@@ -32,7 +34,50 @@ export function formatDateTime(value: string | null | undefined): string {
   }).format(new Date(value));
 }
 
-export function humanizeSlug(value: string): string {
+export function humanizeSlug(value: string, locale: UiLocale = "bn"): string {
+  const labels: Record<UiLocale, Record<string, string>> = {
+    en: {
+      official_gov: "Government source",
+      official_partner: "Official partner",
+      established_portal: "Established portal",
+      news_only: "News-based",
+      running: "Running",
+      completed: "Completed",
+      success: "Successful",
+      failed: "Failed",
+      queued: "Queued",
+      pending: "Pending",
+      job: "Job",
+      scholarship: "Scholarship",
+      policy_update: "Policy update",
+      static_html: "Static HTML",
+      dynamic_html: "Dynamic HTML",
+      news_policy: "News and policy",
+    },
+    bn: {
+      official_gov: "সরকারি উৎস",
+      official_partner: "সরকারি অংশীদার",
+      established_portal: "প্রতিষ্ঠিত পোর্টাল",
+      news_only: "সংবাদভিত্তিক",
+      running: "চলমান",
+      completed: "সম্পন্ন",
+      success: "সফল",
+      failed: "ব্যর্থ",
+      queued: "অপেক্ষমাণ",
+      pending: "অপেক্ষমাণ",
+      job: "চাকরি",
+      scholarship: "বৃত্তি",
+      policy_update: "নীতি আপডেট",
+      static_html: "স্ট্যাটিক HTML",
+      dynamic_html: "ডাইনামিক HTML",
+      news_policy: "সংবাদ ও নীতি",
+    },
+  };
+
+  if (labels[locale][value]) {
+    return labels[locale][value];
+  }
+
   return value
     .split("_")
     .filter(Boolean)

@@ -1,5 +1,7 @@
+import json
 from typing import Any
 
+import httpx
 from langchain_groq import ChatGroq
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -11,7 +13,7 @@ from app.ingestion.schemas import (
     ScholarshipExtraction,
     UnknownExtraction,
 )
-from app.services.runtime_settings_service import get_groq_api_key, get_groq_model
+from app.services.runtime_settings_service import get_ai_api_key, get_ai_model, get_ai_provider
 
 
 class ExtractionEnvelope(BaseModel):
@@ -58,28 +60,96 @@ def _fallback_extract(cleaned: dict[str, Any]) -> ExtractionBase:
     )
 
 
-def extract_structured(db: Session, cleaned: dict[str, Any]) -> ExtractionBase:
-    groq_api_key = get_groq_api_key(db)
-    if not groq_api_key:
-        return _fallback_extract(cleaned)
+def _ensure_fields(extraction: ExtractionBase) -> ExtractionBase:
+    """Coerce None list fields to [] and strip empty-string sentinels from Groq output."""
+    for field in ("requirements", "benefits", "language_requirements", "evidence_snippets"):
+        val = getattr(extraction, field)
+        if val is None:
+            setattr(extraction, field, [])
+        elif isinstance(val, list):
+            setattr(extraction, field, [v for v in val if v and str(v).strip()])
+    if extraction.summary and not extraction.summary.strip():
+        extraction.summary = None
+    if extraction.application_url and not extraction.application_url.strip():
+        extraction.application_url = None
+    return extraction
 
-    model = ChatGroq(model=get_groq_model(db), api_key=groq_api_key, temperature=0.0)
-    structured = model.with_structured_output(ExtractionEnvelope)
-    prompt = (
-        "Extract structured overseas opportunity intelligence from the provided content.\n"
-        "The platform is for Bangladeshi users and Bangladeshi migrant workers.\n"
-        "Return record_type as job, scholarship, policy_update, or unknown.\n"
-        "Keep job records only when the content describes a real job opportunity, recruitment notice, application path, "
-        "or work-related eligibility/requirement for Bangladeshi people or migrant workers.\n"
-        "Keep policy_update records only when the content changes or explains migration, visa, recruitment, work permit, "
-        "salary, quota, eligibility, or worker requirement rules that may affect Bangladeshi people.\n"
-        "Classify generic news, unrelated business news, entertainment, sports, opinions, and pages without an actionable "
-        "Bangladesh or migrant-worker connection as unknown.\n"
-        "Never guess salary, visa support, eligibility, deadline, employer, organization, or requirements. Use null or empty lists for unknown fields.\n"
-        "Return evidence_snippets as a JSON array of short strings, not an object. "
-        "For unknown records, evidence_snippets can explain why the page is not relevant.\n"
-        f"Input title: {cleaned.get('title')}\n"
-        f"Input body: {cleaned.get('body_text')}\n"
+
+_VALID_SECTORS = (
+    "IT", "Healthcare", "Construction", "Education", "Hospitality", "Manufacturing",
+    "Agriculture", "Fishing", "Transport", "Finance", "Retail", "Engineering",
+    "Domestic Work", "Security", "Garments", "Cleaning", "Other",
+)
+
+_PROMPT_TEMPLATE = (
+    "You are an overseas opportunity intelligence extractor for a platform serving Bangladeshi migrant workers.\n"
+    "Extract structured data from the content below and return it in the required schema.\n\n"
+    "CLASSIFICATION RULES:\n"
+    "- job: Real recruitment notice, job posting, or work-related application path for Bangladeshi people\n"
+    "- scholarship: Academic funding or study-abroad opportunity open to Bangladeshis\n"
+    "- policy_update: Changes to migration, visa, work permit, quota, salary, or worker eligibility rules\n"
+    "- unknown: Generic news, opinions, entertainment, or pages without a Bangladesh/migrant-worker connection\n\n"
+    "EXTRACTION RULES:\n"
+    "- summary: Write 2-3 plain sentences describing the opportunity. Use null if page is unknown.\n"
+    "- requirements: Return a JSON array of strings (e.g. ['5 years experience', 'IELTS 6.0']). Empty array if none stated.\n"
+    "- deadline_text: ISO date string (YYYY-MM-DD) or null. Never guess.\n"
+    f"- sector: One of {_VALID_SECTORS} or null.\n"
+    "- application_url: Full URL or null. Never invent.\n"
+    "- salary_min / salary_max / salary_currency: null unless explicitly stated in the content.\n"
+    "- visa_support: true only if the content explicitly states visa is provided.\n"
+    "- evidence_snippets: Array of 1-3 short quoted strings from the source that support your classification.\n"
+    "- extraction_confidence: 0.0-1.0 — your confidence in the classification and extraction quality.\n\n"
+    "INPUT TITLE: {title}\n"
+    "INPUT BODY:\n{body}\n"
+)
+
+
+def _strip_code_fences(text: str) -> str:
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.strip("`")
+        if cleaned.startswith("json"):
+            cleaned = cleaned[4:].strip()
+    return cleaned
+
+
+def _invoke_mistral(model: str, api_key: str, prompt: str) -> ExtractionEnvelope:
+    response = httpx.post(
+        "https://api.mistral.ai/v1/chat/completions",
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        json={
+            "model": model,
+            "temperature": 0.0,
+            "messages": [
+                {"role": "system", "content": "Return only valid JSON that matches the requested schema."},
+                {"role": "user", "content": prompt},
+            ],
+        },
+        timeout=60,
     )
-    result: ExtractionEnvelope = structured.invoke(prompt)
-    return result.data
+    response.raise_for_status()
+    content = response.json()["choices"][0]["message"]["content"]
+    return ExtractionEnvelope.model_validate(json.loads(_strip_code_fences(content)))
+
+
+def extract_structured(db: Session, cleaned: dict[str, Any]) -> ExtractionBase:
+    provider = get_ai_provider(db)
+    api_key = get_ai_api_key(db)
+    if not api_key:
+        return _ensure_fields(_fallback_extract(cleaned))
+
+    prompt = _PROMPT_TEMPLATE.format(
+        title=cleaned.get("title") or "",
+        body=(cleaned.get("body_text") or "")[:6000],
+    )
+    try:
+        if provider == "mistral":
+            result = _invoke_mistral(get_ai_model(db), api_key, prompt)
+            return _ensure_fields(result.data)
+
+        model = ChatGroq(model=get_ai_model(db), api_key=api_key, temperature=0.0)
+        structured = model.with_structured_output(ExtractionEnvelope)
+        result: ExtractionEnvelope = structured.invoke(prompt)
+        return _ensure_fields(result.data)
+    except Exception:
+        return _ensure_fields(_fallback_extract(cleaned))

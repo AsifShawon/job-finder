@@ -1,16 +1,31 @@
-import hashlib
+from __future__ import annotations
 
-EMBEDDING_DIMENSION = 1024
-EMBEDDING_MODEL = "hash-embedding-v1"
+from fastembed import TextEmbedding
+
+EMBEDDING_MODEL = "intfloat/multilingual-e5-small"
+EMBEDDING_DIMENSION = 384
+
+_model: TextEmbedding | None = None
+
+
+def _get_model() -> TextEmbedding:
+    global _model
+    if _model is None:
+        _model = TextEmbedding(EMBEDDING_MODEL)
+    return _model
 
 
 def embed_text(text: str) -> list[float]:
+    """Embed a passage (document being indexed)."""
     if not text.strip():
         return [0.0] * EMBEDDING_DIMENSION
+    result = list(_get_model().embed([f"passage: {text}"]))
+    return result[0].tolist()
 
-    digest = hashlib.sha512(text.encode("utf-8")).digest()
-    values: list[float] = []
-    for i in range(EMBEDDING_DIMENSION):
-        byte = digest[i % len(digest)]
-        values.append((byte / 255.0) * 2 - 1)
-    return values
+
+def embed_query(text: str) -> list[float]:
+    """Embed a search query. Uses 'query:' prefix for better retrieval with multilingual-e5."""
+    if not text.strip():
+        return [0.0] * EMBEDDING_DIMENSION
+    result = list(_get_model().embed([f"query: {text}"]))
+    return result[0].tolist()

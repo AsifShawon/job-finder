@@ -1,15 +1,19 @@
 "use client";
 
 import { useState } from "react";
+import { useLocale } from "next-intl";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { AdminAiSettings } from "@/lib/types";
 
 export function AdminAiSettingsForm({ initialSettings }: { initialSettings: AdminAiSettings }) {
-  const [model, setModel] = useState(initialSettings.groq_model);
+  const locale = useLocale();
+  const isEn = locale === "en";
+  const [provider, setProvider] = useState(initialSettings.ai_provider);
+  const [model, setModel] = useState(initialSettings.ai_model);
   const [apiKey, setApiKey] = useState("");
-  const [configured, setConfigured] = useState(initialSettings.groq_api_key_configured);
+  const [configured, setConfigured] = useState(initialSettings.ai_api_key_configured);
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -17,9 +21,12 @@ export function AdminAiSettingsForm({ initialSettings }: { initialSettings: Admi
     setSubmitting(true);
     setMessage("");
     try {
-      const payload: { groq_model: string; groq_api_key?: string } = { groq_model: model.trim() };
+      const payload: { ai_provider: string; ai_model: string; ai_api_key?: string } = {
+        ai_provider: provider,
+        ai_model: model.trim(),
+      };
       if (apiKey.trim()) {
-        payload.groq_api_key = apiKey.trim();
+        payload.ai_api_key = apiKey.trim();
       }
 
       const response = await fetch("/api/admin/settings/ai", {
@@ -29,15 +36,16 @@ export function AdminAiSettingsForm({ initialSettings }: { initialSettings: Admi
       });
 
       if (!response.ok) {
-        setMessage("Could not save AI settings.");
+        setMessage(isEn ? "Could not save AI settings." : "AI সেটিংস সংরক্ষণ করা যায়নি।");
         return;
       }
 
       const saved = (await response.json()) as AdminAiSettings;
-      setConfigured(saved.groq_api_key_configured);
-      setModel(saved.groq_model);
+  setProvider(saved.ai_provider);
+  setConfigured(saved.ai_api_key_configured);
+  setModel(saved.ai_model);
       setApiKey("");
-      setMessage("AI settings saved.");
+      setMessage(isEn ? "AI settings saved." : "AI সেটিংস সংরক্ষিত হয়েছে।");
     } finally {
       setSubmitting(false);
     }
@@ -46,25 +54,42 @@ export function AdminAiSettingsForm({ initialSettings }: { initialSettings: Admi
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm dark:border-slate-800 dark:bg-slate-950">
-        Groq API key: <span className="font-semibold">{configured ? "Configured" : "Not configured"}</span>
+        {isEn ? "AI provider" : "AI প্রদানকারী"}: {" "}
+        <span className="font-semibold uppercase">{provider}</span>{" "}
+        {" • "}
+        {isEn ? "API key" : "API কী"}: {" "}
+        <span className="font-semibold">{configured ? (isEn ? "Configured" : "কনফিগার করা আছে") : (isEn ? "Not configured" : "কনফিগার করা নেই")}</span>
       </div>
       <div className="space-y-2">
-        <label className="text-sm font-medium">Groq API key</label>
+        <label className="text-sm font-medium">{isEn ? "AI provider" : "AI প্রদানকারী"}</label>
+        <select
+          value={provider}
+          onChange={(event) => setProvider(event.target.value)}
+          className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+        >
+          <option value="groq">Groq</option>
+          <option value="mistral">Mistral</option>
+        </select>
+      </div>
+      <div className="space-y-2">
+        <label className="text-sm font-medium">
+          {provider === "mistral" ? (isEn ? "Mistral API key" : "Mistral API কী") : (isEn ? "Groq API key" : "Groq API কী")}
+        </label>
         <Input
           type="password"
-          placeholder={configured ? "Leave blank to keep current key" : "Paste Groq API key"}
+          placeholder={configured ? (isEn ? "Leave blank to keep the current key" : "বর্তমান কী রাখতে খালি রাখুন") : (provider === "mistral" ? (isEn ? "Paste Mistral API key" : "Mistral API কী পেস্ট করুন") : (isEn ? "Paste Groq API key" : "Groq API কী পেস্ট করুন"))}
           value={apiKey}
           onChange={(event) => setApiKey(event.target.value)}
           autoComplete="off"
         />
       </div>
       <div className="space-y-2">
-        <label className="text-sm font-medium">Groq model</label>
+        <label className="text-sm font-medium">{isEn ? "Model" : "মডেল"}</label>
         <Input value={model} onChange={(event) => setModel(event.target.value)} />
       </div>
       <div className="flex items-center gap-3">
         <Button onClick={submit} disabled={!model.trim() || submitting}>
-          {submitting ? "Saving..." : "Save AI settings"}
+          {submitting ? (isEn ? "Saving..." : "সংরক্ষণ হচ্ছে...") : (isEn ? "Save AI settings" : "AI সেটিংস সংরক্ষণ করুন")}
         </Button>
         {message && <p className="text-sm text-slate-600 dark:text-slate-300">{message}</p>}
       </div>

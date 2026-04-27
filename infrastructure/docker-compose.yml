@@ -55,10 +55,12 @@ services:
       MINIO_SECRET_KEY: minioadmin
       MINIO_BUCKET: raw-docs
       PYTHONPATH: /workspace/apps/api:/workspace/apps/worker
+      WATCHFILES_FORCE_POLLING: "true"
     volumes:
       - ..:/workspace
+      - fastembed_cache:/root/.cache/fastembed
     working_dir: /workspace/apps/api
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: sh -c "pip install --no-cache-dir -r /workspace/apps/api/requirements.txt && alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
     depends_on:
       postgres:
         condition: service_healthy  # <--- This is the issue
@@ -66,6 +68,11 @@ services:
         condition: service_healthy
       minio:
         condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
     ports:
       - "8000:8000"
 
@@ -82,11 +89,12 @@ services:
       PYTHONPATH: /workspace/apps/api:/workspace/apps/worker
     volumes:
       - ..:/workspace
+      - fastembed_cache:/root/.cache/fastembed
     working_dir: /workspace/apps/worker
-    command: celery -A worker.celery_app:celery_app worker --loglevel=INFO --pool=solo --concurrency=1
+    command: sh -c "pip install --no-cache-dir -r /workspace/apps/worker/requirements.txt && celery -A worker.celery_app:celery_app worker --loglevel=INFO --pool=solo --concurrency=1"
     depends_on:
       api:
-        condition: service_started
+        condition: service_healthy
       redis:
         condition: service_healthy
 
@@ -104,7 +112,7 @@ services:
     volumes:
       - ..:/workspace
     working_dir: /workspace/apps/worker
-    command: celery -A worker.celery_app:celery_app beat --loglevel=INFO
+    command: sh -c "pip install --no-cache-dir -r /workspace/apps/worker/requirements.txt && celery -A worker.celery_app:celery_app beat --loglevel=INFO"
     depends_on:
       worker:
         condition: service_started
@@ -125,7 +133,7 @@ services:
     volumes:
       - ..:/workspace
     working_dir: /workspace/apps/worker
-    command: celery -A worker.celery_app:celery_app flower --port=5555
+    command: sh -c "pip install --no-cache-dir -r /workspace/apps/worker/requirements.txt && celery -A worker.celery_app:celery_app flower --port=5555"
     depends_on:
       redis:
         condition: service_healthy
@@ -143,7 +151,7 @@ services:
     volumes:
       - ..:/workspace
     working_dir: /workspace/apps/web
-    command: sh -c "npm install && npm run dev -- --hostname 0.0.0.0 --port 3000"
+    command: sh -c "npm install --legacy-peer-deps && npm run dev -- --hostname 0.0.0.0 --port 3000"
     depends_on:
       api:
         condition: service_started
@@ -153,3 +161,4 @@ services:
 volumes:
   postgres_data:
   minio_data:
+  fastembed_cache:

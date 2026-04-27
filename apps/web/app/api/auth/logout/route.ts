@@ -17,7 +17,7 @@ export async function POST(): Promise<NextResponse> {
     });
   }
 
-  const response = NextResponse.json({ message: "Logged out" }, { status: 200 });
+  const response = NextResponse.json({ message: "Signed out" }, { status: 200 });
   clearSessionCookies(response);
   return response;
 }

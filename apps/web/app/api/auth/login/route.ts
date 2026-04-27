@@ -15,7 +15,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       cache: "no-store",
     });
   } catch {
-    return NextResponse.json({ detail: "Sign in service is unavailable." }, { status: 503 });
+    return NextResponse.json({ detail: "Sign-in service is not available right now." }, { status: 503 });
   }
 
   const text = await backend.text();

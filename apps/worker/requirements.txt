@@ -14,3 +14,4 @@ pgvector==0.3.6
 boto3==1.40.4
 python-dateutil==2.9.0.post0
 structlog==25.4.0
+fastembed==0.6.1

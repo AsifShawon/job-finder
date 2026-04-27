@@ -2,13 +2,14 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-function getErrorMessage(payload: unknown): string {
+function getErrorMessage(payload: unknown, fallback: string): string {
   if (!payload || typeof payload !== "object" || !("detail" in payload)) {
-    return "Registration failed. Please check your details and try again.";
+    return fallback;
   }
 
   const detail = payload.detail;
@@ -27,11 +28,12 @@ function getErrorMessage(payload: unknown): string {
       .join(" ");
   }
 
-  return "Registration failed. Please check your details and try again.";
+  return fallback;
 }
 
 export function RegisterForm() {
   const router = useRouter();
+  const t = useTranslations("auth");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -54,10 +56,10 @@ export function RegisterForm() {
         } catch {
           payload = null;
         }
-        setMessage(getErrorMessage(payload));
+        setMessage(getErrorMessage(payload, t("registerFailed")));
         return;
       }
-      router.push("/dashboard");
+      router.push("/onboarding");
       router.refresh();
     } finally {
       setSubmitting(false);
@@ -67,19 +69,19 @@ export function RegisterForm() {
   return (
     <div className="space-y-4">
       <div className="space-y-2">
-        <label className="text-sm font-medium">Full name</label>
-        <Input placeholder="Your full name" value={fullName} onChange={(e) => setFullName(e.target.value)} />
+        <label className="text-sm font-medium">{t("fullName")}</label>
+        <Input placeholder={t("fullNamePlaceholder")} value={fullName} onChange={(e) => setFullName(e.target.value)} />
       </div>
       <div className="space-y-2">
-        <label className="text-sm font-medium">Email</label>
+        <label className="text-sm font-medium">{t("email")}</label>
         <Input placeholder="you@example.com" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
       </div>
       <div className="space-y-2">
-        <label className="text-sm font-medium">Password</label>
-        <Input placeholder="At least 8 characters" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+        <label className="text-sm font-medium">{t("password")}</label>
+        <Input placeholder={t("passwordMinPlaceholder")} type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
       </div>
       <Button className="w-full" onClick={submit} disabled={!fullName.trim() || !email.trim() || !password || submitting}>
-        {submitting ? "Creating account..." : "Create account"}
+        {submitting ? t("registerSubmitting") : t("registerButton")}
       </Button>
       {message && <p className="text-sm text-rose-600">{message}</p>}
     </div>

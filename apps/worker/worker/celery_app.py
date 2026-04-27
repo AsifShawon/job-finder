@@ -23,11 +23,7 @@ celery_app.conf.update(
     task_default_retry_delay=30,
 )
 
-celery_app.conf.beat_schedule = {
-    "schedule-active-source-crawls": {
-        "task": "worker.tasks.schedule_active_source_crawls",
-        "schedule": crontab(minute="*/5"),
-    },
+beat_schedule = {
     "generate-alert-events": {
         "task": "worker.tasks.generate_alert_events",
         "schedule": crontab(minute="*/10"),
@@ -37,3 +33,11 @@ celery_app.conf.beat_schedule = {
         "schedule": crontab(minute="0", hour="*/6"),
     },
 }
+
+if settings.enable_scheduled_crawls:
+    beat_schedule["schedule-active-source-crawls"] = {
+        "task": "worker.tasks.schedule_active_source_crawls",
+        "schedule": crontab(minute="*/5"),
+    }
+
+celery_app.conf.beat_schedule = beat_schedule

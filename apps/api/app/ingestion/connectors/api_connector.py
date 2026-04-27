@@ -12,6 +12,9 @@ settings = get_settings()
 
 
 class APISourceConnector(BaseSourceConnector):
+    def discover_items(self, source: Source, crawl_mode: str = "active_only") -> list[FetchedPage]:
+        return self.fetch(source, since=None)
+
     def fetch(self, source: Source, since: datetime | None = None) -> list[FetchedPage]:
         if not is_allowed(source.base_url, settings.crawler_user_agent):
             return []

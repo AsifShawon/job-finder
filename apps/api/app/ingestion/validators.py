@@ -10,6 +10,8 @@ from app.ingestion.schemas import ExtractionBase
 from app.models.entities import Opportunity, RawDocument
 
 
+
+
 def parse_deadline(deadline_text: str | None) -> date | None:
     if not deadline_text:
         return None
@@ -55,3 +57,8 @@ def is_duplicate(
 
 def stale_or_inactive(deadline: date | None) -> bool:
     return bool(deadline and deadline < datetime.utcnow().date())
+
+
+def is_opportunity_duplicate(db: Session, content_hash: str) -> bool:
+    """Check whether an Opportunity with this semantic content_hash already exists."""
+    return bool(db.scalar(select(Opportunity).where(Opportunity.content_hash == content_hash)))

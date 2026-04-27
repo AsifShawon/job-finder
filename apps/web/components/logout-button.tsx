@@ -2,11 +2,14 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { useLocale } from "next-intl";
 
 import { Button } from "@/components/ui/button";
 
 export function LogoutButton() {
   const router = useRouter();
+  const locale = useLocale();
+  const isEn = locale === "en";
   const [pending, setPending] = useState(false);
 
   const logout = async () => {
@@ -24,7 +27,7 @@ export function LogoutButton() {
 
   return (
     <Button variant="outline" onClick={logout} disabled={pending}>
-      {pending ? "Signing out..." : "Sign out"}
+      {pending ? (isEn ? "Signing out..." : "প্রস্থান করা হচ্ছে...") : (isEn ? "Sign out" : "প্রস্থান")}
     </Button>
   );
 }

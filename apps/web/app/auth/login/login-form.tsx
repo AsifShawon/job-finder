@@ -2,12 +2,14 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 export function LoginForm() {
   const router = useRouter();
+  const t = useTranslations("auth");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
@@ -23,7 +25,7 @@ export function LoginForm() {
         body: JSON.stringify({ email, password }),
       });
       if (!res.ok) {
-        setMessage("Sign in failed. Check your email and password.");
+        setMessage(t("loginFailed"));
         return;
       }
       router.push("/dashboard");
@@ -36,15 +38,15 @@ export function LoginForm() {
   return (
     <div className="space-y-4">
       <div className="space-y-2">
-        <label className="text-sm font-medium">Email</label>
+        <label className="text-sm font-medium">{t("email")}</label>
         <Input placeholder="you@example.com" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
       </div>
       <div className="space-y-2">
-        <label className="text-sm font-medium">Password</label>
-        <Input placeholder="Enter your password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+        <label className="text-sm font-medium">{t("password")}</label>
+        <Input placeholder={t("passwordPlaceholder")} type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
       </div>
       <Button className="w-full" onClick={submit} disabled={!email || !password || submitting}>
-        {submitting ? "Signing in..." : "Sign in"}
+        {submitting ? t("loginSubmitting") : t("loginButton")}
       </Button>
       {message && <p className="text-sm text-rose-600">{message}</p>}
     </div>

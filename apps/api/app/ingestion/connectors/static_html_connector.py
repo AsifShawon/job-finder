@@ -13,6 +13,8 @@ from dateutil.parser import parse as parse_date
 
 from app.core.config import get_settings
 from app.ingestion.connectors.base import BaseSourceConnector
+from app.ingestion.connectors.utils import extract_pdf_links
+from app.ingestion.content_detector import detect as detect_content_type
 from app.ingestion.robots import is_allowed
 from app.ingestion.schemas import FetchedPage
 from app.models.entities import Source
@@ -22,7 +24,7 @@ settings = get_settings()
 MAX_CANDIDATES = 250
 MAX_FETCHED_PAGES = 25
 REQUEST_TIMEOUT = 20.0
-SEARCH_TERMS = [
+_DEFAULT_SEARCH_TERMS = [
     "Bangladesh jobs",
     "Bangladeshi workers visa",
     "migrant workers Bangladesh",
@@ -223,6 +225,9 @@ def _parse_feed(xml_text: str, feed_url: str) -> list[CandidateLink]:
 
 
 class StaticHTMLConnector(BaseSourceConnector):
+    def discover_items(self, source: Source, crawl_mode: str = "active_only") -> list[FetchedPage]:
+        return self.fetch(source, since=None)
+
     def fetch(self, source: Source, since: datetime | None = None) -> list[FetchedPage]:
         if not is_allowed(source.base_url, settings.crawler_user_agent):
             return []
@@ -250,8 +255,9 @@ class StaticHTMLConnector(BaseSourceConnector):
             urljoin(origin, "/rss.xml"),
             urljoin(origin, "/sitemap.xml"),
         ]
-        discovery_urls.extend(urljoin(origin, f"/search?q={term.replace(' ', '+')}") for term in SEARCH_TERMS)
-        discovery_urls.extend(urljoin(origin, f"/search/{term.replace(' ', '%20')}") for term in SEARCH_TERMS[:2])
+        active_terms = source.search_queries or _DEFAULT_SEARCH_TERMS
+        discovery_urls.extend(urljoin(origin, f"/search?q={term.replace(' ', '+')}") for term in active_terms)
+        discovery_urls.extend(urljoin(origin, f"/search/{term.replace(' ', '%20')}") for term in active_terms[:2])
 
         seen_discovery_urls: set[str] = set()
         for discovery_url in discovery_urls:
@@ -344,21 +350,49 @@ class StaticHTMLConnector(BaseSourceConnector):
             except httpx.HTTPError:
                 continue
 
+            ct_header = response.headers.get("content-type", "")
+            detected = detect_content_type(candidate.url, ct_header)
+
+            # Direct PDF URL — hand off as a pdf page (no HTML parsing needed)
+            if detected == "pdf":
+                pages.append(
+                    FetchedPage(
+                        url=candidate.url,
+                        canonical_url=candidate.url,
+                        title=candidate.title,
+                        raw_text=None,
+                        content_type="pdf",
+                        document_url=candidate.url,
+                        metadata={"content_type": ct_header},
+                    )
+                )
+                if len(pages) >= MAX_FETCHED_PAGES:
+                    break
+                continue
+
             soup = BeautifulSoup(response.text, "html.parser")
             title = candidate.title or (soup.title.text.strip() if soup.title else None)
             canonical = None
             canonical_node = soup.select_one("link[rel='canonical'][href]")
             if canonical_node:
                 canonical = _normalize_url(canonical_node.get("href", ""), candidate.url)
+
+            # Detect embedded PDF links in this HTML page
+            pdf_links = extract_pdf_links(soup, candidate.url)
+            page_content_type = "html_with_pdf" if pdf_links else "html"
+            primary_doc_url = pdf_links[0] if pdf_links else None
+
             pages.append(
                 FetchedPage(
                     url=candidate.url,
                     canonical_url=canonical or candidate.url,
                     title=title,
                     raw_html=response.text,
+                    content_type=page_content_type,
+                    document_url=primary_doc_url,
                     metadata={
                         "status_code": response.status_code,
-                        "content_type": response.headers.get("content-type"),
+                        "content_type": ct_header,
                         "discovery_source": candidate.source,
                         "discovery_score": candidate.score,
                         "discovery_published_at": candidate.published_at.isoformat() if candidate.published_at else None,
@@ -366,6 +400,23 @@ class StaticHTMLConnector(BaseSourceConnector):
                     extracted_links=[],
                 )
             )
+
+            # Add a dedicated PDF page entry for each embedded PDF (up to 3)
+            for pdf_url in pdf_links[:3]:
+                if len(pages) >= MAX_FETCHED_PAGES:
+                    break
+                pages.append(
+                    FetchedPage(
+                        url=pdf_url,
+                        canonical_url=pdf_url,
+                        title=title,
+                        content_type="pdf",
+                        document_url=pdf_url,
+                        source_page_url=candidate.url,
+                        metadata={"discovery_source": "embedded_pdf"},
+                    )
+                )
+
             if len(pages) >= MAX_FETCHED_PAGES:
                 break
         return pages

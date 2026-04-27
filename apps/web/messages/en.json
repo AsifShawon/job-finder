@@ -1,0 +1,124 @@
+{
+  "nav": {
+    "brand": "Opportunity Bangladesh",
+    "tagline": "Verified overseas opportunities",
+    "search": "Search",
+    "copilot": "AI Copilot",
+    "dashboard": "Dashboard",
+    "saved": "Saved",
+    "alerts": "Alerts",
+    "admin": "Admin",
+    "signIn": "Sign in",
+    "createAccount": "Create account",
+    "member": "Member",
+    "administrator": "Administrator",
+    "language": "Bangla"
+  },
+  "auth": {
+    "login": "Sign in",
+    "register": "Register",
+    "email": "Email",
+    "password": "Password",
+    "fullName": "Full name",
+    "loginButton": "Sign in",
+    "registerButton": "Create account",
+    "loginSubmitting": "Signing in...",
+    "registerSubmitting": "Creating account...",
+    "loginFailed": "Could not sign in. Check your email and password.",
+    "registerFailed": "Could not register. Check the information and try again.",
+    "passwordPlaceholder": "Enter your password",
+    "passwordMinPlaceholder": "At least 8 characters",
+    "fullNamePlaceholder": "Your full name",
+    "logout": "Log out",
+    "noAccount": "Don't have an account?",
+    "hasAccount": "Already have an account?"
+  },
+  "onboarding": {
+    "title": "Set your preferences",
+    "subtitle": "We'll find the best opportunities for you",
+    "step1Title": "Preferred countries",
+    "step1Subtitle": "Which countries are you interested in?",
+    "step2Title": "Areas of interest",
+    "step2Subtitle": "Which sectors are you looking in?",
+    "step3Title": "Current status",
+    "step3Subtitle": "What are you currently doing?",
+    "step4Title": "Education level",
+    "step4Subtitle": "What is your highest qualification?",
+    "next": "Next",
+    "back": "Back",
+    "finish": "Finish setup",
+    "skip": "Skip for now",
+    "stepOf": "{current} of {total}",
+    "status": {
+      "student": "Student",
+      "employed": "Employed (locally)",
+      "unemployed": "Unemployed",
+      "seeking_migration": "Seeking to migrate",
+      "other": "Other"
+    },
+    "education": {
+      "none": "No degree",
+      "secondary": "SSC / Equivalent",
+      "higher_secondary": "HSC / Equivalent",
+      "bachelor": "Bachelor's degree",
+      "master": "Master's degree",
+      "phd": "PhD"
+    }
+  },
+  "dashboard": {
+    "greeting": "Welcome, {name}",
+    "recommendations": "Recommended for you",
+    "noProfile": "Complete your profile",
+    "noProfileDesc": "Set your preferences to get personalized opportunities",
+    "completeProfile": "Complete your profile →",
+    "saved": "Saved opportunities",
+    "viewAll": "View all",
+    "stats": {
+      "totalOpps": "Total opportunities",
+      "jobs": "Jobs",
+      "scholarships": "Scholarships",
+      "newToday": "New today"
+    }
+  },
+  "opportunity": {
+    "apply": "Apply now",
+    "save": "Save",
+    "saved": "Saved",
+    "deadline": "Application deadline",
+    "country": "Country",
+    "sector": "Sector",
+    "salary": "Salary",
+    "education": "Education required",
+    "visa": "Visa support provided",
+    "noVisa": "No visa support",
+    "requirements": "Requirements",
+    "benefits": "Benefits",
+    "languages": "Language skills",
+    "source": "Source",
+    "similar": "Similar opportunities",
+    "types": {
+      "job": "Job",
+      "scholarship": "Scholarship",
+      "policy_update": "Policy update"
+    },
+    "match": "{score}% match",
+    "urgentDeadline": "{days} days left"
+  },
+  "search": {
+    "placeholder": "Search jobs, scholarships, policies...",
+    "button": "Search",
+    "filters": "Filters",
+    "noResults": "No results found",
+    "results": "{total} opportunities found"
+  },
+  "admin": {
+    "sources": "Source Registry",
+    "addSource": "Add source",
+    "bulkImport": "Bulk import",
+    "crawlAll": "Crawl all sources",
+    "crawlAllConfirm": "Start crawling all active sources?",
+    "crawlQueued": "{queued} sources queued for crawling",
+    "importSuccess": "{created} sources created, {skipped} skipped",
+    "downloadTemplate": "Download CSV template"
+  }
+}

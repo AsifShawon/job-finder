@@ -33,7 +33,29 @@ class AuthUser(BaseModel):
     is_active: bool
     is_admin: bool
     preferred_language: str
+    onboarding_complete: bool
     created_at: datetime
+
+
+class ProfileUpdate(BaseModel):
+    preferred_countries: list[str] | None = None
+    preferred_sectors: list[str] | None = None
+    target_opportunity_types: list[str] | None = None
+    education_level: str | None = None
+    current_status: str | None = None
+    preferred_language: str | None = None
+    onboarding_complete: bool | None = None
+
+
+class UserProfileResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    preferred_countries_json: list[str]
+    preferred_sectors_json: list[str]
+    target_opportunity_types_json: list[str]
+    education_level: str | None
+    current_status: str | None
+    preferred_language: str
 
 
 class AuthResponse(BaseModel):
