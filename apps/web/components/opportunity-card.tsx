@@ -18,9 +18,8 @@ import {
   Lock,
 } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
 import type { OpportunityCard as OpportunityCardType, RecommendationCard } from "@/lib/types";
-import { cn, formatDate, formatDateTime, humanizeSlug } from "@/lib/utils";
+import { cn, formatDateTime } from "@/lib/utils";
 
 type AnyCard = OpportunityCardType | RecommendationCard;
 
@@ -31,12 +30,22 @@ function daysUntil(deadline: string): number {
   return Math.ceil((d.getTime() - now.getTime()) / 86400000);
 }
 
-function RecordTypePill({ type }: { type: string }) {
+function RecordTypePill({ type }: { type: string | null | undefined }) {
   const labels: Record<string, string> = {
-    job: "প্রবাস চাকরি",
+    overseas_job: "প্রবাস চাকরি",
+    local_job: "স্থানীয় চাকরি",
     scholarship: "স্কলারশিপ",
+    training: "প্রশিক্ষণ",
+    migration_policy: "ভিসা নীতি",
+    visa_update: "ভিসা আপডেট",
+    circular: "সার্কুলার",
+    warning: "সতর্কতা",
+    news: "সংবাদ",
+    // legacy backward compat
+    job: "প্রবাস চাকরি",
     policy_update: "ভিসা নীতি",
   };
+  if (!type) return null;
   return (
     <span className="text-xs font-semibold text-primary">
       {labels[type] ?? type}
@@ -44,15 +53,16 @@ function RecordTypePill({ type }: { type: string }) {
   );
 }
 
-function TrustBadge({ tier }: { tier: string }) {
-  const isGov = tier === "official_gov";
-  const isPartner = tier === "official_partner";
+function TrustBadge({ badge }: { badge: string | null | undefined }) {
+  if (!badge) return null;
+  const isGov = badge === "সরকারি উৎস";
+  const isPartner = badge === "অফিসিয়াল পার্টনার";
 
   if (isGov) {
     return (
       <span className="inline-flex items-center gap-1 rounded-full border border-green-600/30 bg-green-50 px-2 py-0.5 text-[10px] font-semibold text-green-700 dark:border-green-700/30 dark:bg-green-900/20 dark:text-green-400">
         <ShieldCheck className="h-3 w-3" />
-        সরকারি উৎস
+        {badge}
       </span>
     );
   }
@@ -60,11 +70,24 @@ function TrustBadge({ tier }: { tier: string }) {
     return (
       <span className="inline-flex items-center gap-1 rounded-full border border-blue-600/30 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:border-blue-700/30 dark:bg-blue-900/20 dark:text-blue-400">
         <Shield className="h-3 w-3" />
-        অফিসিয়াল উৎস
+        {badge}
       </span>
     );
   }
-  return null;
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-600 dark:border-slate-700/30 dark:bg-slate-800/20 dark:text-slate-400">
+      {badge}
+    </span>
+  );
+}
+
+function DeadlineChip({ deadline }: { deadline: string | null | undefined }) {
+  if (!deadline) return null;
+  const days = Math.ceil((new Date(deadline + "T00:00:00Z").getTime() - Date.now()) / 86400000);
+  if (days < 0) return <span className="text-xs text-muted-foreground line-through">মেয়াদ শেষ</span>;
+  if (days <= 7) return <span className="text-xs font-bold text-red-600 dark:text-red-400">⏰ {days} দিন বাকি</span>;
+  if (days <= 30) return <span className="text-xs text-amber-600 dark:text-amber-400">{days} দিন বাকি</span>;
+  return <span className="text-xs text-muted-foreground">আবেদনের শেষ: {new Date(deadline).toLocaleDateString("bn-BD")}</span>;
 }
 
 function EligibilityBadges({ item }: { item: AnyCard }) {
@@ -158,12 +181,10 @@ export function OpportunityCard({
   };
 
   const deadlineDays = item.deadline ? daysUntil(item.deadline) : null;
-  const isUrgent = deadlineDays !== null && deadlineDays <= 7 && deadlineDays >= 0;
-  const isExpired = deadlineDays !== null && deadlineDays < 0;
 
-  const orgName = item.employer ?? item.organization;
-  const location = [item.city, item.country].filter(Boolean).join(", ");
-  const hasSalary = item.salary_min != null || item.funding_type;
+  const orgName = item.employer_or_organization;
+  const location = [item.destination_country, item.country].filter(Boolean).join(", ");
+  const hasSalary = item.salary_min != null || item.salary_text;
 
   if (variant === "compact") {
     return (
@@ -172,7 +193,7 @@ export function OpportunityCard({
         className="group flex items-start gap-3 rounded-lg border border-border bg-card p-3 hover:border-primary hover:shadow-card-hover transition-all"
       >
         <div className="flex-1 min-w-0">
-          <RecordTypePill type={item.record_type} />
+          <RecordTypePill type={item.opportunity_type} />
           <p className="mt-0.5 text-sm font-semibold line-clamp-2 text-foreground group-hover:text-primary transition-colors">
             {item.title}
           </p>
@@ -180,9 +201,9 @@ export function OpportunityCard({
             <p className="mt-1 text-xs text-muted-foreground">{item.country}</p>
           )}
         </div>
-        {isUrgent && (
-          <span className="shrink-0 rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-600 dark:bg-red-900/20 dark:text-red-400">
-            {deadlineDays}দিন বাকি
+        {deadlineDays !== null && deadlineDays >= 0 && (
+          <span className="shrink-0">
+            <DeadlineChip deadline={item.deadline} />
           </span>
         )}
       </Link>
@@ -194,9 +215,9 @@ export function OpportunityCard({
       <div className="p-5">
         {/* Top: type / trust / match / PDF */}
         <div className="mb-2 flex flex-wrap items-center gap-2">
-          <RecordTypePill type={item.record_type} />
-          <span className="text-muted-foreground text-xs">·</span>
-          <TrustBadge tier={item.trust_tier} />
+          <RecordTypePill type={item.opportunity_type} />
+          {item.source_trust_badge && <span className="text-muted-foreground text-xs">·</span>}
+          <TrustBadge badge={item.source_trust_badge} />
           {matchScore != null && <MatchBadge score={matchScore} />}
           {item.document_url && (
             <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-semibold text-red-700 dark:bg-red-900/20 dark:text-red-400">
@@ -251,23 +272,10 @@ export function OpportunityCard({
               {location}
             </span>
           )}
-          {item.deadline && !isExpired && (
-            <span
-              className={cn(
-                "flex items-center gap-1",
-                isUrgent && "font-bold text-red-600 dark:text-red-400"
-              )}
-            >
-              <Calendar className="h-3.5 w-3.5 shrink-0" />
-              {isUrgent
-                ? `${deadlineDays} দিন বাকি!`
-                : `আবেদনের শেষ: ${formatDate(item.deadline, locale)}`}
-            </span>
-          )}
-          {item.deadline && isExpired && (
-            <span className="flex items-center gap-1 line-through opacity-50">
-              <Calendar className="h-3.5 w-3.5 shrink-0" />
-              {formatDate(item.deadline, locale)}
+          {item.deadline && (
+            <span className="flex items-center gap-1">
+              <Calendar className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <DeadlineChip deadline={item.deadline} />
             </span>
           )}
           {hasSalary && (
@@ -275,13 +283,15 @@ export function OpportunityCard({
               <Banknote className="h-3.5 w-3.5 shrink-0" />
               {item.salary_min
                 ? `${item.salary_min}${item.salary_max ? `–${item.salary_max}` : ""} ${item.salary_currency ?? ""}`
-                : item.funding_type}
+                : item.salary_text}
             </span>
           )}
-          <span className="flex items-center gap-1">
-            <Clock className="h-3.5 w-3.5 shrink-0" />
-            {formatDateTime(item.created_at, locale)}
-          </span>
+          {item.published_at && (
+            <span className="flex items-center gap-1">
+              <Clock className="h-3.5 w-3.5 shrink-0" />
+              {formatDateTime(item.published_at, locale)}
+            </span>
+          )}
         </div>
       </div>
 
@@ -305,9 +315,9 @@ export function OpportunityCard({
               মূল সার্কুলার
             </a>
           )}
-          {item.application_url && (
+          {item.original_apply_url && (
             <a
-              href={item.application_url}
+              href={item.original_apply_url}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-xs font-bold text-primary-foreground hover:opacity-90 transition-opacity"

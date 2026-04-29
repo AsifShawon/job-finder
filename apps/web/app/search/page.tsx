@@ -10,26 +10,48 @@ interface SearchPageProps {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
 
-const RECORD_TYPES = [
-  { value: "job", label: "প্রবাস চাকরি", en: "Foreign Jobs" },
-  { value: "scholarship", label: "স্কলারশিপ", en: "Scholarships" },
-  { value: "policy_update", label: "ভিসা নীতি", en: "Visa Policy" },
-];
-
-const TRUST_TIERS = [
-  { value: "official_gov", label: "সরকারি উৎস", en: "Government" },
-  { value: "official_partner", label: "অফিসিয়াল উৎস", en: "Official Partner" },
-  { value: "established_portal", label: "প্রতিষ্ঠিত পোর্টাল", en: "Portal" },
-  { value: "news_only", label: "সংবাদভিত্তিক", en: "News" },
+const CATS = [
+  { label: "সব", en: "All", value: "" },
+  { label: "প্রবাস চাকরি", en: "Foreign Jobs", value: "overseas_job" },
+  { label: "স্কলারশিপ", en: "Scholarship", value: "scholarship" },
+  { label: "ভিসা নীতি", en: "Visa Policy", value: "migration_policy" },
+  { label: "প্রশিক্ষণ", en: "Training", value: "training" },
 ];
 
 const SORT_OPTIONS = [
-  { value: "relevance", label: "প্রাসঙ্গিকতা অনুযায়ী" },
-  { value: "newest", label: "নতুন আগে" },
-  { value: "deadline", label: "শেষ তারিখ নিকটে" },
-  { value: "trust", label: "বিশ্বস্ত উৎস আগে" },
-  { value: "salary", label: "বেতন বেশি থেকে কম" },
+  { value: "relevance", label: "প্রাসঙ্গিকতা অনুযায়ী", en: "Relevance" },
+  { value: "newest", label: "নতুন আগে", en: "Newest first" },
+  { value: "deadline", label: "শেষ তারিখ নিকটে", en: "Deadline soon" },
+  { value: "trust", label: "বিশ্বস্ত উৎস আগে", en: "Most trusted" },
 ];
+
+const DEADLINE_OPTIONS = [
+  { value: "", label: "যেকোনো সময়", en: "Any deadline" },
+  { value: "7", label: "এই সপ্তাহে", en: "This week" },
+  { value: "30", label: "এই মাসে", en: "This month" },
+];
+
+const PRIMARY_FILTER_KEYS = [
+  "q", "opportunity_type", "country",
+  "official_sources_only", "can_apply_from_bd", "deadline_within",
+];
+const ALL_FILTER_KEYS = [
+  ...PRIMARY_FILTER_KEYS,
+  "sector", "salary_min", "degree_level", "visa_support",
+];
+
+const filterLabels: Record<string, [string, string]> = {
+  q: ["Keyword", "কীওয়ার্ড"],
+  opportunity_type: ["Category", "ক্যাটাগরি"],
+  country: ["Country", "দেশ"],
+  official_sources_only: ["Official only", "শুধু অফিসিয়াল"],
+  can_apply_from_bd: ["BD applicants", "বাংলাদেশ থেকে"],
+  deadline_within: ["Deadline", "আবেদন সময়সীমা"],
+  sector: ["Sector", "সেক্টর"],
+  salary_min: ["Min salary", "সর্বনিম্ন বেতন"],
+  degree_level: ["Education", "শিক্ষা"],
+  visa_support: ["Visa support", "ভিসা সহায়তা"],
+};
 
 export default async function SearchPage({ searchParams }: SearchPageProps) {
   const [locale, params] = await Promise.all([getLocale(), searchParams]);
@@ -44,26 +66,13 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
 
   const data = await searchOpportunities(query);
 
-  const FILTER_KEYS = [
-    "country", "city", "sector", "degree_level", "record_type", "trust_tier",
-    "can_apply_from_bd", "open_to_international_candidates", "official_sources_only",
-    "lmia_status", "opportunity_type",
-  ];
-  const activeFilters = FILTER_KEYS.map((k) => [k, query.get(k)] as const).filter(([, v]) => Boolean(v));
+  const activeFilters = ALL_FILTER_KEYS
+    .map((k) => [k, query.get(k)] as const)
+    .filter(([, v]) => Boolean(v));
 
-  const filterLabels: Record<string, string> = {
-    country: isEn ? "Country" : "দেশ",
-    city: isEn ? "City" : "শহর",
-    sector: isEn ? "Sector" : "সেক্টর",
-    degree_level: isEn ? "Education" : "শিক্ষা",
-    record_type: isEn ? "Type" : "ধরন",
-    trust_tier: isEn ? "Trust" : "বিশ্বাসযোগ্যতা",
-    can_apply_from_bd: isEn ? "BD applicants" : "বাংলাদেশ থেকে",
-    open_to_international_candidates: isEn ? "International" : "আন্তর্জাতিক",
-    official_sources_only: isEn ? "Official only" : "শুধু অফিসিয়াল",
-    lmia_status: isEn ? "LMIA" : "LMIA",
-    opportunity_type: isEn ? "Opp. type" : "সুযোগের ধরন",
-  };
+  const selectedCat = query.get("opportunity_type") ?? "";
+  const hasMoreFilters = ["sector", "salary_min", "degree_level", "visa_support"]
+    .some((k) => Boolean(query.get(k)));
 
   return (
     <div className="min-h-screen bg-background">
@@ -92,7 +101,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
                   key={key}
                   className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary"
                 >
-                  {filterLabels[key]}: {value}
+                  {isEn ? filterLabels[key]?.[0] : filterLabels[key]?.[1]}: {value}
                 </span>
               ))}
               <a
@@ -137,48 +146,32 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
                   </div>
                 </div>
 
-                {/* Semantic intent */}
+                {/* Category pills */}
                 <div>
-                  <label className="mb-1 block text-xs font-semibold text-muted-foreground">
-                    {isEn ? "Intent / Concept" : "উদ্দেশ্য"}
-                  </label>
-                  <Input
-                    name="semantic_q"
-                    placeholder={isEn ? "e.g. scholarship for beginners" : "যেমন: নতুনদের জন্য বৃত্তি"}
-                    defaultValue={query.get("semantic_q") ?? ""}
-                  />
-                </div>
-
-                {/* Category */}
-                <div>
-                  <label className="mb-1.5 block text-xs font-semibold text-muted-foreground">
+                  <label className="mb-2 block text-xs font-semibold text-muted-foreground">
                     {isEn ? "Category" : "ক্যাটাগরি"}
                   </label>
-                  <div className="space-y-1">
-                    {RECORD_TYPES.map(({ value, label }) => (
-                      <label key={value} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted transition-colors">
+                  <div className="flex flex-wrap gap-1.5">
+                    {CATS.map(({ value, label, en }) => (
+                      <label key={value} className="cursor-pointer">
                         <input
                           type="radio"
-                          name="record_type"
+                          name="opportunity_type"
                           value={value}
-                          defaultChecked={query.get("record_type") === value}
-                          className="accent-primary"
+                          defaultChecked={selectedCat === value}
+                          className="sr-only"
                         />
-                        <span className="text-sm text-foreground">{label}</span>
+                        <span
+                          className={
+                            selectedCat === value
+                              ? "inline-flex rounded-full border border-primary bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground"
+                              : "inline-flex rounded-full border border-border px-3 py-1 text-xs font-semibold text-foreground hover:border-primary hover:text-primary transition-colors"
+                          }
+                        >
+                          {isEn ? en : label}
+                        </span>
                       </label>
                     ))}
-                    <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted transition-colors">
-                      <input
-                        type="radio"
-                        name="record_type"
-                        value=""
-                        defaultChecked={!query.get("record_type")}
-                        className="accent-primary"
-                      />
-                      <span className="text-sm text-muted-foreground">
-                        {isEn ? "All types" : "সব ধরন"}
-                      </span>
-                    </label>
                   </div>
                 </div>
 
@@ -194,100 +187,71 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
                   />
                 </div>
 
-                {/* Trust tier */}
+                {/* Deadline */}
                 <div>
-                  <label className="mb-1.5 block text-xs font-semibold text-muted-foreground">
-                    {isEn ? "Source trust" : "উৎসের বিশ্বাসযোগ্যতা"}
+                  <label className="mb-1 block text-xs font-semibold text-muted-foreground">
+                    {isEn ? "Deadline" : "আবেদন সময়সীমা"}
                   </label>
                   <select
-                    name="trust_tier"
-                    defaultValue={query.get("trust_tier") ?? ""}
+                    name="deadline_within"
+                    defaultValue={query.get("deadline_within") ?? ""}
                     className="h-10 w-full rounded-md border border-border bg-card px-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                   >
-                    <option value="">{isEn ? "Any trust level" : "যেকোনো স্তর"}</option>
-                    {TRUST_TIERS.map(({ value, label }) => (
-                      <option key={value} value={value}>{label}</option>
+                    {DEADLINE_OPTIONS.map(({ value, label, en }) => (
+                      <option key={value} value={value}>{isEn ? en : label}</option>
                     ))}
                   </select>
                 </div>
 
-                {/* Eligibility quick filters */}
-                <div>
-                  <label className="mb-1.5 block text-xs font-semibold text-muted-foreground">
-                    {isEn ? "Eligibility" : "যোগ্যতা"}
+                {/* Quick eligibility toggles */}
+                <div className="space-y-1.5">
+                  <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted transition-colors">
+                    <input
+                      type="checkbox"
+                      name="official_sources_only"
+                      value="true"
+                      defaultChecked={query.get("official_sources_only") === "true"}
+                      className="accent-primary"
+                    />
+                    <span className="text-sm text-foreground">
+                      {isEn ? "Official sources only" : "শুধু সরকারি/অফিসিয়াল উৎস"}
+                    </span>
                   </label>
-                  <div className="space-y-1.5">
-                    <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted transition-colors">
-                      <input
-                        type="checkbox"
-                        name="can_apply_from_bd"
-                        value="true"
-                        defaultChecked={query.get("can_apply_from_bd") === "true"}
-                        className="accent-primary"
-                      />
-                      <span className="text-sm text-foreground">{isEn ? "BD applicants" : "বাংলাদেশ থেকে আবেদনযোগ্য"}</span>
-                    </label>
-                    <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted transition-colors">
-                      <input
-                        type="checkbox"
-                        name="open_to_international_candidates"
-                        value="true"
-                        defaultChecked={query.get("open_to_international_candidates") === "true"}
-                        className="accent-primary"
-                      />
-                      <span className="text-sm text-foreground">{isEn ? "International candidates" : "আন্তর্জাতিক প্রার্থী"}</span>
-                    </label>
-                    <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted transition-colors">
-                      <input
-                        type="checkbox"
-                        name="official_sources_only"
-                        value="true"
-                        defaultChecked={query.get("official_sources_only") === "true"}
-                        className="accent-primary"
-                      />
-                      <span className="text-sm text-foreground">{isEn ? "Official sources only" : "শুধু সরকারি/অফিসিয়াল উৎস"}</span>
-                    </label>
-                  </div>
+                  <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted transition-colors">
+                    <input
+                      type="checkbox"
+                      name="can_apply_from_bd"
+                      value="true"
+                      defaultChecked={query.get("can_apply_from_bd") === "true"}
+                      className="accent-primary"
+                    />
+                    <span className="text-sm text-foreground">
+                      {isEn ? "Open to BD applicants" : "বাংলাদেশ থেকে আবেদনযোগ্য"}
+                    </span>
+                  </label>
                 </div>
 
-                {/* LMIA filter */}
-                <div>
-                  <label className="mb-1 block text-xs font-semibold text-muted-foreground">
-                    {isEn ? "LMIA Status" : "LMIA স্ট্যাটাস"}
-                  </label>
-                  <select
-                    name="lmia_status"
-                    defaultValue={query.get("lmia_status") ?? ""}
-                    className="h-10 w-full rounded-md border border-border bg-card px-3 text-sm text-foreground focus:border-primary focus:outline-none"
-                  >
-                    <option value="">{isEn ? "Any" : "যেকোনো"}</option>
-                    <option value="none">{isEn ? "No LMIA" : "LMIA নেই"}</option>
-                    <option value="requested">{isEn ? "LMIA requested" : "LMIA আবেদিত"}</option>
-                    <option value="approved">{isEn ? "LMIA approved" : "LMIA অনুমোদিত"}</option>
-                  </select>
-                </div>
-
-                {/* Advanced */}
-                <details className="rounded-md border border-border p-3">
+                {/* More filters (drawer) */}
+                <details className="rounded-md border border-border p-3" open={hasMoreFilters}>
                   <summary className="cursor-pointer text-sm font-semibold text-foreground">
-                    {isEn ? "Advanced filters" : "উন্নত ফিল্টার"}
+                    {isEn ? "More filters" : "আরো ফিল্টার"}
                   </summary>
                   <div className="mt-3 space-y-3">
                     <Input
                       name="sector"
-                      placeholder={isEn ? "Sector" : "সেক্টর"}
+                      placeholder={isEn ? "Sector (e.g. Construction)" : "সেক্টর (যেমন: নির্মাণ)"}
                       defaultValue={query.get("sector") ?? ""}
-                    />
-                    <Input
-                      name="degree_level"
-                      placeholder={isEn ? "Education level" : "শিক্ষাগত যোগ্যতা"}
-                      defaultValue={query.get("degree_level") ?? ""}
                     />
                     <Input
                       name="salary_min"
                       type="number"
                       placeholder={isEn ? "Min salary" : "সর্বনিম্ন বেতন"}
                       defaultValue={query.get("salary_min") ?? ""}
+                    />
+                    <Input
+                      name="degree_level"
+                      placeholder={isEn ? "Education level" : "শিক্ষাগত যোগ্যতা"}
+                      defaultValue={query.get("degree_level") ?? ""}
                     />
                     <select
                       name="visa_support"
@@ -311,8 +275,8 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
                     defaultValue={query.get("sort") ?? "relevance"}
                     className="h-10 w-full rounded-md border border-border bg-card px-3 text-sm text-foreground focus:border-primary focus:outline-none"
                   >
-                    {SORT_OPTIONS.map(({ value, label }) => (
-                      <option key={value} value={value}>{label}</option>
+                    {SORT_OPTIONS.map(({ value, label, en }) => (
+                      <option key={value} value={value}>{isEn ? en : label}</option>
                     ))}
                   </select>
                 </div>

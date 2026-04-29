@@ -3,7 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user_optional, get_db
-from app.models.entities import PublishedOpportunity, RawDocument, Source, User
+from app.models.entities import Opportunity, Source, User
 from app.schemas.opportunity import (
     PublishedOpportunityDetail,
     PublishedSearchQuery,
@@ -31,6 +31,7 @@ def search(
     skill_level: str | None = None,
     deadline_from: str | None = None,
     deadline_to: str | None = None,
+    deadline_within: int | None = None,
     salary_min: float | None = None,
     salary_max: float | None = None,
     fresh_days: int | None = None,
@@ -41,7 +42,12 @@ def search(
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ) -> PublishedSearchResponse:
-    from datetime import date as dt_date
+    from datetime import date as dt_date, timedelta
+    resolved_deadline_to = (
+        dt_date.fromisoformat(deadline_to) if deadline_to
+        else (dt_date.today() + timedelta(days=deadline_within)) if deadline_within
+        else None
+    )
     query = PublishedSearchQuery(
         q=q,
         opportunity_type=opportunity_type,
@@ -56,7 +62,7 @@ def search(
         sector=sector,
         skill_level=skill_level,
         deadline_from=dt_date.fromisoformat(deadline_from) if deadline_from else None,
-        deadline_to=dt_date.fromisoformat(deadline_to) if deadline_to else None,
+        deadline_to=resolved_deadline_to,
         salary_min=salary_min,
         salary_max=salary_max,
         fresh_days=fresh_days,
@@ -70,15 +76,73 @@ def search(
 
 @router.get("/{opportunity_id}", response_model=PublishedOpportunityDetail)
 def get_opportunity(opportunity_id: int, db: Session = Depends(get_db)) -> PublishedOpportunityDetail:
-    pub = db.scalar(
-        select(PublishedOpportunity).where(
-            PublishedOpportunity.id == opportunity_id,
-            PublishedOpportunity.is_active.is_(True),
+    opp = db.scalar(
+        select(Opportunity).where(
+            Opportunity.id == opportunity_id,
+            Opportunity.status == "published",
         )
     )
-    if not pub:
+    if not opp:
         raise HTTPException(status_code=404, detail="Opportunity not found")
-    return PublishedOpportunityDetail.model_validate(pub)
+    return PublishedOpportunityDetail(
+        id=opp.id,
+        title=opp.title,
+        title_bn=opp.title_bn,
+        opportunity_type=opp.opportunity_type,
+        country=opp.country,
+        destination_country=opp.destination_country,
+        employer_or_organization=opp.employer_or_organization,
+        sector=opp.sector,
+        salary_min=float(opp.salary_min) if opp.salary_min is not None else None,
+        salary_max=float(opp.salary_max) if opp.salary_max is not None else None,
+        salary_currency=opp.salary_currency,
+        salary_text=opp.salary_text,
+        deadline=opp.deadline,
+        source_page_url=opp.source_page_url or "",
+        document_url=opp.document_url,
+        original_apply_url=opp.original_apply_url,
+        content_type=opp.content_type,
+        source_name=opp.source_name,
+        source_trust_badge=opp.source_trust_badge,
+        can_apply_from_bd=opp.can_apply_from_bd,
+        requires_existing_work_permit=opp.requires_existing_work_permit,
+        open_to_international_candidates=opp.open_to_international_candidates,
+        open_to_authorized_workers_only=opp.open_to_authorized_workers_only,
+        lmia_status=opp.lmia_status,
+        eligibility_status=opp.eligibility_status,
+        target_audience_tags=opp.target_audience_tags or [],
+        risk_flags=opp.risk_flags or [],
+        trust_score=opp.trust_score,
+        overall_rank_score=opp.overall_rank_score,
+        published_at=opp.published_at,
+        is_saved=False,
+        why_this_matches="",
+        summary=opp.summary_bn or opp.summary_en,
+        summary_bn=opp.summary_bn,
+        source_url=opp.source_page_url or "",
+        is_active=opp.status == "published",
+        # detail-only fields
+        summary_en=opp.summary_en,
+        job_title=opp.job_title,
+        skill_level=opp.skill_level,
+        location_text=opp.location_text,
+        posted_date=opp.posted_date,
+        eligibility_text=opp.eligibility_text,
+        required_documents=opp.required_documents,
+        application_process=opp.application_process,
+        education_requirement=opp.education_requirement,
+        experience_requirement=opp.experience_requirement,
+        language_requirement=opp.language_requirement,
+        age_requirement=opp.age_requirement,
+        gender_requirement=opp.gender_requirement,
+        visa_or_work_permit_info=opp.visa_or_work_permit_info,
+        extraction_confidence=opp.extraction_confidence,
+        connector_key=opp.connector_key,
+        created_at=opp.created_at,
+        updated_at=opp.updated_at,
+        draft_id=opp.id,
+        source_id=opp.source_id,
+    )
 
 
 @router.get("/{opportunity_id}/similar", response_model=SimilarOpportunityResponse)
@@ -88,15 +152,15 @@ def similar(opportunity_id: int, db: Session = Depends(get_db)) -> SimilarOpport
 
 @router.get("/{opportunity_id}/source")
 def source_info(opportunity_id: int, db: Session = Depends(get_db)) -> dict:
-    pub = db.scalar(select(PublishedOpportunity).where(PublishedOpportunity.id == opportunity_id))
-    if not pub:
+    opp = db.scalar(select(Opportunity).where(Opportunity.id == opportunity_id))
+    if not opp:
         raise HTTPException(status_code=404, detail="Opportunity not found")
-    src = db.scalar(select(Source).where(Source.id == pub.source_id))
+    src = db.scalar(select(Source).where(Source.id == opp.source_id))
     return {
-        "source_id": pub.source_id,
-        "source_name": pub.source_name,
-        "source_page_url": pub.source_page_url,
+        "source_id": opp.source_id,
+        "source_name": opp.source_name,
+        "source_page_url": opp.source_page_url,
         "trust_level": src.trust_level if src else None,
-        "trust_badge": pub.source_trust_badge,
-        "connector_key": pub.connector_key,
+        "trust_badge": opp.source_trust_badge,
+        "connector_key": opp.connector_key,
     }

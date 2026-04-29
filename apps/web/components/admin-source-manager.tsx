@@ -2,7 +2,7 @@
 
 import {
   AlertTriangle, ChevronLeft, ChevronRight, Edit3, FlaskConical,
-  Play, Plus, RotateCcw, Save, Trash2, Upload, X, Zap,
+  Loader2, Play, Plus, RotateCcw, Save, SearchCode, Trash2, Upload, X, Zap,
 } from "lucide-react";
 import { useRef, useState } from "react";
 import { useLocale } from "next-intl";
@@ -10,26 +10,24 @@ import { useLocale } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import type { AdminSource } from "@/lib/types";
+import type { AdminSource, SourceProbeResult } from "@/lib/types";
 import { formatDateTime, humanizeSlug } from "@/lib/utils";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const SOURCE_TYPES = ["news", "job_board", "job_pdf", "policy", "scholarship", "training", "rss", "api", "linkout_only", "hybrid"];
-const INGESTION_MODES = ["html", "html_with_pdf", "pdf", "rss", "api", "open_data", "manual", "linkout_only", "dynamic_html"];
-const CONNECTOR_KEYS = [
-  "generic_news", "generic_rss", "generic_pdf", "generic_policy", "generic_scholarship", "generic_training",
-  "boesl_brms", "boesl_reports_pdf", "bmet_connector", "oep_connector",
-  "eures_connector", "usa_jobs_api", "reliefweb_api", "jobbank_linkout", "linkout_only",
+const FEED_TYPES = [
+  { value: "html", label: "HTML (ওয়েবপেজ)" },
+  { value: "rss", label: "RSS ফিড" },
+  { value: "api", label: "API" },
+  { value: "pdf", label: "PDF নোটিশ" },
 ];
-const COMPLIANCE_STATUSES = ["allowed", "use_api_only", "rss_only", "linkout_only", "manual_review_required", "unknown"];
-const CRAWL_FREQUENCIES = ["hourly", "daily", "weekly", "manual"];
-const TRUST_LEVELS = ["government_official", "official_partner", "verified_source", "news_source", "unknown"];
-const FIRST_CRAWL_MODES = ["active_only", "backfill_recent", "backfill_all", "preview_only", "linkout_only"];
-const TARGET_AUDIENCE_OPTIONS = [
-  "bangladeshi_applicants", "international_candidates", "temporary_foreign_workers",
-  "authorized_workers_only", "students", "skilled_workers", "low_skilled_workers", "scholarship_seekers",
+
+const TRUST_LEVELS = [
+  { value: "government_official", label: "সরকারি উৎস", en: "Government official" },
+  { value: "verified_source", label: "যাচাইকৃত উৎস", en: "Verified source" },
+  { value: "news_source", label: "নিউজ উৎস", en: "News source" },
 ];
+
 const SOURCES_PER_PAGE = 4;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -37,28 +35,10 @@ const SOURCES_PER_PAGE = 4;
 interface SourceFormState {
   name: string;
   base_url: string;
-  root_url: string;
-  country: string;
-  country_scope: string;
-  source_type: string;
-  ingestion_mode: string;
-  connector_key: string;
+  feed_type: string;
   trust_level: string;
-  compliance_status: string;
-  crawl_frequency: string;
-  first_crawl_mode: string;
-  target_audience: string[];
-  search_keywords: string[];
+  auto_publish: boolean;
   enabled: boolean;
-  requires_admin_review: boolean;
-  // legacy
-  source_class: string;
-  trust_tier: string;
-  access_method: string;
-  crawl_frequency_minutes: number;
-  parser_key: string;
-  search_queries: string[];
-  is_active: boolean;
 }
 
 interface BulkImportResult {
@@ -90,60 +70,25 @@ async function getResponseMessage(response: Response, fallback: string): Promise
 }
 
 const defaultForm: SourceFormState = {
-  name: "", base_url: "", root_url: "", country: "Bangladesh",
-  country_scope: "", source_type: "", ingestion_mode: "", connector_key: "",
-  trust_level: "", compliance_status: "unknown", crawl_frequency: "daily",
-  first_crawl_mode: "active_only", target_audience: [], search_keywords: [],
-  enabled: true, requires_admin_review: true,
-  // legacy
-  source_class: "news_policy", trust_tier: "news_only",
-  access_method: "static_html", crawl_frequency_minutes: 1440,
-  parser_key: "default", search_queries: [], is_active: true,
+  name: "", base_url: "",
+  feed_type: "html",
+  trust_level: "news_source",
+  auto_publish: false,
+  enabled: true,
 };
 
 function formFromSource(s: AdminSource): SourceFormState {
   return {
-    name: s.name, base_url: s.base_url, root_url: s.root_url ?? "",
-    country: s.country ?? "Bangladesh", country_scope: s.country_scope ?? "",
-    source_type: s.source_type ?? "", ingestion_mode: s.ingestion_mode ?? "",
-    connector_key: s.connector_key ?? "", trust_level: s.trust_level ?? "",
-    compliance_status: s.compliance_status ?? "unknown",
-    crawl_frequency: s.crawl_frequency ?? "daily",
-    first_crawl_mode: s.first_crawl_mode ?? "active_only",
-    target_audience: s.target_audience ?? [],
-    search_keywords: s.search_keywords ?? [],
+    name: s.name,
+    base_url: s.base_url,
+    feed_type: s.feed_type ?? "html",
+    trust_level: s.trust_level ?? "news_source",
+    auto_publish: s.auto_publish ?? false,
     enabled: s.enabled ?? s.is_active ?? true,
-    requires_admin_review: s.requires_admin_review ?? true,
-    // legacy
-    source_class: s.source_class ?? "news_policy",
-    trust_tier: s.trust_tier ?? "news_only",
-    access_method: s.access_method ?? "static_html",
-    crawl_frequency_minutes: s.crawl_frequency_minutes ?? 1440,
-    parser_key: s.parser_key ?? "default",
-    search_queries: s.search_queries ?? [],
-    is_active: s.is_active ?? true,
   };
 }
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
-
-function SelectField({ label, value, options, onChange }: {
-  label: string; value: string; options: string[]; onChange: (v: string) => void;
-}) {
-  return (
-    <label className="space-y-1">
-      <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-      >
-        <option value="">— select —</option>
-        {options.map((o) => <option key={o} value={o}>{o}</option>)}
-      </select>
-    </label>
-  );
-}
 
 function SourcePagination({ currentPage, totalPages, totalItems, pageStart, pageEnd, onPageChange, className = "" }: {
   currentPage: number; totalPages: number; totalItems: number;
@@ -177,7 +122,7 @@ export function AdminSourceManager({ initialSources }: { initialSources: AdminSo
   const [sources, setSources] = useState(initialSources);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<SourceFormState>(defaultForm);
-  const [keywordDraft, setKeywordDraft] = useState("");
+  const [probeResult, setProbeResult] = useState<SourceProbeResult | null>(null);
   const [statusMessage, setStatusMessage] = useState("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [bulkResult, setBulkResult] = useState<BulkImportResult | null>(null);
@@ -193,38 +138,40 @@ export function AdminSourceManager({ initialSources }: { initialSources: AdminSo
     setCurrentPage((p) => Math.min(p, Math.max(1, Math.ceil(data.length / SOURCES_PER_PAGE))));
   };
 
-  const resetForm = () => { setEditingId(null); setForm(defaultForm); setKeywordDraft(""); };
+  const resetForm = () => { setEditingId(null); setForm(defaultForm); setProbeResult(null); };
 
   const setField = <K extends keyof SourceFormState>(key: K, value: SourceFormState[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
 
-  const addKeyword = () => {
-    const kw = keywordDraft.trim();
-    if (!kw) return;
-    setField("search_keywords", [...form.search_keywords, kw]);
-    setKeywordDraft("");
-  };
-
-  const toggleAudience = (tag: string) => {
-    setField("target_audience",
-      form.target_audience.includes(tag)
-        ? form.target_audience.filter((t) => t !== tag)
-        : [...form.target_audience, tag]
-    );
+  const probeUrl = async () => {
+    if (!form.base_url) return;
+    setBusyKey("probe"); setProbeResult(null);
+    try {
+      const res = await fetch("/api/admin/sources/probe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: form.base_url }),
+      });
+      const data = (await res.json()) as SourceProbeResult;
+      setProbeResult(data);
+      if (data.feed_type && !data.error) {
+        setField("feed_type", data.feed_type);
+        if (data.suggested_name && !form.name) setField("name", data.suggested_name);
+      }
+    } finally { setBusyKey(null); }
   };
 
   const submit = async () => {
     setBusyKey("form"); setStatusMessage("");
     try {
       const payload = {
-        ...form,
-        source_type: form.source_type || null,
-        ingestion_mode: form.ingestion_mode || null,
-        connector_key: form.connector_key || null,
+        name: form.name,
+        base_url: form.base_url,
+        feed_type: form.feed_type || null,
         trust_level: form.trust_level || null,
-        country_scope: form.country_scope || null,
-        root_url: form.root_url || null,
-        first_crawl_mode: form.first_crawl_mode || null,
+        auto_publish: form.auto_publish,
+        enabled: form.enabled,
+        requires_admin_review: !form.auto_publish,
         is_active: form.enabled,
       };
       const res = await fetch(editingId ? `/api/admin/sources/${editingId}` : "/api/admin/sources", {
@@ -239,7 +186,7 @@ export function AdminSourceManager({ initialSources }: { initialSources: AdminSo
     } finally { setBusyKey(null); }
   };
 
-  const startEdit = (s: AdminSource) => { setEditingId(s.id); setForm(formFromSource(s)); setKeywordDraft(""); setStatusMessage(""); setTestResult(null); };
+  const startEdit = (s: AdminSource) => { setEditingId(s.id); setForm(formFromSource(s)); setProbeResult(null); setStatusMessage(""); setTestResult(null); };
 
   const triggerCrawl = async (sourceId: number) => {
     setBusyKey(`crawl-${sourceId}`); setStatusMessage("");
@@ -360,7 +307,7 @@ export function AdminSourceManager({ initialSources }: { initialSources: AdminSo
         <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
           <div className="space-y-1">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
-              {editingId ? (isEn ? "Edit Source" : "উৎস সম্পাদনা") : (isEn ? "Create Source" : "উৎস তৈরি")}
+              {editingId ? (isEn ? "Edit Source" : "উৎস সম্পাদনা") : (isEn ? "Add Source" : "উৎস যোগ")}
             </p>
             <h2 className="font-display text-2xl font-bold">
               {editingId ? (isEn ? `Update source #${editingId}` : `উৎস #${editingId} আপডেট`) : (isEn ? "Register a new source" : "নতুন উৎস নিবন্ধন")}
@@ -373,119 +320,123 @@ export function AdminSourceManager({ initialSources }: { initialSources: AdminSo
           )}
         </div>
 
-        <div className="grid gap-3 lg:grid-cols-12">
-          {/* Basic */}
-          <label className="space-y-1 lg:col-span-4">
+        <div className="grid gap-4 lg:grid-cols-2">
+          {/* Name */}
+          <label className="space-y-1">
             <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{isEn ? "Name" : "নাম"}</span>
-            <Input placeholder="BOESL BRMS" value={form.name} onChange={(e) => setField("name", e.target.value)} />
-          </label>
-          <label className="space-y-1 lg:col-span-4">
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{isEn ? "Base URL" : "মূল URL"}</span>
-            <Input placeholder="https://boesl.gov.bd/" value={form.base_url} onChange={(e) => setField("base_url", e.target.value)} />
-          </label>
-          <label className="space-y-1 lg:col-span-4">
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{isEn ? "Root URL (crawler start)" : "রুট URL (ক্রলার শুরু)"}</span>
-            <Input placeholder="https://boesl.gov.bd/jobs" value={form.root_url} onChange={(e) => setField("root_url", e.target.value)} />
+            <Input
+              placeholder="BOESL BRMS"
+              value={form.name}
+              onChange={(e) => setField("name", e.target.value)}
+            />
           </label>
 
-          <label className="space-y-1 lg:col-span-3">
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{isEn ? "Country" : "দেশ"}</span>
-            <Input placeholder="Bangladesh" value={form.country} onChange={(e) => setField("country", e.target.value)} />
-          </label>
-          <label className="space-y-1 lg:col-span-3">
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{isEn ? "Country Scope" : "কভার দেশ"}</span>
-            <Input placeholder="BD,CA,MY" value={form.country_scope} onChange={(e) => setField("country_scope", e.target.value)} />
-          </label>
-
-          {/* Connector + type */}
-          <div className="lg:col-span-3">
-            <SelectField label={isEn ? "Source Type" : "উৎস ধরন"} value={form.source_type} options={SOURCE_TYPES} onChange={(v) => setField("source_type", v)} />
-          </div>
-          <div className="lg:col-span-3">
-            <SelectField label={isEn ? "Ingestion Mode" : "ইনজেশন মোড"} value={form.ingestion_mode} options={INGESTION_MODES} onChange={(v) => setField("ingestion_mode", v)} />
-          </div>
-          <div className="lg:col-span-4">
-            <SelectField label={isEn ? "Connector Key" : "কানেক্টর"} value={form.connector_key} options={CONNECTOR_KEYS} onChange={(v) => setField("connector_key", v)} />
-          </div>
-          <div className="lg:col-span-3">
-            <SelectField label={isEn ? "Compliance" : "কমপ্লায়েন্স"} value={form.compliance_status} options={COMPLIANCE_STATUSES} onChange={(v) => setField("compliance_status", v)} />
-          </div>
-          <div className="lg:col-span-3">
-            <SelectField label={isEn ? "Trust Level" : "বিশ্বাসযোগ্যতা"} value={form.trust_level} options={TRUST_LEVELS} onChange={(v) => setField("trust_level", v)} />
-          </div>
-          <div className="lg:col-span-3">
-            <SelectField label={isEn ? "Crawl Frequency" : "ক্রল ফ্রিকোয়েন্সি"} value={form.crawl_frequency} options={CRAWL_FREQUENCIES} onChange={(v) => setField("crawl_frequency", v)} />
-          </div>
-          <div className="lg:col-span-3">
-            <SelectField label={isEn ? "First Crawl Mode" : "প্রথম ক্রল মোড"} value={form.first_crawl_mode} options={FIRST_CRAWL_MODES} onChange={(v) => setField("first_crawl_mode", v)} />
-          </div>
-
-          {/* Target audience checkboxes */}
-          <div className="space-y-2 lg:col-span-12">
-            <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{isEn ? "Target Audience" : "লক্ষ্য দর্শক"}</span>
-            <div className="flex flex-wrap gap-2">
-              {TARGET_AUDIENCE_OPTIONS.map((tag) => (
-                <button
-                  key={tag}
-                  type="button"
-                  onClick={() => toggleAudience(tag)}
-                  className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                    form.target_audience.includes(tag)
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-slate-200 text-slate-500 hover:border-primary hover:text-primary dark:border-slate-700"
-                  }`}
-                >
-                  {tag}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Flags */}
-          <div className="flex flex-wrap gap-4 lg:col-span-12">
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={form.enabled} onChange={(e) => setField("enabled", e.target.checked)} className="h-4 w-4 rounded" />
-              {isEn ? "Enabled (crawlable)" : "সক্রিয় (ক্রলযোগ্য)"}
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={form.requires_admin_review} onChange={(e) => setField("requires_admin_review", e.target.checked)} className="h-4 w-4 rounded" />
-              {isEn ? "Requires admin review" : "অ্যাডমিন পর্যালোচনা দরকার"}
-            </label>
-          </div>
-
-          {/* Search keywords */}
-          <div className="space-y-2 lg:col-span-12">
-            <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{isEn ? "Search Keywords (for API connectors)" : "সার্চ কীওয়ার্ড (API কানেক্টরের জন্য)"}</span>
-            {form.search_keywords.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {form.search_keywords.map((kw, i) => (
-                  <span key={i} className="flex items-center gap-1 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-                    {kw}
-                    <button type="button" onClick={() => setField("search_keywords", form.search_keywords.filter((_, j) => j !== i))}>
-                      <X className="size-3" />
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
+          {/* URL + Auto-detect */}
+          <div className="space-y-1">
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{isEn ? "URL" : "URL"}</span>
             <div className="flex gap-2">
               <Input
-                placeholder={isEn ? "e.g. Bangladesh engineer" : "যেমন: Bangladesh engineer"}
-                value={keywordDraft}
-                onChange={(e) => setKeywordDraft(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addKeyword(); } }}
-                className="max-w-sm"
+                placeholder="https://boesl.gov.bd/"
+                value={form.base_url}
+                onChange={(e) => setField("base_url", e.target.value)}
+                className="flex-1"
               />
-              <Button type="button" variant="outline" onClick={addKeyword} disabled={!keywordDraft.trim()}>
-                <Plus className="size-4" />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={probeUrl}
+                disabled={busyKey === "probe" || !form.base_url}
+                className="shrink-0"
+              >
+                {busyKey === "probe"
+                  ? <Loader2 className="size-4 animate-spin" />
+                  : <SearchCode className="size-4" />}
+                <span className="ml-1.5 hidden sm:inline">{isEn ? "Auto-detect" : "স্বয়ংক্রিয়"}</span>
               </Button>
             </div>
+            {/* Probe result inline */}
+            {probeResult && (
+              <div className={`mt-1.5 rounded-md border px-3 py-2 text-xs ${probeResult.error ? "border-rose-200 bg-rose-50 text-rose-700 dark:bg-rose-950/20" : "border-green-200 bg-green-50 text-green-800 dark:bg-green-950/20 dark:text-green-300"}`}>
+                {probeResult.error
+                  ? probeResult.error
+                  : <>
+                      <span className="font-semibold">{probeResult.feed_type.toUpperCase()}</span>
+                      {probeResult.suggested_name && <> · {probeResult.suggested_name}</>}
+                      {probeResult.detected_language && <> · {probeResult.detected_language}</>}
+                      {probeResult.sample_titles.length > 0 && (
+                        <ul className="mt-1 space-y-0.5 text-slate-600 dark:text-slate-400">
+                          {probeResult.sample_titles.slice(0, 3).map((t, i) => <li key={i} className="truncate">• {t}</li>)}
+                        </ul>
+                      )}
+                    </>
+                }
+              </div>
+            )}
           </div>
 
-          <div className="flex flex-wrap items-end gap-3 lg:col-span-12">
+          {/* Feed type */}
+          <label className="space-y-1">
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{isEn ? "Feed Type" : "ফিড ধরন"}</span>
+            <select
+              value={form.feed_type}
+              onChange={(e) => setField("feed_type", e.target.value)}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              {FEED_TYPES.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </label>
+
+          {/* Trust level */}
+          <label className="space-y-1">
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{isEn ? "Trust Level" : "বিশ্বাসযোগ্যতা"}</span>
+            <select
+              value={form.trust_level}
+              onChange={(e) => {
+                const v = e.target.value;
+                setField("trust_level", v);
+                if (v === "government_official") setField("auto_publish", true);
+              }}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <option value="">— {isEn ? "select" : "বেছে নিন"} —</option>
+              {TRUST_LEVELS.map(({ value, label, en }) => (
+                <option key={value} value={value}>{isEn ? en : label}</option>
+              ))}
+            </select>
+          </label>
+
+          {/* Toggles */}
+          <div className="flex flex-wrap gap-5 lg:col-span-2">
+            <label className="flex cursor-pointer items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={form.auto_publish}
+                onChange={(e) => setField("auto_publish", e.target.checked)}
+                className="h-4 w-4 rounded accent-primary"
+              />
+              <span className="font-medium">{isEn ? "Auto-publish" : "স্বয়ংক্রিয় প্রকাশ"}</span>
+              <span className="text-xs text-muted-foreground">{isEn ? "Trusted sources publish immediately" : "বিশ্বস্ত উৎস রিভিউ ছাড়া প্রকাশ পাবে"}</span>
+            </label>
+            <label className="flex cursor-pointer items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={form.enabled}
+                onChange={(e) => setField("enabled", e.target.checked)}
+                className="h-4 w-4 rounded accent-primary"
+              />
+              <span className="font-medium">{isEn ? "Enabled" : "সক্রিয়"}</span>
+            </label>
+          </div>
+
+          {/* Actions */}
+          <div className="flex flex-wrap items-center gap-3 lg:col-span-2">
             <Button onClick={submit} disabled={busyKey === "form" || !form.name || !form.base_url}>
-              {busyKey === "form" ? <RotateCcw className="mr-2 size-4 animate-spin" /> : editingId ? <Save className="mr-2 size-4" /> : <Plus className="mr-2 size-4" />}
-              {busyKey === "form" ? (isEn ? "Saving…" : "সংরক্ষণ হচ্ছে…") : editingId ? (isEn ? "Update source" : "আপডেট করুন") : (isEn ? "Create source" : "উৎস তৈরি")}
+              {busyKey === "form"
+                ? <Loader2 className="mr-2 size-4 animate-spin" />
+                : editingId ? <Save className="mr-2 size-4" /> : <Plus className="mr-2 size-4" />}
+              {busyKey === "form"
+                ? (isEn ? "Saving…" : "সংরক্ষণ হচ্ছে…")
+                : editingId ? (isEn ? "Update source" : "আপডেট করুন") : (isEn ? "Create source" : "উৎস তৈরি")}
             </Button>
             {editingId && (
               <Button variant="outline" onClick={resetForm}>
@@ -583,17 +534,17 @@ export function AdminSourceManager({ initialSources }: { initialSources: AdminSo
                       <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase ${(source.enabled ?? source.is_active) ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" : "bg-slate-200 text-slate-600 dark:bg-slate-800"}`}>
                         {(source.enabled ?? source.is_active) ? (isEn ? "Enabled" : "সক্রিয়") : (isEn ? "Disabled" : "স্থগিত")}
                       </span>
+                      {source.auto_publish && (
+                        <span className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-700 dark:bg-green-900/20 dark:text-green-400">
+                          {isEn ? "Auto-publish" : "অটো-পাব্লিশ"}
+                        </span>
+                      )}
                       {source.last_crawl_status && (
                         <span className="rounded-full border border-slate-200 px-2 py-0.5 text-[11px] font-semibold text-slate-500 dark:border-slate-700">
                           {humanizeSlug(source.last_crawl_status, locale)}
                         </span>
                       )}
-                      {source.compliance_status && source.compliance_status !== "allowed" && (
-                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:bg-amber-900/20 dark:text-amber-400">
-                          {source.compliance_status}
-                        </span>
-                      )}
-                      {source.requires_admin_review && (
+                      {source.requires_admin_review && !source.auto_publish && (
                         <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-semibold text-violet-700 dark:bg-violet-900/20 dark:text-violet-400">
                           {isEn ? "Needs review" : "পর্যালোচনা দরকার"}
                         </span>
@@ -601,10 +552,9 @@ export function AdminSourceManager({ initialSources }: { initialSources: AdminSo
                     </div>
                     <p className="truncate text-sm text-slate-600 dark:text-slate-300">{source.base_url}</p>
                     <div className="flex flex-wrap gap-2 text-xs text-slate-500">
+                      {source.feed_type && <span className="rounded bg-blue-100 px-2 py-0.5 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400">{source.feed_type}</span>}
+                      {source.trust_level && <span className="rounded bg-slate-100 px-2 py-0.5 dark:bg-slate-800">{source.trust_level}</span>}
                       {source.connector_key && <span className="rounded bg-slate-100 px-2 py-0.5 dark:bg-slate-800">{source.connector_key}</span>}
-                      {source.source_type && <span className="rounded bg-slate-100 px-2 py-0.5 dark:bg-slate-800">{source.source_type}</span>}
-                      {source.ingestion_mode && <span className="rounded bg-slate-100 px-2 py-0.5 dark:bg-slate-800">{source.ingestion_mode}</span>}
-                      {source.trust_level && <span className="rounded bg-blue-100 px-2 py-0.5 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400">{source.trust_level}</span>}
                     </div>
                     {source.last_error && (
                       <p className="text-xs text-rose-600 truncate">{isEn ? "Error:" : "ত্রুটি:"} {source.last_error}</p>

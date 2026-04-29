@@ -17,7 +17,6 @@ from app.models.entities import (
     CrawlJob,
     CrawlRun,
     Opportunity,
-    PublishedOpportunity,
     RawDocument,
     Source,
     User,
@@ -38,10 +37,11 @@ from app.schemas.admin import (
     DataResetResult,
     FailedExtractionOut,
     FailedExtractionPage,
-    PublishedOpportunityOut,
     ReviewQueueOut,
     ReviewQueuePage,
     ReviewStatusUpdate,
+    SourceProbeRequest,
+    SourceProbeResult,
     SourceTestResult,
     TriggerAllResult,
 )
@@ -83,7 +83,7 @@ def _serialize_sources(db: Session, sources: list[Source]) -> list[AdminSourceOu
             select(
                 Opportunity.source_id.label("source_id"),
                 func.count(Opportunity.id).label("total"),
-                func.sum(case((Opportunity.review_status == "pending", 1), else_=0)).label("pending"),
+                func.sum(case((Opportunity.status == "pending", 1), else_=0)).label("pending"),
             )
             .where(Opportunity.source_id.in_(source_ids))
             .group_by(Opportunity.source_id)
@@ -93,11 +93,11 @@ def _serialize_sources(db: Session, sources: list[Source]) -> list[AdminSourceOu
         row.source_id: int(row.count)
         for row in db.execute(
             select(
-                PublishedOpportunity.source_id.label("source_id"),
-                func.count(PublishedOpportunity.id).label("count"),
+                Opportunity.source_id.label("source_id"),
+                func.count(Opportunity.id).label("count"),
             )
-            .where(PublishedOpportunity.source_id.in_(source_ids))
-            .group_by(PublishedOpportunity.source_id)
+            .where(Opportunity.source_id.in_(source_ids), Opportunity.status == "published")
+            .group_by(Opportunity.source_id)
         )
     }
     raw_counts = {
@@ -162,11 +162,13 @@ def _serialize_sources(db: Session, sources: list[Source]) -> list[AdminSourceOu
                 compliance_status=src.compliance_status,
                 crawl_frequency=src.crawl_frequency,
                 first_crawl_mode=src.first_crawl_mode,
+                feed_type=src.feed_type,
+                auto_publish=src.auto_publish or False,
                 target_audience=src.target_audience or [],
                 search_keywords=src.search_keywords or [],
                 enabled=src.enabled if src.enabled is not None else src.is_active,
                 requires_admin_review=src.requires_admin_review,
-                    last_attempted_at=src.last_attempted_at,
+                last_attempted_at=src.last_attempted_at,
                 last_crawled_at=src.last_crawled_at,
                 last_success_at=src.last_success_at,
                 last_error=src.last_error,
@@ -267,12 +269,15 @@ def admin_overview(db: Session = Depends(get_db), _: User = Depends(get_admin_us
             Opportunity.review_status.in_(["pending", None]),
         )
     ) or 0
+    total_published = db.scalar(
+        select(func.count()).select_from(Opportunity).where(Opportunity.status == "published")
+    ) or 0
     stats = AdminOverviewStats(
         total_sources=db.scalar(select(func.count()).select_from(Source)) or 0,
         active_sources=db.scalar(select(func.count()).select_from(Source).where(Source.enabled.is_(True))) or 0,
         total_drafts=db.scalar(select(func.count()).select_from(Opportunity)) or 0,
         pending_review=pending_review,
-        total_published=db.scalar(select(func.count()).select_from(PublishedOpportunity)) or 0,
+        total_published=total_published,
         total_users=db.scalar(select(func.count()).select_from(User)) or 0,
         total_alert_rules=db.scalar(select(func.count()).select_from(AlertRule)) or 0,
         running_crawls=db.scalar(
@@ -288,9 +293,7 @@ def admin_overview(db: Session = Depends(get_db), _: User = Depends(get_admin_us
             select(func.count()).select_from(AlertEvent).where(AlertEvent.status.in_(["pending", "queued"]))
         ) or 0,
         total_opportunities=db.scalar(select(func.count()).select_from(Opportunity)) or 0,
-        active_opportunities=db.scalar(
-            select(func.count()).select_from(PublishedOpportunity).where(PublishedOpportunity.is_active.is_(True))
-        ) or 0,
+        active_opportunities=total_published,
     )
 
     recent_job_rows = db.execute(
@@ -484,6 +487,95 @@ def test_source(source_id: int, db: Session = Depends(get_db), _: User = Depends
         )
 
 
+@router.post("/sources/probe", response_model=SourceProbeResult)
+async def probe_source(
+    payload: SourceProbeRequest,
+    _: User = Depends(get_admin_user),
+) -> SourceProbeResult:
+    """Probe a URL to auto-detect feed type and return sample titles."""
+    import httpx
+    from xml.etree import ElementTree as ET
+
+    url = payload.url.strip()
+    feed_type = "html"
+    suggested_name: str | None = None
+    sample_titles: list[str] = []
+    detected_language: str | None = None
+
+    try:
+        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+            resp = await client.get(url, headers={"User-Agent": "SudokkhoBot/1.0"})
+            resp.raise_for_status()
+
+        content_type = resp.headers.get("content-type", "").lower()
+        body = resp.text
+
+        # Detect PDF
+        if url.lower().endswith(".pdf") or "application/pdf" in content_type:
+            feed_type = "pdf"
+        # Detect RSS/Atom by content-type
+        elif any(t in content_type for t in ("rss", "atom", "xml")):
+            feed_type = "rss"
+        else:
+            # Try parsing as XML
+            try:
+                root = ET.fromstring(resp.content)
+                tag = root.tag.lower()
+                if "rss" in tag or "feed" in tag or "channel" in tag:
+                    feed_type = "rss"
+            except ET.ParseError:
+                pass
+
+            # HTML: check for RSS autodiscovery link
+            if feed_type == "html" and 'type="application/rss+xml"' in body:
+                feed_type = "rss"
+
+        if feed_type == "rss":
+            try:
+                root = ET.fromstring(resp.content)
+                ns = {"atom": "http://www.w3.org/2005/Atom"}
+                # RSS 2.0
+                for item in root.findall(".//item")[:3]:
+                    t = item.findtext("title")
+                    if t:
+                        sample_titles.append(t.strip())
+                # Atom
+                for entry in root.findall(".//atom:entry", ns)[:3]:
+                    t = entry.findtext("atom:title", namespaces=ns)
+                    if t:
+                        sample_titles.append(t.strip())
+                # Channel title
+                ch_title = root.findtext(".//channel/title") or root.findtext(".//atom:title", namespaces=ns)
+                if ch_title:
+                    suggested_name = ch_title.strip()[:120]
+            except ET.ParseError:
+                pass
+        elif feed_type == "html":
+            import re
+            title_match = re.search(r"<title[^>]*>(.*?)</title>", body, re.IGNORECASE | re.DOTALL)
+            if title_match:
+                suggested_name = re.sub(r"<[^>]+>", "", title_match.group(1)).strip()[:120]
+            og_match = re.search(r'<meta[^>]+property="og:title"[^>]+content="([^"]+)"', body, re.IGNORECASE)
+            if og_match:
+                suggested_name = og_match.group(1).strip()[:120]
+
+        if "বাংলা" in body or "বি" in body[:500]:
+            detected_language = "bn"
+        elif body[:100].isascii():
+            detected_language = "en"
+
+    except Exception as exc:
+        return SourceProbeResult(url=url, feed_type="html", error=str(exc)[:300])
+
+    return SourceProbeResult(
+        url=url,
+        feed_type=feed_type,
+        suggested_name=suggested_name,
+        sample_titles=sample_titles[:3],
+        detected_language=detected_language,
+    )
+
+
 # ── Crawl jobs / runs ─────────────────────────────────────────────────────────
 
 @router.get("/crawl-jobs", response_model=CrawlJobPage)
@@ -582,121 +674,46 @@ def review_queue(
     )
 
 
-@router.post("/review/{draft_id}/approve", response_model=PublishedOpportunityOut)
+@router.post("/review/{draft_id}/approve", response_model=ReviewQueueOut)
 def approve_draft(
     draft_id: int,
     db: Session = Depends(get_db),
     admin: User = Depends(get_admin_user),
-) -> PublishedOpportunityOut:
+) -> ReviewQueueOut:
     """
-    Approve a draft and create/update its PublishedOpportunity row.
+    Approve a draft — sets status='published' directly on the Opportunity row.
     This is the ONLY path that makes content visible to public users.
     """
     draft = db.scalar(select(Opportunity).where(Opportunity.id == draft_id))
     if not draft:
         raise HTTPException(status_code=404, detail="Draft not found")
 
-    source = db.scalar(select(Source).where(Source.id == draft.source_id))
-
-    # Mark draft approved
+    draft.status = "published"
     draft.review_status = "approved"
     draft.is_active = True
     draft.reviewed_by = admin.id
     draft.reviewed_at = datetime.now(UTC)
-
-    # Upsert PublishedOpportunity
-    existing_pub = db.scalar(
-        select(PublishedOpportunity).where(PublishedOpportunity.draft_id == draft_id)
-    )
-
-    slug = _slugify(draft.title or "opportunity") + f"-{draft_id}"
-
-    pub_fields = dict(
-        draft_id=draft.id,
-        source_id=draft.source_id,
-        source_name=draft.source_name or (source.name if source else None),
-        source_page_url=draft.source_page_url or draft.source_url or "",
-        document_url=draft.document_url,
-        original_apply_url=draft.original_apply_url,
-        content_type=draft.content_type,
-        opportunity_type=draft.opportunity_type,
-        title=draft.title,
-        title_bn=draft.title_bn,
-        summary_bn=draft.summary_bn,
-        summary_en=draft.summary_en or draft.summary,
-        country=draft.country,
-        destination_country=draft.destination_country,
-        employer_or_organization=draft.employer_or_organization or draft.employer or draft.organization,
-        job_title=draft.job_title,
-        sector=draft.sector,
-        skill_level=draft.skill_level,
-        salary_min=float(draft.salary_min) if draft.salary_min is not None else None,
-        salary_max=float(draft.salary_max) if draft.salary_max is not None else None,
-        salary_currency=draft.salary_currency,
-        salary_text=draft.salary_text,
-        location_text=draft.location_text,
-        deadline=draft.deadline,
-        posted_date=draft.posted_date,
-        eligibility_text=draft.eligibility_text,
-        required_documents=draft.required_documents,
-        application_process=draft.application_process,
-        education_requirement=draft.education_requirement,
-        experience_requirement=draft.experience_requirement,
-        language_requirement=draft.language_requirement,
-        age_requirement=draft.age_requirement,
-        gender_requirement=draft.gender_requirement,
-        visa_or_work_permit_info=draft.visa_or_work_permit_info,
-        lmia_status=draft.lmia_status,
-        can_apply_from_bd=draft.can_apply_from_bd,
-        requires_existing_work_permit=draft.requires_existing_work_permit,
-        open_to_international_candidates=draft.open_to_international_candidates,
-        open_to_authorized_workers_only=draft.open_to_authorized_workers_only,
-        eligibility_status=draft.eligibility_status,
-        target_audience_tags=draft.target_audience_tags or [],
-        risk_flags=draft.risk_flags or [],
-        source_trust_badge=draft.source_trust_badge,
-        extraction_confidence=draft.extraction_confidence,
-        connector_key=draft.connector_key,
-        trust_score=draft.trust_score,
-        freshness_score=draft.freshness_score,
-        actionability_score=draft.actionability_score,
-        overall_rank_score=draft.overall_rank_score,
-        slug=slug,
-        is_active=True,
-        published_at=datetime.now(UTC),
-    )
-
-    if existing_pub:
-        for k, v in pub_fields.items():
-            setattr(existing_pub, k, v)
-        pub = existing_pub
-    else:
-        pub = PublishedOpportunity(**pub_fields)
-        db.add(pub)
+    draft.published_at = draft.published_at or datetime.now(UTC)
+    draft.slug = draft.slug or (_slugify(draft.title or "opportunity") + f"-{draft_id}")
 
     db.flush()
 
-    # Build search_tsv for the published row
+    # Build search_tsv for full-text search
     db.execute(
         text(
-            "UPDATE published_opportunities "
+            "UPDATE opportunities "
             "SET search_tsv = to_tsvector('simple', "
-            "coalesce(title,'') || ' ' || coalesce(summary_bn,'') || ' ' || coalesce(eligibility_text,'')) "
+            "coalesce(title,'') || ' ' || coalesce(summary_bn,'') || ' ' || "
+            "coalesce(summary_en,'') || ' ' || coalesce(eligibility_text,'')) "
             "WHERE id = :id"
         ),
-        {"id": pub.id},
+        {"id": draft.id},
     )
 
     db.commit()
-    db.refresh(pub)
-    logger.info("admin_draft_approved", extra={"draft_id": draft_id, "published_id": pub.id})
-
-    return PublishedOpportunityOut(
-        id=pub.id, draft_id=pub.draft_id, title=pub.title,
-        opportunity_type=pub.opportunity_type, country=pub.country,
-        source_name=pub.source_name, can_apply_from_bd=pub.can_apply_from_bd,
-        published_at=pub.published_at, is_active=pub.is_active,
-    )
+    source_name = db.scalar(select(Source.name).where(Source.id == draft.source_id))
+    logger.info("admin_draft_approved", extra={"draft_id": draft_id})
+    return _draft_to_review_out(draft, source_name)
 
 
 @router.post("/review/{draft_id}/reject", response_model=ReviewQueueOut)
@@ -710,16 +727,11 @@ def reject_draft(
     if not draft:
         raise HTTPException(status_code=404, detail="Draft not found")
 
+    draft.status = "rejected"
     draft.review_status = "rejected"
     draft.is_active = False
     draft.reviewed_by = admin.id
     draft.reviewed_at = datetime.now(UTC)
-
-    # Deactivate any published version
-    pub = db.scalar(select(PublishedOpportunity).where(PublishedOpportunity.draft_id == draft_id))
-    if pub:
-        pub.is_active = False
-
     db.commit()
     source_name = db.scalar(select(Source.name).where(Source.id == draft.source_id))
     logger.info("admin_draft_rejected", extra={"draft_id": draft_id})
@@ -737,6 +749,7 @@ def needs_manual_fix(
     if not draft:
         raise HTTPException(status_code=404, detail="Draft not found")
 
+    draft.status = "pending"
     draft.review_status = "needs_manual_fix"
     draft.is_active = False
     draft.reviewed_by = admin.id
@@ -798,27 +811,19 @@ def edit_draft(
 
 # ── Published opportunities ────────────────────────────────────────────────────
 
-@router.get("/published", response_model=list[PublishedOpportunityOut])
+@router.get("/published", response_model=list[ReviewQueueOut])
 def list_published(
     page: int = 1, page_size: int = 20,
     db: Session = Depends(get_db), _: User = Depends(get_admin_user),
-) -> list[PublishedOpportunityOut]:
-    pubs = db.scalars(
-        select(PublishedOpportunity)
-        .where(PublishedOpportunity.is_active.is_(True))
-        .order_by(PublishedOpportunity.published_at.desc())
+) -> list[ReviewQueueOut]:
+    drafts = db.scalars(
+        select(Opportunity)
+        .where(Opportunity.status == "published")
+        .order_by(Opportunity.published_at.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
     ).all()
-    return [
-        PublishedOpportunityOut(
-            id=p.id, draft_id=p.draft_id, title=p.title,
-            opportunity_type=p.opportunity_type, country=p.country,
-            source_name=p.source_name, can_apply_from_bd=p.can_apply_from_bd,
-            published_at=p.published_at, is_active=p.is_active,
-        )
-        for p in pubs
-    ]
+    return [_draft_to_review_out(d, d.source_name) for d in drafts]
 
 
 # ── Bulk import ────────────────────────────────────────────────────────────────
@@ -914,14 +919,13 @@ def reindex_all(db: Session = Depends(get_db), _: User = Depends(get_admin_user)
 
 @router.post("/reset-all-data", response_model=DataResetResult)
 def reset_all_data(db: Session = Depends(get_db), _: User = Depends(get_admin_user)) -> DataResetResult:
-    from app.models.entities import OpportunityEmbedding, PublishedOpportunityEmbedding
+    from app.models.entities import OpportunityEmbedding
 
-    n_pub_emb = db.scalar(select(func.count()).select_from(PublishedOpportunityEmbedding)) or 0
-    db.execute(delete(PublishedOpportunityEmbedding))
-    n_pub = db.scalar(select(func.count()).select_from(PublishedOpportunity)) or 0
-    db.execute(delete(PublishedOpportunity))
     n_emb = db.scalar(select(func.count()).select_from(OpportunityEmbedding)) or 0
     db.execute(delete(OpportunityEmbedding))
+    n_pub = db.scalar(
+        select(func.count()).select_from(Opportunity).where(Opportunity.status == "published")
+    ) or 0
     n_opp = db.scalar(select(func.count()).select_from(Opportunity)) or 0
     db.execute(delete(Opportunity))
     n_raw = db.scalar(select(func.count()).select_from(RawDocument)) or 0

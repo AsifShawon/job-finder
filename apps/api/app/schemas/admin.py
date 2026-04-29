@@ -71,6 +71,8 @@ class AdminSourceOut(BaseModel):
     first_crawl_mode: str | None = None
     target_audience: list[str] = []
     search_keywords: list[str] = []
+    feed_type: str | None = None
+    auto_publish: bool = False
     enabled: bool = True
     requires_admin_review: bool = True
     last_attempted_at: datetime | None = None
@@ -246,6 +248,21 @@ class SourceTestResult(BaseModel):
     pages_found: int
     sample_titles: list[str]
     compliance_warning: str | None = None
+    error: str | None = None
+
+
+# ── Source probe (URL auto-detect) ────────────────────────────────────────────
+
+class SourceProbeRequest(BaseModel):
+    url: str
+
+
+class SourceProbeResult(BaseModel):
+    url: str
+    feed_type: str  # rss | html | api | pdf
+    suggested_name: str | None = None
+    sample_titles: list[str] = []
+    detected_language: str | None = None
     error: str | None = None
 
 

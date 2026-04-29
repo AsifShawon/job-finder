@@ -103,7 +103,25 @@ def get_connector(source: "Source") -> BaseConnector:
         )
         return cls()
 
-    # ── 2. ingestion_mode routing ─────────────────────────────────────────────
+    # ── 2. feed_type routing (new — 4 simple values) ─────────────────────────
+    if source.feed_type:
+        feed_map = {
+            "rss": "rss",
+            "api": "api",
+            "pdf": "pdf",
+            "html": "static_html",
+        }
+        legacy_key = feed_map.get(source.feed_type)
+        if legacy_key:
+            cls = LEGACY_MAP.get(legacy_key)
+            if cls:
+                logger.info(
+                    "source_router_feed_type",
+                    extra={"source_id": source.id, "feed_type": source.feed_type},
+                )
+                return cls()
+
+    # ── 3. ingestion_mode routing ─────────────────────────────────────────────
     mode = source.ingestion_mode or ""
     mode_map = {
         "rss": "rss",

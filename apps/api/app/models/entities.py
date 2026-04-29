@@ -45,6 +45,14 @@ from app.models.enums import (
     TrustTier,
 )
 
+# Suppress "imported but unused" warnings — these are kept for migration/compat
+__all__ = [
+    "Source", "AppSetting", "CrawlRun", "CrawlJob", "RawDocument",
+    "Opportunity", "OpportunityEmbedding",
+    "User", "UserProfile", "SavedOpportunity", "AlertRule", "AlertEvent",
+    "Feedback", "RefreshToken",
+]
+
 
 # ── Source ─────────────────────────────────────────────────────────────────────
 
@@ -75,6 +83,10 @@ class Source(Base):
 
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     requires_admin_review: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    # New fields: feed routing + auto-publish gate
+    feed_type: Mapped[str | None] = mapped_column(String(20))   # rss | html | api | pdf
+    auto_publish: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     last_attempted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_crawled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -186,11 +198,15 @@ class RawDocument(Base):
     source: Mapped[Source] = relationship()
 
 
-# ── Opportunity (draft / ingested, not yet published) ─────────────────────────
+# ── Opportunity ───────────────────────────────────────────────────────────────
 #
-# Every item the crawler creates lands here as review_status='pending'.
-# NOTHING is shown publicly until admin approves and a PublishedOpportunity row
-# is created. The `is_active` flag on this model is NOT used for public search.
+# Single-table model. status field controls visibility:
+#   pending   — crawled, awaiting admin review
+#   published — admin-approved (or auto-published for official sources)
+#   rejected  — admin rejected
+#   expired   — past deadline, set by cleanup worker
+#
+# All public search queries filter on status='published'.
 
 class Opportunity(Base):
     __tablename__ = "opportunities"
@@ -257,6 +273,10 @@ class Opportunity(Base):
     source_trust_badge: Mapped[str | None] = mapped_column(String(120))
     extraction_confidence: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
 
+    # status replaces the two-table publish gate
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending", index=True)
+    slug: Mapped[str | None] = mapped_column(String(600), index=True)
+
     needs_admin_review: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     review_status: Mapped[str | None] = mapped_column(String(20), default="pending")
     reviewed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
@@ -304,98 +324,6 @@ class Opportunity(Base):
     raw_document: Mapped[RawDocument | None] = relationship()
 
 
-# ── PublishedOpportunity (what public users see) ──────────────────────────────
-#
-# Created by admin approval. All public search/detail queries use this table.
-
-class PublishedOpportunity(Base):
-    __tablename__ = "published_opportunities"
-    __table_args__ = (
-        Index("ix_pub_opp_type", "opportunity_type"),
-        Index("ix_pub_opp_country", "country"),
-        Index("ix_pub_opp_destination_country", "destination_country"),
-        Index("ix_pub_opp_deadline", "deadline"),
-        Index("ix_pub_opp_can_apply_bd", "can_apply_from_bd"),
-        Index("ix_pub_opp_trust_badge", "source_trust_badge"),
-        Index("ix_pub_opp_active", "is_active"),
-        Index("ix_pub_opp_search_tsv", "search_tsv", postgresql_using="gin"),
-        UniqueConstraint("draft_id", name="uq_published_draft"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    draft_id: Mapped[int] = mapped_column(ForeignKey("opportunities.id", ondelete="CASCADE"), nullable=False)
-    source_id: Mapped[int] = mapped_column(ForeignKey("sources.id", ondelete="CASCADE"), nullable=False)
-    source_name: Mapped[str | None] = mapped_column(String(255))
-    source_page_url: Mapped[str] = mapped_column(String(2048), nullable=False)
-    document_url: Mapped[str | None] = mapped_column(String(2048))
-    original_apply_url: Mapped[str | None] = mapped_column(String(2048))
-
-    content_type: Mapped[str | None] = mapped_column(String(20))
-    opportunity_type: Mapped[str | None] = mapped_column(String(40))
-
-    title: Mapped[str] = mapped_column(String(500), nullable=False)
-    title_bn: Mapped[str | None] = mapped_column(String(500))
-    summary_bn: Mapped[str | None] = mapped_column(Text)
-    summary_en: Mapped[str | None] = mapped_column(Text)
-
-    country: Mapped[str | None] = mapped_column(String(120))
-    destination_country: Mapped[str | None] = mapped_column(String(120))
-    employer_or_organization: Mapped[str | None] = mapped_column(String(255))
-    job_title: Mapped[str | None] = mapped_column(String(255))
-    sector: Mapped[str | None] = mapped_column(String(120))
-    skill_level: Mapped[str | None] = mapped_column(String(120))
-
-    salary_min: Mapped[float | None] = mapped_column(Numeric(12, 2))
-    salary_max: Mapped[float | None] = mapped_column(Numeric(12, 2))
-    salary_currency: Mapped[str | None] = mapped_column(String(10))
-    salary_text: Mapped[str | None] = mapped_column(String(255))
-    location_text: Mapped[str | None] = mapped_column(String(255))
-
-    deadline: Mapped[Date | None] = mapped_column(Date)
-    posted_date: Mapped[Date | None] = mapped_column(Date)
-
-    eligibility_text: Mapped[str | None] = mapped_column(Text)
-    required_documents: Mapped[str | None] = mapped_column(Text)
-    application_process: Mapped[str | None] = mapped_column(Text)
-    education_requirement: Mapped[str | None] = mapped_column(Text)
-    experience_requirement: Mapped[str | None] = mapped_column(Text)
-    language_requirement: Mapped[str | None] = mapped_column(String(255))
-    age_requirement: Mapped[str | None] = mapped_column(String(120))
-    gender_requirement: Mapped[str | None] = mapped_column(String(120))
-    visa_or_work_permit_info: Mapped[str | None] = mapped_column(Text)
-
-    lmia_status: Mapped[str | None] = mapped_column(String(20))
-    can_apply_from_bd: Mapped[bool | None] = mapped_column(Boolean)
-    requires_existing_work_permit: Mapped[bool | None] = mapped_column(Boolean)
-    open_to_international_candidates: Mapped[bool | None] = mapped_column(Boolean)
-    open_to_authorized_workers_only: Mapped[bool | None] = mapped_column(Boolean)
-    eligibility_status: Mapped[str | None] = mapped_column(String(30))
-
-    target_audience_tags: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False, server_default="[]")
-    risk_flags: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False, server_default="[]")
-    source_trust_badge: Mapped[str | None] = mapped_column(String(120))
-    extraction_confidence: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
-    connector_key: Mapped[str | None] = mapped_column(String(60))
-
-    trust_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
-    freshness_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
-    actionability_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
-    overall_rank_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
-
-    slug: Mapped[str | None] = mapped_column(String(600), index=True)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    search_tsv: Mapped[str | None] = mapped_column(TSVECTOR)
-
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
-    )
-
-    draft: Mapped[Opportunity] = relationship()
-    source: Mapped[Source] = relationship()
-
-
 # ── OpportunityEmbedding ──────────────────────────────────────────────────────
 
 class OpportunityEmbedding(Base):
@@ -407,22 +335,6 @@ class OpportunityEmbedding(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     opportunity_id: Mapped[int] = mapped_column(ForeignKey("opportunities.id", ondelete="CASCADE"), nullable=False)
-    embedding: Mapped[list[float]] = mapped_column(Vector(384), nullable=False)
-    embedding_model: Mapped[str] = mapped_column(String(120), nullable=False)
-    embedded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-
-
-class PublishedOpportunityEmbedding(Base):
-    __tablename__ = "published_opportunity_embeddings"
-    __table_args__ = (
-        UniqueConstraint("published_opportunity_id", name="uq_pub_opp_embedding"),
-        Index("ix_pub_opp_embedding_vector", "embedding", postgresql_using="hnsw"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    published_opportunity_id: Mapped[int] = mapped_column(
-        ForeignKey("published_opportunities.id", ondelete="CASCADE"), nullable=False
-    )
     embedding: Mapped[list[float]] = mapped_column(Vector(384), nullable=False)
     embedding_model: Mapped[str] = mapped_column(String(120), nullable=False)
     embedded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -467,9 +379,8 @@ class SavedOpportunity(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    # Points to PublishedOpportunity; legacy column name kept for compat
     opportunity_id: Mapped[int] = mapped_column(
-        ForeignKey("published_opportunities.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("opportunities.id", ondelete="CASCADE"), nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
@@ -494,7 +405,7 @@ class AlertEvent(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     alert_rule_id: Mapped[int] = mapped_column(ForeignKey("alert_rules.id", ondelete="CASCADE"), nullable=False)
     opportunity_id: Mapped[int] = mapped_column(
-        ForeignKey("published_opportunities.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("opportunities.id", ondelete="CASCADE"), nullable=False
     )
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(String(80), nullable=False, default="pending")
@@ -506,7 +417,7 @@ class Feedback(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     opportunity_id: Mapped[int] = mapped_column(
-        ForeignKey("published_opportunities.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("opportunities.id", ondelete="CASCADE"), nullable=False
     )
     feedback_type: Mapped[FeedbackType] = mapped_column(Enum(FeedbackType), nullable=False)
     message: Mapped[str | None] = mapped_column(Text)

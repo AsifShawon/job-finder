@@ -240,14 +240,15 @@ def cleanup_stale_opportunities(self) -> dict:
             select(Opportunity).where(
                 Opportunity.deadline.is_not(None),
                 Opportunity.deadline < datetime.now(UTC).date(),
-                Opportunity.is_active.is_(True),
+                Opportunity.status == "published",
             )
         ).all()
         for row in rows:
+            row.status = "expired"
             row.is_active = False
             row.last_verified_at = datetime.now(UTC)
         db.commit()
-        return {"deactivated": len(rows)}
+        return {"expired": len(rows)}
 
 
 @celery_app.task(base=BaseRetryTask, bind=True)
@@ -256,7 +257,8 @@ def run_validation_pass(self) -> dict:
         candidates = db.scalars(select(Opportunity).order_by(Opportunity.id.desc()).limit(200)).all()
         updated = 0
         for opp in candidates:
-            if opp.deadline and opp.deadline < datetime.now(UTC).date() and opp.is_active:
+            if opp.deadline and opp.deadline < datetime.now(UTC).date() and opp.status == "published":
+                opp.status = "expired"
                 opp.is_active = False
                 updated += 1
         db.commit()

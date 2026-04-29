@@ -374,11 +374,10 @@ def _process_page(
     )
 
     # ── 8. Build OpportunityDraft ─────────────────────────────────────────────
-    # Force OCR items and source.requires_admin_review items to manual review
     ocr_used = getattr(page, "ocr_used", False)
     force_review = bool(ocr_used or source.requires_admin_review)
 
-    # ALL crawled items are pending — never set is_active=True from the pipeline
+    now = datetime.now(UTC)
     draft = Opportunity(
         source_id=source.id,
         source_name=source.name,
@@ -425,9 +424,10 @@ def _process_page(
         source_trust_badge=trust_badge,
 
         extraction_confidence=extraction.extraction_confidence,
-        needs_admin_review=True,           # Always true for crawled content
+        needs_admin_review=True,           # Always set for crawled content
         review_status="pending",           # NEVER set to approved from here
-        is_active=False,                   # Stays False until admin approves
+        status="pending",                  # Single-table status field
+        is_active=False,                   # Keep set for legacy compat
 
         content_hash=opp_hash,
         raw_text=(page.raw_text or "")[:10_000] or None,
@@ -435,9 +435,8 @@ def _process_page(
         connector_key=source.connector_key,
         record_type=extraction.record_type,
 
-        # Scoring (used for ranking after approval)
         trust_score=_trust_score(source.trust_level or source.trust_tier.value if source.trust_tier else ""),
-        freshness_score=_freshness_score(datetime.now(UTC)),
+        freshness_score=_freshness_score(now),
         actionability_score=_action_score(
             has_deadline=bool(extraction.deadline_text),
             has_apply=bool(extraction.application_url),
@@ -452,20 +451,36 @@ def _process_page(
     db.add(draft)
     db.flush()
 
-    # Update TSV for future full-text search (on approval)
+    # Auto-publish for trusted official sources — skip admin review queue
+    if source.auto_publish:
+        import re as _re
+        import unicodedata as _ud
+        _t = _ud.normalize("NFKD", draft.title or "opportunity").encode("ascii", "ignore").decode("ascii")
+        _t = _re.sub(r"[^\w\s-]", "", _t.lower())
+        _slug = _re.sub(r"[-\s]+", "-", _t).strip("-")[:560]
+        draft.status = "published"
+        draft.published_at = now
+        draft.is_active = True
+        draft.review_status = "approved"
+        draft.slug = f"{_slug}-{draft.id}"
+        result.draft_created += 1  # count as created (published immediately)
+        logs.append(f"Auto-published: id={draft.id} source={source.name}")
+    else:
+        result.draft_created += 1
+
+    if force_review:
+        result.manual_review += 1
+
+    # Update search TSV
     db.execute(
         text(
             "UPDATE opportunities "
             "SET search_tsv = to_tsvector('simple', "
-            "coalesce(title,'') || ' ' || coalesce(summary,'') || ' ' || coalesce(eligibility_text,'')) "
+            "coalesce(title,'') || ' ' || coalesce(summary_en,'') || ' ' || coalesce(eligibility_text,'')) "
             "WHERE id = :id"
         ),
         {"id": draft.id},
     )
-
-    result.draft_created += 1
-    if force_review:
-        result.manual_review += 1
 
     logs.append(f"Draft created: id={draft.id} title='{draft.title[:60]}'")
 

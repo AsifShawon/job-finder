@@ -5,7 +5,7 @@ from langchain_groq import ChatGroq
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.entities import Opportunity, RawDocument, Source
+from app.models.entities import Opportunity, Source
 from app.schemas.copilot import CopilotCitation, CopilotResponse
 from app.schemas.opportunity import OpportunitySearchQuery
 from app.services.runtime_settings_service import get_groq_api_key, get_groq_model
@@ -49,16 +49,16 @@ def interpret_query(natural_text: str) -> OpportunitySearchQuery:
     )
 
 
-def _build_citations(rows: list[tuple[Opportunity, Source, RawDocument | None]]) -> list[CopilotCitation]:
+def _build_citations(rows: list[tuple[Opportunity, Source]]) -> list[CopilotCitation]:
     citations: list[CopilotCitation] = []
-    for opp, source, raw in rows:
+    for opp, source in rows:
         citations.append(
             CopilotCitation(
                 opportunity_id=opp.id,
                 title=opp.title,
                 source_url=opp.source_url,
-                trust_tier=source.trust_tier.value,
-                fetched_at=raw.fetched_at if raw else None,
+                trust_tier=source.trust_tier.value if source.trust_tier else "unknown",
+                fetched_at=None,
                 extraction_confidence=opp.extraction_confidence,
             )
         )
@@ -88,6 +88,17 @@ def _llm_answer(db: Session, question: str, context: list[dict[str, Any]]) -> st
     return str(result.content)
 
 
+def _fetch_published_rows(db: Session, ids: list[int]) -> list[tuple[Opportunity, Source]]:
+    return db.execute(
+        select(Opportunity, Source)
+        .join(Source, Source.id == Opportunity.source_id, isouter=True)
+        .where(
+            Opportunity.id.in_(ids),
+            Opportunity.status == "published",
+        )
+    ).all()
+
+
 def run_copilot_query(db: Session, question: str) -> CopilotResponse:
     parsed = interpret_query(question)
     search = search_opportunities(db, parsed)
@@ -95,61 +106,50 @@ def run_copilot_query(db: Session, question: str) -> CopilotResponse:
         return CopilotResponse(answer="No matching indexed opportunities were found.", citations=[])
 
     ids = [x.id for x in search.items]
-    rows = db.execute(
-        select(Opportunity, Source, RawDocument)
-        .join(Source, Source.id == Opportunity.source_id)
-        .outerjoin(RawDocument, RawDocument.id == Opportunity.raw_document_id)
-        .where(Opportunity.id.in_(ids))
-    ).all()
+    rows = _fetch_published_rows(db, ids)
     context = [
         {
             "id": opp.id,
             "title": opp.title,
-            "summary": opp.summary,
+            "summary": opp.summary_en or opp.summary,
             "country": opp.country,
             "deadline": str(opp.deadline) if opp.deadline else None,
-            "trust_tier": source.trust_tier.value,
+            "trust_badge": opp.source_trust_badge,
             "source_url": opp.source_url,
-            "fetched_at": raw.fetched_at.astimezone(UTC).isoformat() if raw and raw.fetched_at else None,
         }
-        for opp, source, raw in rows
+        for opp, source in rows
     ]
     answer = _llm_answer(db, question, context)
     return CopilotResponse(answer=answer, citations=_build_citations(rows))
 
 
 def compare_opportunities(db: Session, left_id: int, right_id: int) -> CopilotResponse:
-    rows = db.execute(
-        select(Opportunity, Source, RawDocument)
-        .join(Source, Source.id == Opportunity.source_id)
-        .outerjoin(RawDocument, RawDocument.id == Opportunity.raw_document_id)
-        .where(Opportunity.id.in_([left_id, right_id]))
-    ).all()
+    rows = _fetch_published_rows(db, [left_id, right_id])
     if len(rows) < 2:
         return CopilotResponse(answer="One or both opportunities were not found.", citations=[])
 
     left, right = rows[0], rows[1]
+    left_opp, left_src = left
+    right_opp, right_src = right
     answer = (
-        f"{left[0].title} vs {right[0].title}: compare trust ({left[1].trust_tier.value} vs {right[1].trust_tier.value}), "
-        f"deadline ({left[0].deadline} vs {right[0].deadline}), and explicit requirements before applying."
+        f"{left_opp.title} vs {right_opp.title}: compare trust "
+        f"({left_opp.source_trust_badge or 'unknown'} vs {right_opp.source_trust_badge or 'unknown'}), "
+        f"deadline ({left_opp.deadline} vs {right_opp.deadline}), "
+        "and explicit requirements before applying."
     )
     return CopilotResponse(answer=answer, citations=_build_citations(rows))
 
 
 def explain_match(db: Session, opportunity_id: int) -> CopilotResponse:
-    row = db.execute(
-        select(Opportunity, Source, RawDocument)
-        .join(Source, Source.id == Opportunity.source_id)
-        .outerjoin(RawDocument, RawDocument.id == Opportunity.raw_document_id)
-        .where(Opportunity.id == opportunity_id)
-    ).first()
-    if not row:
+    rows = _fetch_published_rows(db, [opportunity_id])
+    if not rows:
         return CopilotResponse(answer="Opportunity not found.", citations=[])
 
-    opp, source, raw = row
+    opp, source = rows[0]
     answer = (
         f"This opportunity matches by content relevance and trust weighting. "
-        f"Trust tier is {source.trust_tier.value}, extraction confidence is {opp.extraction_confidence:.2f}, "
-        f"and actionability score is {opp.actionability_score:.2f}."
+        f"Trust badge: {opp.source_trust_badge or 'none'}, "
+        f"extraction confidence: {opp.extraction_confidence:.2f}, "
+        f"actionability score: {opp.actionability_score:.2f}."
     )
-    return CopilotResponse(answer=answer, citations=_build_citations([row]))
+    return CopilotResponse(answer=answer, citations=_build_citations(rows))

@@ -29,7 +29,8 @@ def compute_match_score(opp: Opportunity, profile: UserProfile) -> float:
     # Opportunity type match — 0.20 weight
     target_types = [t.lower() for t in (profile.target_opportunity_types_json or [])]
     if target_types:
-        if opp.record_type and opp.record_type.value.lower() in target_types:
+        opp_type = opp.opportunity_type or (opp.record_type.value if opp.record_type else None)
+        if opp_type and opp_type.lower() in target_types:
             score += 0.20
     else:
         score += 0.10
@@ -70,9 +71,10 @@ def get_recommendations(
         ).all()
     }
 
+    # BUG FIX: was Opportunity.is_active.is_(True) which queried pending drafts
     opps = db.scalars(
         select(Opportunity)
-        .where(Opportunity.is_active.is_(True))
+        .where(Opportunity.status == "published")
         .order_by(Opportunity.overall_rank_score.desc())
         .limit(200)
     ).all()

@@ -1,3 +1,8 @@
+// ── New enums ─────────────────────────────────────────────────────────────────
+
+export type OpportunityStatus = "pending" | "published" | "rejected" | "expired";
+export type FeedType = "rss" | "html" | "api" | "pdf";
+
 // ── Core enums ────────────────────────────────────────────────────────────────
 
 export type SourceType =
@@ -205,6 +210,8 @@ export interface AdminSource {
   compliance_status: ComplianceStatus | null;
   crawl_frequency: CrawlFrequency | null;
   first_crawl_mode: FirstCrawlMode | null;
+  feed_type: FeedType | null;
+  auto_publish: boolean;
   target_audience: string[];
   search_keywords: string[];
   enabled: boolean;
@@ -234,6 +241,17 @@ export interface AdminSource {
   search_queries: string[];
   opportunity_count: number;
   active_opportunity_count: number;
+}
+
+// ── Source probe (URL auto-detect) ────────────────────────────────────────────
+
+export interface SourceProbeResult {
+  url: string;
+  feed_type: FeedType;
+  suggested_name: string | null;
+  sample_titles: string[];
+  detected_language: string | null;
+  error: string | null;
 }
 
 // ── CrawlRun ──────────────────────────────────────────────────────────────────

@@ -162,6 +162,20 @@ class ReviewStatus(str, Enum):
     needs_manual_fix = "needs_manual_fix"
 
 
+class OpportunityStatus(str, Enum):
+    pending = "pending"
+    published = "published"
+    rejected = "rejected"
+    expired = "expired"
+
+
+class FeedType(str, Enum):
+    rss = "rss"
+    html = "html"
+    api = "api"
+    pdf = "pdf"
+
+
 # ── User / feedback ───────────────────────────────────────────────────────────
 
 class FeedbackType(str, Enum):

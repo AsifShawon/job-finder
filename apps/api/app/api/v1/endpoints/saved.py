@@ -3,7 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user, get_db
-from app.models.entities import PublishedOpportunity, SavedOpportunity, User
+from app.models.entities import Opportunity, SavedOpportunity, User
 from app.schemas.opportunity import PublishedOpportunityCard
 
 router = APIRouter(prefix="/saved", tags=["saved"])
@@ -15,13 +15,13 @@ def save(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
-    pub = db.scalar(
-        select(PublishedOpportunity).where(
-            PublishedOpportunity.id == opportunity_id,
-            PublishedOpportunity.is_active.is_(True),
+    opp = db.scalar(
+        select(Opportunity).where(
+            Opportunity.id == opportunity_id,
+            Opportunity.status == "published",
         )
     )
-    if not pub:
+    if not opp:
         raise HTTPException(status_code=404, detail="Opportunity not found")
 
     existing = db.scalar(
@@ -62,11 +62,11 @@ def list_saved(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> list[PublishedOpportunityCard]:
-    pubs = db.scalars(
-        select(PublishedOpportunity)
-        .join(SavedOpportunity, SavedOpportunity.opportunity_id == PublishedOpportunity.id)
+    opps = db.scalars(
+        select(Opportunity)
+        .join(SavedOpportunity, SavedOpportunity.opportunity_id == Opportunity.id)
         .where(SavedOpportunity.user_id == user.id)
-        .where(PublishedOpportunity.is_active.is_(True))
+        .where(Opportunity.status == "published")
         .order_by(SavedOpportunity.created_at.desc())
     ).all()
 
@@ -95,7 +95,7 @@ def list_saved(
             published_at=p.published_at, is_saved=True,
             why_this_matches="সংরক্ষিত সুযোগ",
             summary=p.summary_bn or p.summary_en, summary_bn=p.summary_bn,
-            source_url=p.source_page_url or "", is_active=p.is_active,
+            source_url=p.source_page_url or "", is_active=p.status == "published",
         )
-        for p in pubs
+        for p in opps
     ]

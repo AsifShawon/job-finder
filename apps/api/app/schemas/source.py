@@ -19,6 +19,9 @@ class SourceBase(BaseModel):
     crawl_frequency: str = "daily"
     first_crawl_mode: str = "active_only"
 
+    feed_type: str | None = None       # rss | html | api | pdf
+    auto_publish: bool = False
+
     target_audience: list[str] = []
     search_keywords: list[str] = []
 
@@ -52,6 +55,8 @@ class SourceUpdate(BaseModel):
     first_crawl_mode: str | None = None
     target_audience: list[str] | None = None
     search_keywords: list[str] | None = None
+    feed_type: str | None = None
+    auto_publish: bool | None = None
     enabled: bool | None = None
     requires_admin_review: bool | None = None
     # Legacy
