@@ -389,9 +389,10 @@ def _process_page(
 
         opportunity_type=eligibility.opportunity_type,
         title=extraction.title or "Untitled",
+        title_bn=getattr(extraction, "title_bn", None),
         summary=extraction.summary,
-        summary_bn=None,   # Set by LLM translation task or admin
-        summary_en=extraction.summary,
+        summary_bn=getattr(extraction, "summary_bn", None),
+        summary_en=getattr(extraction, "summary_en", None) or extraction.summary,
 
         country=extraction.country or source.country,
         destination_country=None,

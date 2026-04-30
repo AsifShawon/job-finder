@@ -3,7 +3,7 @@
 import { useState } from "react";
 import {
   AlertTriangle, CheckCircle, ExternalLink, FileText,
-  ShieldCheck, XCircle, Eye, EyeOff,
+  ShieldCheck, XCircle, Eye, EyeOff, Languages,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -84,6 +84,7 @@ export function AdminReviewTable({
 }) {
   const [items, setItems] = useState(initialItems);
   const [busy, setBusy] = useState<number | null>(null);
+  const [translating, setTranslating] = useState<number | null>(null);
   const [message, setMessage] = useState("");
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
 
@@ -123,6 +124,24 @@ export function AdminReviewTable({
       );
     } finally {
       setBusy(null);
+    }
+  };
+
+  const doTranslate = async (id: number) => {
+    setTranslating(id);
+    setMessage("");
+    try {
+      const res = await fetch(`/api/admin/review/${id}/translate`, { method: "POST" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setMessage((err as { detail?: string }).detail || (isEn ? "Translation failed." : "অনুবাদ ব্যর্থ হয়েছে।"));
+        return;
+      }
+      const updated = await res.json() as DraftItem;
+      setItems((prev) => prev.map((item) => item.id === id ? { ...item, ...updated } : item));
+      setMessage(isEn ? `#${id} translated successfully.` : `#${id}: অনুবাদ সম্পন্ন হয়েছে।`);
+    } finally {
+      setTranslating(null);
     }
   };
 
@@ -255,11 +274,22 @@ export function AdminReviewTable({
                     )}
                   </div>
 
-                  {/* Summary preview */}
-                  {item.summary_bn && (
-                    <p className="mt-2 text-xs text-muted-foreground line-clamp-2 italic">
-                      {item.summary_bn}
-                    </p>
+                  {/* Bilingual summary preview */}
+                  {(item.summary_bn || item.summary_en) && (
+                    <div className="mt-2 space-y-1">
+                      {item.summary_bn && (
+                        <p className="text-xs text-muted-foreground line-clamp-2 italic">
+                          <span className="font-semibold not-italic text-foreground/60">বাং: </span>
+                          {item.summary_bn}
+                        </p>
+                      )}
+                      {item.summary_en && (
+                        <p className="text-xs text-muted-foreground line-clamp-2 italic">
+                          <span className="font-semibold not-italic text-foreground/60">EN: </span>
+                          {item.summary_en}
+                        </p>
+                      )}
+                    </div>
                   )}
 
                   {/* Raw text (expandable) */}
@@ -275,17 +305,29 @@ export function AdminReviewTable({
                   {item.review_status !== "approved" && (
                     <button
                       onClick={() => doAction(item.id, "approve", "approved")}
-                      disabled={busy === item.id}
+                      disabled={busy === item.id || translating === item.id}
                       className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors"
                     >
                       <CheckCircle className="h-3.5 w-3.5" />
                       {isEn ? "Approve & Publish" : "অনুমোদন করুন"}
                     </button>
                   )}
+                  {(!item.title_bn || !item.summary_bn || !item.summary_en) && (
+                    <button
+                      onClick={() => doTranslate(item.id)}
+                      disabled={busy === item.id || translating === item.id}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-bold text-sky-700 hover:bg-sky-100 disabled:opacity-50 dark:border-sky-700 dark:bg-sky-900/20 dark:text-sky-400"
+                    >
+                      <Languages className="h-3.5 w-3.5" />
+                      {translating === item.id
+                        ? (isEn ? "Translating…" : "অনুবাদ হচ্ছে…")
+                        : (isEn ? "Translate Missing" : "অনুবাদ করুন")}
+                    </button>
+                  )}
                   {item.review_status !== "needs_manual_fix" && (
                     <button
                       onClick={() => doAction(item.id, "needs-manual-fix", "needs_manual_fix")}
-                      disabled={busy === item.id}
+                      disabled={busy === item.id || translating === item.id}
                       className="inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-700 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-400"
                     >
                       <AlertTriangle className="h-3.5 w-3.5" />
@@ -295,7 +337,7 @@ export function AdminReviewTable({
                   {item.review_status !== "rejected" && (
                     <button
                       onClick={() => doAction(item.id, "reject", "rejected")}
-                      disabled={busy === item.id}
+                      disabled={busy === item.id || translating === item.id}
                       className="inline-flex items-center gap-1.5 rounded-md border border-rose-300 bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-700 hover:bg-rose-100 disabled:opacity-50 dark:border-rose-700 dark:bg-rose-900/20 dark:text-rose-400"
                     >
                       <XCircle className="h-3.5 w-3.5" />

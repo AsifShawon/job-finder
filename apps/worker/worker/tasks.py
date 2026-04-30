@@ -9,10 +9,12 @@ from app.db.session import SessionLocal
 from app.ingestion.compliance_guard import ComplianceError
 from app.ingestion.errors import ConnectorNotImplementedError, NonRetryableCrawlError, SourceConfigError, TransientCrawlError
 from app.ingestion.pipeline import run_source_ingestion
-from app.models.entities import AlertEvent, AlertRule, CrawlJob, Opportunity, OpportunityEmbedding, Source
+from app.models.entities import AlertEvent, AlertRule, CrawlJob, EmailAlertLog, Opportunity, OpportunityEmbedding, Source, User, UserProfile
 from app.models.enums import CrawlStatus
 from app.schemas.opportunity import OpportunitySearchQuery
 from app.services.embedding_service import EMBEDDING_MODEL, embed_text
+from app.services.email_service import send_alert_email
+from app.services.recommendation_service import ISC_TO_SEARCH_TERMS
 from app.services.search_service import search_opportunities
 from worker.celery_app import celery_app
 
@@ -249,6 +251,113 @@ def cleanup_stale_opportunities(self) -> dict:
             row.last_verified_at = datetime.now(UTC)
         db.commit()
         return {"expired": len(rows)}
+
+
+@celery_app.task(bind=True)
+def send_category_alert_emails(self) -> dict:
+    """Send daily alert emails to users with ISC sector preferences."""
+    settings = get_settings()
+    if not settings.smtp_host:
+        logger.info("send_category_alert_emails: SMTP not configured, skipping")
+        return {"skipped": True, "reason": "smtp_not_configured"}
+
+    sent_count = 0
+    skipped_count = 0
+    seven_days_ago = datetime.now(UTC) - timedelta(days=7)
+
+    with SessionLocal() as db:
+        # Get all users who completed onboarding and have ISC preferences
+        users = db.scalars(
+            select(User).where(
+                User.onboarding_complete.is_(True),
+                User.is_active.is_(True),
+            )
+        ).all()
+
+        for user in users:
+            profile = db.scalar(
+                select(UserProfile).where(UserProfile.user_id == user.id)
+            )
+            if not profile or not profile.preferred_sectors_json:
+                continue
+
+            # Check if we already sent an email in the last 7 days
+            recent_log = db.scalar(
+                select(EmailAlertLog).where(
+                    EmailAlertLog.user_id == user.id,
+                    EmailAlertLog.sent_at >= seven_days_ago,
+                    EmailAlertLog.status == "sent",
+                )
+            )
+            if recent_log:
+                skipped_count += 1
+                continue
+
+            # Build combined search terms from ISC keys
+            isc_keys = profile.preferred_sectors_json or []
+            all_terms: set[str] = set()
+            for key in isc_keys:
+                all_terms.update(ISC_TO_SEARCH_TERMS.get(key, []))
+
+            if not all_terms:
+                continue
+
+            # Find recent matching opportunities
+            cutoff = datetime.now(UTC) - timedelta(days=7)
+            opps = db.scalars(
+                select(Opportunity).where(
+                    Opportunity.status == "published",
+                    Opportunity.published_at >= cutoff,
+                )
+                .order_by(Opportunity.overall_rank_score.desc())
+                .limit(50)
+            ).all()
+
+            matched: list[Opportunity] = []
+            for opp in opps:
+                opp_text = " ".join(filter(None, [
+                    opp.title or "", opp.sector or "", opp.summary_en or ""
+                ])).lower()
+                if any(t.lower() in opp_text for t in all_terms):
+                    matched.append(opp)
+                if len(matched) >= 5:
+                    break
+
+            if not matched:
+                continue
+
+            base_url = settings.web_base_url.rstrip("/")
+            opp_dicts = [
+                {
+                    "title": opp.title,
+                    "title_bn": opp.title_bn,
+                    "country": opp.country or opp.destination_country or "",
+                    "deadline": str(opp.deadline) if opp.deadline else "",
+                    "url": f"{base_url}/opportunity/{opp.id}",
+                    "source_name": opp.source_name or "",
+                }
+                for opp in matched
+            ]
+
+            locale = user.preferred_language or "bn"
+            success = send_alert_email(
+                to_email=user.email,
+                user_name=user.full_name,
+                opportunities=opp_dicts,
+                locale=locale,
+            )
+
+            if success:
+                log = EmailAlertLog(
+                    user_id=user.id,
+                    opportunity_ids=[opp.id for opp in matched],
+                    status="sent",
+                )
+                db.add(log)
+                db.commit()
+                sent_count += 1
+
+    return {"sent": sent_count, "skipped": skipped_count}
 
 
 @celery_app.task(base=BaseRetryTask, bind=True)

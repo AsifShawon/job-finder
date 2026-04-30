@@ -17,20 +17,41 @@ import { fetchBackendJsonWithAuth, requireCurrentUser } from "@/lib/server-auth-
 import { getLocale, getT } from "@/lib/i18n";
 import type { AlertRulePage, OpportunityCard as OppCard, RecommendationResponse } from "@/lib/types";
 
+const ISC_SECTOR_LABELS: Record<string, { bn: string; en: string }> = {
+  informal_isc:       { bn: "ইনফরমাল সেক্টর আইএসসি",                   en: "Informal Sector ISC" },
+  ict_isc:            { bn: "আইসিটি আইএসসি",                            en: "ICT ISC" },
+  agrofood_isc:       { bn: "অ্যাগ্রোফুড আইএসসি",                       en: "Agrofood ISC" },
+  jute_isc:           { bn: "জুট সেক্টর আইএসসি",                        en: "Jute Sector ISC" },
+  ceramic_isc:        { bn: "সিরামিক আইএসসি",                           en: "Ceramic ISC" },
+  leather_isc:        { bn: "লেদার ও লেদার গুডস আইএসসি",              en: "Leather & Leather Goods ISC" },
+  light_eng_isc:      { bn: "লাইট ইঞ্জিনিয়ারিং আইএসসি",              en: "Light Engineering ISC" },
+  rgt_isc:            { bn: "রেডিমেড গার্মেন্টস ও টেক্সটাইল আইএসসি", en: "Readymade Garments & Textile ISC" },
+  pharma_isc:         { bn: "ফার্মাসিউটিক্যাল আইএসসি",                 en: "Pharmaceutical ISC" },
+  furniture_isc:      { bn: "ফার্নিচার আইএসসি",                         en: "Furniture ISC" },
+  plastics_isc:       { bn: "প্লাস্টিকস আইএসসি",                        en: "Plastics ISC" },
+  tourism_isc:        { bn: "ট্যুরিজম ও হসপিটালিটি আইএসসি",           en: "Tourism & Hospitality ISC" },
+  creative_media_isc: { bn: "ক্রিয়েটিভ মিডিয়া আইএসসি",              en: "Creative Media ISC" },
+  construction_isc:   { bn: "কনস্ট্রাকশন আইএসসি",                       en: "Construction ISC" },
+  agriculture_isc:    { bn: "এগ্রিকালচার আইএসসি",                       en: "Agriculture ISC" },
+};
+
 export default async function DashboardPage() {
   const [user, locale] = await Promise.all([requireCurrentUser(), getLocale()]);
   const isEn = locale === "en";
   const t = await getT("dashboard");
 
-  const [savedItems, alertData, recommendations] = await Promise.all([
+  const [savedItems, alertData, recommendations, profileData] = await Promise.all([
     fetchBackendJsonWithAuth<OppCard[]>("/api/v1/saved"),
     fetchBackendJsonWithAuth<AlertRulePage>("/api/v1/alerts"),
     fetchBackendJsonWithAuth<RecommendationResponse>("/api/v1/recommendations?page_size=6"),
+    fetchBackendJsonWithAuth<{ preferred_sectors_json?: string[]; preferred_countries_json?: string[] }>("/api/v1/auth/profile"),
   ]);
 
   const saved = savedItems ?? [];
   const alerts = alertData?.items ?? [];
   const recItems = recommendations?.items ?? [];
+  const iscKeys = profileData?.preferred_sectors_json ?? [];
+  const prefCountries = profileData?.preferred_countries_json ?? [];
   const activeAlerts = alerts.filter((a) => a.is_active).length;
   const urgentItems = recItems.filter((item) => {
     if (!item.deadline) return false;
@@ -160,9 +181,20 @@ export default async function DashboardPage() {
           {/* Left: Recommendations */}
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-base font-bold text-foreground section-underline">
-                {isEn ? "Recommended for you" : "আপনার জন্য সুপারিশ"}
-              </h2>
+              <div>
+                <h2 className="text-base font-bold text-foreground section-underline">
+                  {isEn
+                    ? "Opportunities matching your sectors & countries"
+                    : "আপনার সেক্টর ও দেশ অনুযায়ী সুযোগ"}
+                </h2>
+                {iscKeys.length > 0 && prefCountries.length > 0 && (
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {isEn
+                      ? `Your sectors: ${iscKeys.map((k) => ISC_SECTOR_LABELS[k]?.en ?? k).join(", ")} • Countries: ${prefCountries.join(", ")}`
+                      : `নির্বাচিত সেক্টর: ${iscKeys.map((k) => ISC_SECTOR_LABELS[k]?.bn ?? k).join(", ")} • দেশ: ${prefCountries.join(", ")}`}
+                  </p>
+                )}
+              </div>
               <Link href="/search" className="text-sm font-semibold text-primary hover:underline">
                 {isEn ? "View all →" : "সব দেখুন →"}
               </Link>

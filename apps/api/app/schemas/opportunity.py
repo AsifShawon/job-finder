@@ -194,6 +194,7 @@ class OpportunitySearchResponse(Page[OpportunityCard]):
 
 class RecommendationCard(OpportunityCard):
     match_score: float | None = None
+    isc_match_key: str | None = None
 
 
 class RecommendationResponse(Page[RecommendationCard]):

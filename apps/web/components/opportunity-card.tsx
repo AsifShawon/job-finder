@@ -20,6 +20,25 @@ import {
 
 import type { OpportunityCard as OpportunityCardType, RecommendationCard } from "@/lib/types";
 import { cn, formatDateTime } from "@/lib/utils";
+import { ShareButton } from "@/components/share-button";
+
+const ISC_SECTOR_LABELS: Record<string, { bn: string; en: string }> = {
+  informal_isc:       { bn: "ইনফরমাল সেক্টর আইএসসি",                   en: "Informal Sector ISC" },
+  ict_isc:            { bn: "আইসিটি আইএসসি",                            en: "ICT ISC" },
+  agrofood_isc:       { bn: "অ্যাগ্রোফুড আইএসসি",                       en: "Agrofood ISC" },
+  jute_isc:           { bn: "জুট সেক্টর আইএসসি",                        en: "Jute Sector ISC" },
+  ceramic_isc:        { bn: "সিরামিক আইএসসি",                           en: "Ceramic ISC" },
+  leather_isc:        { bn: "লেদার ও লেদার গুডস আইএসসি",              en: "Leather & Leather Goods ISC" },
+  light_eng_isc:      { bn: "লাইট ইঞ্জিনিয়ারিং আইএসসি",              en: "Light Engineering ISC" },
+  rgt_isc:            { bn: "রেডিমেড গার্মেন্টস ও টেক্সটাইল আইএসসি", en: "Readymade Garments & Textile ISC" },
+  pharma_isc:         { bn: "ফার্মাসিউটিক্যাল আইএসসি",                 en: "Pharmaceutical ISC" },
+  furniture_isc:      { bn: "ফার্নিচার আইএসসি",                         en: "Furniture ISC" },
+  plastics_isc:       { bn: "প্লাস্টিকস আইএসসি",                        en: "Plastics ISC" },
+  tourism_isc:        { bn: "ট্যুরিজম ও হসপিটালিটি আইএসসি",           en: "Tourism & Hospitality ISC" },
+  creative_media_isc: { bn: "ক্রিয়েটিভ মিডিয়া আইএসসি",              en: "Creative Media ISC" },
+  construction_isc:   { bn: "কনস্ট্রাকশন আইএসসি",                       en: "Construction ISC" },
+  agriculture_isc:    { bn: "এগ্রিকালচার আইএসসি",                       en: "Agriculture ISC" },
+};
 
 type AnyCard = OpportunityCardType | RecommendationCard;
 
@@ -161,6 +180,7 @@ export function OpportunityCard({
   const [saving, setSaving] = useState(false);
 
   const matchScore = "match_score" in item ? item.match_score : null;
+  const iscMatchKey = "isc_match_key" in item ? (item as RecommendationCard).isc_match_key : null;
 
   const toggleSave = async () => {
     setSaving(true);
@@ -185,6 +205,8 @@ export function OpportunityCard({
   const orgName = item.employer_or_organization;
   const location = [item.destination_country, item.country].filter(Boolean).join(", ");
   const hasSalary = item.salary_min != null || item.salary_text;
+
+  const shareUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/opportunity/${item.id}`;
 
   if (variant === "compact") {
     return (
@@ -227,7 +249,7 @@ export function OpportunityCard({
           )}
         </div>
 
-        {/* Title + org + save */}
+        {/* Title + org + save + share */}
         <div className="flex items-start gap-3">
           <div className="flex-1 min-w-0">
             <Link
@@ -239,19 +261,27 @@ export function OpportunityCard({
             {orgName && (
               <p className="mt-0.5 text-sm text-muted-foreground">{orgName}</p>
             )}
-          </div>
-          <button
-            onClick={toggleSave}
-            disabled={saving}
-            aria-label={saved ? "সংরক্ষণ বাতিল করুন" : "সংরক্ষণ করুন"}
-            className="mt-0.5 shrink-0 text-muted-foreground/50 hover:text-primary transition-colors disabled:opacity-40"
-          >
-            {saved ? (
-              <BookmarkCheck className="h-5 w-5 text-primary" />
-            ) : (
-              <Bookmark className="h-5 w-5" />
+            {iscMatchKey && (
+              <span className="mt-1 inline-flex items-center rounded-full bg-teal-50 border border-teal-200 px-2 py-0.5 text-[10px] font-semibold text-teal-700">
+                {ISC_SECTOR_LABELS[iscMatchKey]?.[locale] ?? iscMatchKey}
+              </span>
             )}
-          </button>
+          </div>
+          <div className="mt-0.5 flex shrink-0 items-center gap-2">
+            <ShareButton url={shareUrl} title={item.title} />
+            <button
+              onClick={toggleSave}
+              disabled={saving}
+              aria-label={saved ? "সংরক্ষণ বাতিল করুন" : "সংরক্ষণ করুন"}
+              className="text-muted-foreground/50 hover:text-primary transition-colors disabled:opacity-40"
+            >
+              {saved ? (
+                <BookmarkCheck className="h-5 w-5 text-primary" />
+              ) : (
+                <Bookmark className="h-5 w-5" />
+              )}
+            </button>
+          </div>
         </div>
 
         {/* Summary */}

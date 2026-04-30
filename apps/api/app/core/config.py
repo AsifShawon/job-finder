@@ -37,6 +37,13 @@ class Settings(BaseSettings):
     rate_limit_copilot: str = "20/minute"
     web_base_url: str = "http://localhost:3000"
 
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = "noreply@sudokkho.xyz"
+    smtp_tls: bool = True
+
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
 
 

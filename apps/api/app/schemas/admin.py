@@ -263,6 +263,8 @@ class SourceProbeResult(BaseModel):
     suggested_name: str | None = None
     sample_titles: list[str] = []
     detected_language: str | None = None
+    suggested_isc_sector: str | None = None
+    estimated_opportunities_per_crawl: int | None = None
     error: str | None = None
 
 

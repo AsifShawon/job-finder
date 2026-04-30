@@ -87,7 +87,10 @@ class OpportunityDraftPayload(BaseModel):
 class ExtractionBase(BaseModel):
     record_type: Literal["job", "scholarship", "policy_update", "unknown"]
     title: str | None = None
+    title_bn: str | None = None
     summary: str | None = None
+    summary_bn: str | None = None
+    summary_en: str | None = None
     country: str | None = None
     city: str | None = None
     employer: str | None = None

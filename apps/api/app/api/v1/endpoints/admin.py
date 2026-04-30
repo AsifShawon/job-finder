@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 import logging
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from pydantic import BaseModel
 from sqlalchemy import case, delete, func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -567,12 +568,47 @@ async def probe_source(
     except Exception as exc:
         return SourceProbeResult(url=url, feed_type="html", error=str(exc)[:300])
 
+    # --- ISC sector suggestion via keyword matching ---
+    suggested_isc_sector: str | None = None
+    isc_keyword_map = {
+        "construction_isc":    ["construction", "civil", "mason", "welder", "carpenter", "plumber"],
+        "ict_isc":             ["software", "developer", "IT", "tech", "digital", "programmer"],
+        "agrofood_isc":        ["food", "agriculture", "farm", "fishery", "dairy"],
+        "tourism_isc":         ["hotel", "hospitality", "restaurant", "tourism", "chef"],
+        "rgt_isc":             ["garments", "textile", "sewing", "fabric", "apparel"],
+        "leather_isc":         ["leather", "footwear", "tannery", "shoe"],
+        "light_eng_isc":       ["engineering", "mechanic", "machinist", "fitter"],
+        "pharma_isc":          ["pharmaceutical", "medicine", "laboratory", "pharmacy"],
+        "furniture_isc":       ["furniture", "carpentry", "wood", "cabinet"],
+        "agriculture_isc":     ["agriculture", "farming", "crop", "livestock", "poultry"],
+        "informal_isc":        ["general labor", "helper", "driver", "cleaner", "domestic"],
+    }
+    if suggested_name or sample_titles:
+        combined_probe_text = " ".join(filter(None, [suggested_name] + sample_titles)).lower()
+        best_sector_hits = 0
+        for sector_key, kws in isc_keyword_map.items():
+            hits = sum(1 for kw in kws if kw.lower() in combined_probe_text)
+            if hits > best_sector_hits:
+                best_sector_hits = hits
+                suggested_isc_sector = sector_key
+
+    # --- Estimated opportunities count (links found, max 10) ---
+    estimated_opportunities_per_crawl: int | None = None
+    if feed_type == "html":
+        import re as _re
+        link_count = len(_re.findall(r'href=["\']([^"\']+)["\']', body))
+        estimated_opportunities_per_crawl = min(link_count, 50)
+    elif feed_type == "rss":
+        estimated_opportunities_per_crawl = len(sample_titles)
+
     return SourceProbeResult(
         url=url,
         feed_type=feed_type,
         suggested_name=suggested_name,
         sample_titles=sample_titles[:3],
         detected_language=detected_language,
+        suggested_isc_sector=suggested_isc_sector,
+        estimated_opportunities_per_crawl=estimated_opportunities_per_crawl,
     )
 
 
@@ -757,6 +793,76 @@ def needs_manual_fix(
     db.commit()
     source_name = db.scalar(select(Source.name).where(Source.id == draft.source_id))
     logger.info("admin_draft_needs_fix", extra={"draft_id": draft_id})
+    return _draft_to_review_out(draft, source_name)
+
+
+@router.post("/review/{draft_id}/translate", response_model=ReviewQueueOut)
+def translate_draft(
+    draft_id: int,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_admin_user),
+) -> ReviewQueueOut:
+    """Fill missing title_bn / summary_bn / summary_en via LLM translation."""
+    draft = db.scalar(select(Opportunity).where(Opportunity.id == draft_id))
+    if not draft:
+        raise HTTPException(status_code=404, detail="Draft not found")
+
+    needs_translation = not draft.title_bn or not draft.summary_bn or not draft.summary_en
+    if not needs_translation:
+        source_name = db.scalar(select(Source.name).where(Source.id == draft.source_id))
+        return _draft_to_review_out(draft, source_name)
+
+    api_key = get_ai_api_key(db)
+    if not api_key:
+        raise HTTPException(status_code=503, detail="AI API key not configured")
+
+    provider = get_ai_provider(db)
+    source_title = draft.title or ""
+    source_summary = draft.summary_en or draft.summary_bn or ""
+
+    translate_prompt = (
+        "You are a bilingual translator for a Bangladeshi job/opportunity platform.\n"
+        "Given the following title and summary in English (or mixed language), produce:\n"
+        "1. title_bn: Bengali translation of the title\n"
+        "2. summary_bn: Bengali summary (2–4 sentences) suitable for Bangladeshi migrant workers\n"
+        "3. summary_en: Clear English summary (2–4 sentences)\n\n"
+        f"Title: {source_title}\n"
+        f"Summary/Content: {source_summary[:3000]}\n\n"
+        "Respond ONLY with valid JSON: "
+        '{"title_bn": "...", "summary_bn": "...", "summary_en": "..."}'
+    )
+
+    try:
+        import json as _json
+
+        if provider == "mistral":
+            from mistralai import Mistral as _Mistral
+            client = _Mistral(api_key=api_key)
+            resp = client.chat.complete(
+                model=get_ai_model(db),
+                messages=[{"role": "user", "content": translate_prompt}],
+            )
+            raw = resp.choices[0].message.content or "{}"
+        else:
+            from langchain_groq import ChatGroq as _ChatGroq
+            model = _ChatGroq(model=get_ai_model(db), api_key=api_key, temperature=0.0)
+            raw = model.invoke(translate_prompt).content
+
+        translated = _json.loads(raw)
+        if not draft.title_bn:
+            draft.title_bn = translated.get("title_bn") or draft.title_bn
+        if not draft.summary_bn:
+            draft.summary_bn = translated.get("summary_bn") or draft.summary_bn
+        if not draft.summary_en:
+            draft.summary_en = translated.get("summary_en") or draft.summary_en
+
+        db.commit()
+        logger.info("admin_draft_translated", extra={"draft_id": draft_id})
+    except Exception as exc:
+        logger.warning("translate_draft_failed", extra={"draft_id": draft_id, "error": str(exc)})
+        raise HTTPException(status_code=502, detail=f"Translation failed: {exc}") from exc
+
+    source_name = db.scalar(select(Source.name).where(Source.id == draft.source_id))
     return _draft_to_review_out(draft, source_name)
 
 
@@ -986,3 +1092,55 @@ def failed_extractions(
         ],
         total=total, page=page, page_size=page_size,
     )
+
+
+# ── Test email endpoint ────────────────────────────────────────────────────────
+
+class TestEmailRequest(BaseModel):
+    to_email: str
+
+
+class TestEmailResult(BaseModel):
+    success: bool
+    to_email: str
+    opportunities_sent: int
+
+
+@router.post("/test-email", response_model=TestEmailResult)
+def test_email(
+    body: TestEmailRequest,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_admin_user),
+) -> TestEmailResult:
+    """Send a sample alert email with the top 3 published opportunities."""
+    from app.services.email_service import send_alert_email
+    from app.core.config import get_settings
+
+    opps = db.scalars(
+        select(Opportunity)
+        .where(Opportunity.status == "published")
+        .order_by(Opportunity.overall_rank_score.desc())
+        .limit(3)
+    ).all()
+
+    settings = get_settings()
+    base_url = settings.web_base_url.rstrip("/")
+    opp_dicts = [
+        {
+            "title": opp.title,
+            "title_bn": opp.title_bn,
+            "country": opp.country or opp.destination_country or "",
+            "deadline": str(opp.deadline) if opp.deadline else "",
+            "url": f"{base_url}/opportunity/{opp.id}",
+            "source_name": opp.source_name or "",
+        }
+        for opp in opps
+    ]
+
+    success = send_alert_email(
+        to_email=body.to_email,
+        user_name="Admin",
+        opportunities=opp_dicts,
+        locale="bn",
+    )
+    return TestEmailResult(success=success, to_email=body.to_email, opportunities_sent=len(opp_dicts))

@@ -50,7 +50,7 @@ __all__ = [
     "Source", "AppSetting", "CrawlRun", "CrawlJob", "RawDocument",
     "Opportunity", "OpportunityEmbedding",
     "User", "UserProfile", "SavedOpportunity", "AlertRule", "AlertEvent",
-    "Feedback", "RefreshToken",
+    "Feedback", "RefreshToken", "EmailAlertLog",
 ]
 
 
@@ -434,3 +434,13 @@ class RefreshToken(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     revoked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class EmailAlertLog(Base):
+    __tablename__ = "email_alert_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    opportunity_ids: Mapped[list[int]] = mapped_column(JSON, default=list)
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    status: Mapped[str] = mapped_column(String(20), default="sent")

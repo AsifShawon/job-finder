@@ -10,7 +10,6 @@ import {
   ShieldCheck,
   Shield,
   AlertTriangle,
-  Bookmark,
   Sparkles,
   ArrowLeft,
   Banknote,
@@ -19,6 +18,8 @@ import {
 } from "lucide-react";
 
 import { OpportunityCard } from "@/components/opportunity-card";
+import { BilingualSummary } from "@/components/bilingual-summary";
+import { ShareButton } from "@/components/share-button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { getOpportunity, getSimilar } from "@/lib/api";
@@ -61,6 +62,7 @@ export default async function OpportunityDetailPage({ params }: OpportunityDetai
     getLocale(),
   ]);
   const isEn = locale === "en";
+  const opportunityUrl = `/opportunity/${id}`;
   const t = await getT("opportunity");
 
   const requirements = opportunity.requirements_json?.items ?? [];
@@ -115,8 +117,11 @@ export default async function OpportunityDetailPage({ params }: OpportunityDetai
               </div>
 
               <h1 className="text-2xl font-bold leading-snug text-foreground">
-                {opportunity.title}
+                {opportunity.title_bn || opportunity.title}
               </h1>
+              {opportunity.title_bn && opportunity.title && opportunity.title_bn !== opportunity.title && (
+                <p className="mt-1 text-base text-muted-foreground">{opportunity.title}</p>
+              )}
 
               {orgName && (
                 <p className="mt-1.5 text-base text-muted-foreground">{orgName}</p>
@@ -157,13 +162,16 @@ export default async function OpportunityDetailPage({ params }: OpportunityDetai
               </div>
             </Card>
 
-            {/* Summary */}
-            {opportunity.summary && (
+            {/* Summary — bilingual tabbed view */}
+            {(opportunity.summary_bn || opportunity.summary_en || opportunity.summary) && (
               <Card>
                 <h2 className="mb-3 font-bold text-foreground section-underline">
                   {isEn ? "Summary" : "সারসংক্ষেপ"}
                 </h2>
-                <p className="text-sm text-foreground leading-relaxed">{opportunity.summary}</p>
+                <BilingualSummary
+                  summaryBn={opportunity.summary_bn || opportunity.summary || null}
+                  summaryEn={opportunity.summary_en || opportunity.summary || null}
+                />
               </Card>
             )}
 
@@ -367,6 +375,11 @@ export default async function OpportunityDetailPage({ params }: OpportunityDetai
                 <Sparkles className="h-4 w-4" />
                 {isEn ? "Ask AI about this" : "AI-তে জিজ্ঞেস করুন"}
               </Link>
+
+              <div className="mt-2 flex items-center justify-end gap-2">
+                <span className="text-xs text-muted-foreground">{isEn ? "Share" : "শেয়ার"}:</span>
+                <ShareButton url={opportunityUrl} title={opportunity.title} />
+              </div>
 
               {/* Key info */}
               <div className="mt-4 space-y-2 border-t border-border pt-4 text-sm">

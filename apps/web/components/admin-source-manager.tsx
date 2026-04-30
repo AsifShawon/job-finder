@@ -130,6 +130,11 @@ export function AdminSourceManager({ initialSources }: { initialSources: AdminSo
   const [currentPage, setCurrentPage] = useState(1);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Quick Add state
+  const [quickUrl, setQuickUrl] = useState("");
+  const [quickName, setQuickName] = useState("");
+  const [quickProbeResult, setQuickProbeResult] = useState<SourceProbeResult | null>(null);
+
   const refreshSources = async () => {
     const res = await fetch("/api/admin/sources", { cache: "no-store" });
     if (!res.ok) { setStatusMessage(isEn ? "Could not refresh sources." : "উৎস রিফ্রেশ করা যায়নি।"); return; }
@@ -254,6 +259,51 @@ export function AdminSourceManager({ initialSources }: { initialSources: AdminSo
     } finally { setBusyKey(null); }
   };
 
+  const quickProbe = async () => {
+    if (!quickUrl) return;
+    setBusyKey("quick-probe"); setQuickProbeResult(null);
+    try {
+      const res = await fetch("/api/admin/sources/probe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: quickUrl }),
+      });
+      const data = (await res.json()) as SourceProbeResult;
+      setQuickProbeResult(data);
+      if (data.suggested_name && !quickName) setQuickName(data.suggested_name);
+    } finally { setBusyKey(null); }
+  };
+
+  const quickAdd = async () => {
+    if (!quickUrl || !quickProbeResult || quickProbeResult.error) return;
+    setBusyKey("quick-add"); setStatusMessage("");
+    try {
+      const name = quickName || quickProbeResult.suggested_name || new URL(quickUrl).hostname;
+      const payload = {
+        name,
+        base_url: quickUrl,
+        feed_type: quickProbeResult.feed_type || "html",
+        trust_level: "news_source",
+        auto_publish: false,
+        enabled: true,
+        requires_admin_review: true,
+        is_active: true,
+      };
+      const res = await fetch("/api/admin/sources", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        setStatusMessage(await getResponseMessage(res, isEn ? "Could not create source." : "উৎস তৈরি করা যায়নি।"));
+        return;
+      }
+      setStatusMessage(isEn ? `Source "${name}" created.` : `উৎস "${name}" তৈরি হয়েছে।`);
+      setQuickUrl(""); setQuickName(""); setQuickProbeResult(null);
+      await refreshSources();
+    } finally { setBusyKey(null); }
+  };
+
   const resetAllData = async () => {
     if (!confirm(isEn
       ? "DELETE ALL sources, opportunities, crawl jobs, and raw documents? This cannot be undone."
@@ -301,6 +351,109 @@ export function AdminSourceManager({ initialSources }: { initialSources: AdminSo
           </Card>
         ))}
       </div>
+
+      {/* Quick Add */}
+      <Card className="rounded-lg p-5 border-dashed border-2 border-primary/30 bg-primary/5">
+        <div className="mb-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+            {isEn ? "Quick Add" : "দ্রুত যোগ করুন"}
+          </p>
+          <h2 className="font-display text-xl font-bold mt-0.5">
+            {isEn ? "Add a source by URL" : "URL দিয়ে উৎস যোগ করুন"}
+          </h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {isEn
+              ? "Paste a URL — the system will probe and detect feed type, name, and sector automatically."
+              : "URL দিন — সিস্টেম স্বয়ংক্রিয়ভাবে ফিড ধরন, নাম ও সেক্টর শনাক্ত করবে।"}
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-3 items-end">
+          <div className="flex-1 min-w-48 space-y-1">
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">URL</span>
+            <Input
+              placeholder="https://example.gov.bd/jobs"
+              value={quickUrl}
+              onChange={(e) => { setQuickUrl(e.target.value); setQuickProbeResult(null); }}
+              onKeyDown={(e) => e.key === "Enter" && quickProbe()}
+            />
+          </div>
+          <div className="flex-1 min-w-40 space-y-1">
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              {isEn ? "Name (optional)" : "নাম (ঐচ্ছিক)"}
+            </span>
+            <Input
+              placeholder={isEn ? "Auto-detected" : "স্বয়ংক্রিয়"}
+              value={quickName}
+              onChange={(e) => setQuickName(e.target.value)}
+            />
+          </div>
+          <Button
+            onClick={quickProbe}
+            disabled={busyKey === "quick-probe" || !quickUrl}
+            variant="outline"
+            className="border-primary text-primary hover:bg-primary/10"
+          >
+            {busyKey === "quick-probe"
+              ? <Loader2 className="mr-2 size-4 animate-spin" />
+              : <SearchCode className="mr-2 size-4" />}
+            {isEn ? "Analyze" : "বিশ্লেষণ"}
+          </Button>
+          {quickProbeResult && !quickProbeResult.error && (
+            <Button
+              onClick={quickAdd}
+              disabled={busyKey === "quick-add"}
+              className="bg-primary text-primary-foreground hover:bg-primary/90"
+            >
+              {busyKey === "quick-add"
+                ? <Loader2 className="mr-2 size-4 animate-spin" />
+                : <Plus className="mr-2 size-4" />}
+              {isEn ? "Confirm & Add" : "নিশ্চিত ও যোগ করুন"}
+            </Button>
+          )}
+        </div>
+
+        {quickProbeResult && (
+          <div className={`mt-3 rounded-md border px-4 py-3 text-sm ${
+            quickProbeResult.error
+              ? "border-rose-200 bg-rose-50 text-rose-700 dark:bg-rose-950/20 dark:border-rose-700/30"
+              : "border-emerald-200 bg-emerald-50 text-emerald-800 dark:bg-emerald-950/20 dark:border-emerald-700/30 dark:text-emerald-300"
+          }`}>
+            {quickProbeResult.error ? (
+              <p className="font-medium">{quickProbeResult.error}</p>
+            ) : (
+              <div className="space-y-1.5">
+                <div className="flex flex-wrap gap-3 text-xs font-semibold">
+                  <span className="rounded bg-white/60 px-2 py-0.5 border border-emerald-200 dark:bg-white/10">
+                    {quickProbeResult.feed_type.toUpperCase()}
+                  </span>
+                  {quickProbeResult.suggested_name && (
+                    <span>{isEn ? "Name:" : "নাম:"} {quickProbeResult.suggested_name}</span>
+                  )}
+                  {quickProbeResult.detected_language && (
+                    <span>{isEn ? "Lang:" : "ভাষা:"} {quickProbeResult.detected_language}</span>
+                  )}
+                  {quickProbeResult.suggested_isc_sector && (
+                    <span className="rounded bg-teal-100 px-2 py-0.5 text-teal-700 dark:bg-teal-900/20 dark:text-teal-400">
+                      ISC: {quickProbeResult.suggested_isc_sector}
+                    </span>
+                  )}
+                  {quickProbeResult.estimated_opportunities_per_crawl != null && (
+                    <span>~{quickProbeResult.estimated_opportunities_per_crawl} {isEn ? "per crawl" : "প্রতি ক্রল"}</span>
+                  )}
+                </div>
+                {quickProbeResult.sample_titles.length > 0 && (
+                  <ul className="text-xs text-slate-600 dark:text-slate-400 space-y-0.5">
+                    {quickProbeResult.sample_titles.slice(0, 3).map((t, i) => (
+                      <li key={i} className="truncate">• {t}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </Card>
 
       {/* Form */}
       <Card className="rounded-lg p-5">

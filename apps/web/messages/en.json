@@ -36,10 +36,10 @@
   "onboarding": {
     "title": "Set your preferences",
     "subtitle": "We'll find the best opportunities for you",
-    "step1Title": "Preferred countries",
-    "step1Subtitle": "Which countries are you interested in?",
-    "step2Title": "Areas of interest",
-    "step2Subtitle": "Which sectors are you looking in?",
+    "step1Title": "Choose your sectors",
+    "step1Subtitle": "Select 2 to 3 sectors that match your skills",
+    "step2Title": "Preferred countries",
+    "step2Subtitle": "Which countries are you interested in?",
     "step3Title": "Current status",
     "step3Subtitle": "What are you currently doing?",
     "step4Title": "Education level",
@@ -49,6 +49,7 @@
     "finish": "Finish setup",
     "skip": "Skip for now",
     "stepOf": "{current} of {total}",
+    "isc_min_error": "Please select at least 2 sectors",
     "status": {
       "student": "Student",
       "employed": "Employed (locally)",
@@ -120,5 +121,35 @@
     "crawlQueued": "{queued} sources queued for crawling",
     "importSuccess": "{created} sources created, {skipped} skipped",
     "downloadTemplate": "Download CSV template"
+  },
+  "isc_sectors": {
+    "informal_isc": "Informal Sector ISC",
+    "ict_isc": "ICT ISC",
+    "agrofood_isc": "Agrofood ISC",
+    "jute_isc": "Jute Sector ISC",
+    "ceramic_isc": "Ceramic ISC",
+    "leather_isc": "Leather & Leather Goods ISC",
+    "light_eng_isc": "Light Engineering ISC",
+    "rgt_isc": "Readymade Garments & Textile ISC",
+    "pharma_isc": "Pharmaceutical ISC",
+    "furniture_isc": "Furniture ISC",
+    "plastics_isc": "Plastics ISC",
+    "tourism_isc": "Tourism & Hospitality ISC",
+    "creative_media_isc": "Creative Media ISC",
+    "construction_isc": "Construction ISC",
+    "agriculture_isc": "Agriculture ISC"
+  },
+  "share": {
+    "copy": "Copy link",
+    "copied": "Copied!",
+    "facebook": "Share on Facebook",
+    "instagram": "Share on Instagram",
+    "instagram_note": "To share on Instagram, copy the link and paste it in your post"
+  },
+  "email_alert": {
+    "subject": "New opportunities in your sectors!",
+    "cta": "View details",
+    "footer": "সুযোগ বিডি | Your trusted platform for overseas opportunities",
+    "unsubscribe": "To stop alerts, change your Alerts settings in your account"
   }
 }

@@ -6,10 +6,10 @@ import { OnboardingWizard } from "@/components/onboarding-wizard";
 import { requireCurrentUser } from "@/lib/server-auth-fetch";
 
 const STEPS = [
-  { label: "লক্ষ্য নির্বাচন", en: "Goals" },
+  { label: "সেক্টর বেছে নিন", en: "ISC Sectors" },
   { label: "দেশ পছন্দ", en: "Countries" },
-  { label: "প্রোফাইল তথ্য", en: "Profile" },
-  { label: "সতর্কতা সেটআপ", en: "Alerts" },
+  { label: "বর্তমান অবস্থা", en: "Current Status" },
+  { label: "শিক্ষাগত যোগ্যতা", en: "Education" },
 ];
 
 export default async function OnboardingPage() {

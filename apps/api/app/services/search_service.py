@@ -53,7 +53,13 @@ def _apply_filters(stmt: Select, q: PublishedSearchQuery, user_id: int | None) -
             Opportunity.source_trust_badge.in_(["সরকারি উৎস", "অফিসিয়াল পার্টনার"])
         )
     if q.sector:
-        stmt = stmt.where(Opportunity.sector.ilike(f"%{q.sector}%"))
+        terms = [t.strip() for t in q.sector.split(",") if t.strip()]
+        if len(terms) > 1:
+            sector_conditions = [Opportunity.sector.ilike(f"%{t}%") for t in terms]
+            sector_conditions += [Opportunity.title.ilike(f"%{t}%") for t in terms]
+            stmt = stmt.where(or_(*sector_conditions))
+        else:
+            stmt = stmt.where(Opportunity.sector.ilike(f"%{q.sector}%"))
     if q.skill_level:
         stmt = stmt.where(Opportunity.skill_level.ilike(f"%{q.skill_level}%"))
     if q.deadline_from:

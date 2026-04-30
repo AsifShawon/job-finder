@@ -40,8 +40,9 @@ def recommendations(
             why_this_matches="",
             is_saved=is_saved,
             match_score=match_score,
+            isc_match_key=isc_match_key,
             created_at=opp.created_at,
         )
-        for opp, match_score, is_saved in items
+        for opp, match_score, is_saved, isc_match_key in items
     ]
     return RecommendationResponse(items=cards, total=total, page=page, page_size=page_size)

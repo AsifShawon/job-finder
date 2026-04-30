@@ -251,6 +251,8 @@ export interface SourceProbeResult {
   suggested_name: string | null;
   sample_titles: string[];
   detected_language: string | null;
+  suggested_isc_sector: string | null;
+  estimated_opportunities_per_crawl: number | null;
   error: string | null;
 }
 
@@ -361,6 +363,7 @@ export interface AlertRulePage {
 
 export interface RecommendationCard extends PublishedOpportunityCard {
   match_score: number | null;
+  isc_match_key: string | null;
 }
 
 export interface RecommendationResponse {

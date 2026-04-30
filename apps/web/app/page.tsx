@@ -43,6 +43,18 @@ async function getRecentOpportunities() {
   }
 }
 
+async function getTickerOpportunities() {
+  try {
+    const params = new URLSearchParams({ page_size: "12", sort: "newest" });
+    const res = await searchOpportunities(params);
+    return res.items.map(({ id, title, title_bn, opportunity_type }) => ({
+      id, title, title_bn, opportunity_type,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 type CategoryItem = {
   icon: (p: { className?: string }) => React.ReactNode;
   label: string;
@@ -130,9 +142,10 @@ const TRUST_FEATURES = [
 
 export default async function HomePage() {
   const locale = await getLocale();
-  const [featured, recent] = await Promise.all([
+  const [featured, recent, tickerItems] = await Promise.all([
     getFeaturedOpportunities(),
     getRecentOpportunities(),
+    getTickerOpportunities(),
   ]);
 
   return (
@@ -193,7 +206,7 @@ export default async function HomePage() {
       </section>
 
       {/* ── News Ticker ── */}
-      <NewsTicker />
+      <NewsTicker items={tickerItems} />
 
       {/* ── Category blocks ── */}
       <section className="mx-auto max-w-7xl px-4 py-8">

@@ -32,6 +32,11 @@ beat_schedule = {
         "task": "worker.tasks.cleanup_stale_opportunities",
         "schedule": crontab(minute="0", hour="*/6"),
     },
+    "send-category-alert-emails": {
+        "task": "worker.tasks.send_category_alert_emails",
+        # 02:00 UTC = 08:00 Bangladesh time (UTC+6)
+        "schedule": crontab(minute="0", hour="2"),
+    },
 }
 
 if settings.enable_scheduled_crawls:

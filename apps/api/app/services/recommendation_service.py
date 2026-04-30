@@ -5,44 +5,99 @@ from sqlalchemy.orm import Session
 
 from app.models.entities import Opportunity, SavedOpportunity, UserProfile
 
+ISC_TO_SEARCH_TERMS: dict[str, list[str]] = {
+    "construction_isc":    ["construction", "civil", "mason", "welder", "carpenter", "plumber", "electrician"],
+    "ict_isc":             ["IT", "software", "developer", "tech", "digital", "programmer", "network"],
+    "agrofood_isc":        ["food processing", "agriculture", "farm", "fishery", "food", "dairy"],
+    "tourism_isc":         ["hotel", "hospitality", "restaurant", "tourism", "cook", "waiter", "chef"],
+    "rgt_isc":             ["garments", "textile", "sewing", "fabric", "apparel", "tailoring"],
+    "leather_isc":         ["leather", "footwear", "tannery", "shoe"],
+    "light_eng_isc":       ["engineering", "mechanic", "lathe", "machinist", "fitter", "welder"],
+    "jute_isc":            ["jute", "fiber", "yarn"],
+    "ceramic_isc":         ["ceramic", "tile", "pottery", "glass"],
+    "pharma_isc":          ["pharmaceutical", "medicine", "laboratory", "pharmacy", "medical"],
+    "furniture_isc":       ["furniture", "carpentry", "wood", "cabinet"],
+    "plastics_isc":        ["plastic", "polymer", "molding", "packaging"],
+    "creative_media_isc":  ["media", "graphic", "video", "design", "creative", "photography"],
+    "agriculture_isc":     ["agriculture", "farming", "crop", "livestock", "poultry"],
+    "informal_isc":        ["general", "labor", "helper", "driver", "cleaner", "domestic", "security"],
+}
+
 
 def compute_match_score(opp: Opportunity, profile: UserProfile) -> float:
     """Score an opportunity against a user profile (0.0 to 1.0)."""
     score = 0.0
 
-    # Country match — 0.35 weight
-    preferred_countries = [c.lower() for c in (profile.preferred_countries_json or [])]
-    if preferred_countries:
-        if opp.country and opp.country.lower() in preferred_countries:
-            score += 0.35
-    else:
-        score += 0.175  # neutral when no preference set
+    # --- ISC SECTOR MATCH — weight 0.45 ---
+    isc_keys = profile.preferred_sectors_json or []
+    if isc_keys:
+        opp_text = " ".join(filter(None, [
+            opp.title or "",
+            opp.sector or "",
+            opp.summary_en or "",
+            opp.summary or "",
+            opp.employer_or_organization or "",
+        ])).lower()
 
-    # Sector match — 0.30 weight
-    preferred_sectors = [s.lower() for s in (profile.preferred_sectors_json or [])]
-    if preferred_sectors:
-        if opp.sector and opp.sector.lower() in preferred_sectors:
-            score += 0.30
+        best_isc_score = 0.0
+        for key in isc_keys:
+            terms = ISC_TO_SEARCH_TERMS.get(key, [])
+            matched_terms = sum(1 for t in terms if t.lower() in opp_text)
+            if matched_terms > 0:
+                term_score = min(matched_terms / max(len(terms), 1), 1.0)
+                best_isc_score = max(best_isc_score, term_score)
+
+        score += 0.25 + (best_isc_score * 0.20)
     else:
         score += 0.15
 
-    # Opportunity type match — 0.20 weight
+    # --- COUNTRY MATCH — weight 0.35 ---
+    preferred_countries = [c.lower() for c in (profile.preferred_countries_json or [])]
+    if preferred_countries:
+        opp_country = (opp.country or opp.destination_country or "").lower()
+        if opp_country and any(
+            c in opp_country or opp_country in c for c in preferred_countries
+        ):
+            score += 0.35
+        else:
+            score += 0.05
+    else:
+        score += 0.175
+
+    # --- OPPORTUNITY TYPE MATCH — weight 0.15 ---
     target_types = [t.lower() for t in (profile.target_opportunity_types_json or [])]
     if target_types:
-        opp_type = opp.opportunity_type or (opp.record_type.value if opp.record_type else None)
+        opp_type = opp.opportunity_type or (
+            opp.record_type.value if opp.record_type else None
+        )
         if opp_type and opp_type.lower() in target_types:
-            score += 0.20
-    else:
-        score += 0.10
-
-    # Education level match — 0.15 weight
-    if profile.education_level and opp.degree_level:
-        if profile.education_level.lower() in opp.degree_level.lower() or opp.degree_level.lower() in profile.education_level.lower():
             score += 0.15
     else:
         score += 0.075
 
+    # --- EDUCATION MATCH — weight 0.05 ---
+    if profile.education_level and opp.degree_level:
+        if (
+            profile.education_level.lower() in opp.degree_level.lower()
+            or opp.degree_level.lower() in profile.education_level.lower()
+        ):
+            score += 0.05
+    else:
+        score += 0.025
+
     return min(score, 1.0)
+
+
+def get_matching_isc_label(opp: Opportunity, isc_keys: list[str]) -> str | None:
+    """Returns the first ISC key that matches this opportunity, or None."""
+    opp_text = " ".join(filter(None, [
+        opp.title or "", opp.sector or "", opp.summary_en or ""
+    ])).lower()
+    for key in isc_keys:
+        terms = ISC_TO_SEARCH_TERMS.get(key, [])
+        if any(t.lower() in opp_text for t in terms):
+            return key
+    return None
 
 
 def has_any_preference(profile: UserProfile) -> bool:
@@ -59,8 +114,8 @@ def get_recommendations(
     user_id: int,
     page: int = 1,
     page_size: int = 20,
-) -> tuple[list[tuple[Opportunity, float | None, bool]], int]:
-    """Return (opportunity, match_score|None, is_saved) tuples, plus total count."""
+) -> tuple[list[tuple[Opportunity, float | None, bool, str | None]], int]:
+    """Return (opportunity, match_score|None, is_saved, isc_match_key|None) tuples, plus total count."""
     profile = db.scalar(select(UserProfile).where(UserProfile.user_id == user_id))
     if profile is None:
         profile = UserProfile(user_id=user_id)
@@ -71,7 +126,6 @@ def get_recommendations(
         ).all()
     }
 
-    # BUG FIX: was Opportunity.is_active.is_(True) which queried pending drafts
     opps = db.scalars(
         select(Opportunity)
         .where(Opportunity.status == "published")
@@ -80,6 +134,7 @@ def get_recommendations(
     ).all()
 
     profile_active = has_any_preference(profile)
+    profile_isc_keys = profile.preferred_sectors_json or []
 
     scored: list[tuple[Opportunity, float | None]] = []
     for opp in opps:
@@ -98,4 +153,7 @@ def get_recommendations(
     start = (page - 1) * page_size
     page_items = scored[start : start + page_size]
 
-    return [(opp, match, opp.id in saved_ids) for opp, match in page_items], total
+    return [
+        (opp, match, opp.id in saved_ids, get_matching_isc_label(opp, profile_isc_keys))
+        for opp, match in page_items
+    ], total
