@@ -16,7 +16,7 @@ export default async function AdminReviewPage() {
 
   return (
     <div className="space-y-6">
-      <div>
+      <div role="region" aria-label={isEn ? "Review queue header" : "রিভিউ কিউ শিরোনাম"}>
         <p className="text-xs font-semibold uppercase tracking-wider text-primary">
           {isEn ? "Content Moderation" : "কনটেন্ট পর্যালোচনা"}
         </p>

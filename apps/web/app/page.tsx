@@ -1,18 +1,18 @@
 import type { Route } from "next";
 import Link from "next/link";
 import {
+  AlertCircle,
   ArrowRight,
-  CheckCircle,
-  Globe,
-  ShieldCheck,
-  Sparkles,
   BookOpen,
   Briefcase,
-  GraduationCap,
   FileText,
-  AlertCircle,
+  Globe,
+  GraduationCap,
+  ShieldCheck,
+  Sparkles,
 } from "lucide-react";
 
+import { HeroSlider } from "@/components/hero-slider";
 import { NewsTicker } from "@/components/news-ticker";
 import { OpportunityCard } from "@/components/opportunity-card";
 import { Card } from "@/components/ui/card";
@@ -46,9 +46,12 @@ async function getRecentOpportunities() {
 async function getTickerOpportunities() {
   try {
     const params = new URLSearchParams({ page_size: "12", sort: "newest" });
-    const res = await searchOpportunities(params);
-    return res.items.map(({ id, title, title_bn, opportunity_type }) => ({
-      id, title, title_bn, opportunity_type,
+    const response = await searchOpportunities(params);
+    return response.items.map(({ id, title, title_bn, opportunity_type }) => ({
+      id,
+      title,
+      title_bn,
+      opportunity_type,
     }));
   } catch {
     return [];
@@ -56,9 +59,9 @@ async function getTickerOpportunities() {
 }
 
 type CategoryItem = {
-  icon: (p: { className?: string }) => React.ReactNode;
+  icon: (props: { className?: string }) => React.ReactNode;
   label: string;
-  sub: string;
+  labelEn: string;
   href: Route;
   color: string;
   bg: string;
@@ -68,80 +71,80 @@ const CATEGORIES: CategoryItem[] = [
   {
     icon: Briefcase,
     label: "প্রবাস চাকরি",
-    sub: "Foreign Jobs",
+    labelEn: "Overseas Jobs",
     href: "/search?record_type=job" as Route,
     color: "text-blue-600",
-    bg: "bg-blue-50 dark:bg-blue-900/20",
+    bg: "bg-blue-50 dark:bg-blue-950/40",
   },
   {
     icon: GraduationCap,
     label: "স্কলারশিপ",
-    sub: "Scholarships",
+    labelEn: "Scholarships",
     href: "/search?record_type=scholarship" as Route,
-    color: "text-purple-600",
-    bg: "bg-purple-50 dark:bg-purple-900/20",
+    color: "text-fuchsia-600",
+    bg: "bg-fuchsia-50 dark:bg-fuchsia-950/40",
   },
   {
     icon: BookOpen,
     label: "দক্ষতা প্রশিক্ষণ",
-    sub: "Skill Training",
+    labelEn: "Skill Training",
     href: "/search?source_class=bd_migration" as Route,
-    color: "text-green-600",
-    bg: "bg-green-50 dark:bg-green-900/20",
+    color: "text-emerald-600",
+    bg: "bg-emerald-50 dark:bg-emerald-950/40",
   },
   {
     icon: Globe,
     label: "ভিসা নীতি",
-    sub: "Visa Policy",
+    labelEn: "Visa Policy",
     href: "/search?record_type=policy_update" as Route,
     color: "text-amber-600",
-    bg: "bg-amber-50 dark:bg-amber-900/20",
+    bg: "bg-amber-50 dark:bg-amber-950/40",
   },
   {
     icon: FileText,
     label: "সরকারি সার্কুলার",
-    sub: "Official Circular",
+    labelEn: "Official Circulars",
     href: "/search?trust_tier=official_gov" as Route,
-    color: "text-red-600",
-    bg: "bg-red-50 dark:bg-red-900/20",
+    color: "text-rose-600",
+    bg: "bg-rose-50 dark:bg-rose-950/40",
   },
   {
     icon: AlertCircle,
     label: "সতর্কতা",
-    sub: "Alerts",
+    labelEn: "Alerts",
     href: "/alerts" as Route,
     color: "text-orange-600",
-    bg: "bg-orange-50 dark:bg-orange-900/20",
+    bg: "bg-orange-50 dark:bg-orange-950/40",
   },
-];
-
-const STATS = [
-  { label: "যাচাই করা উৎস", value: "৯০+", en: "Sources" },
-  { label: "সক্রিয় সুযোগ", value: "১২,৪৫০+", en: "Opportunities" },
-  { label: "বিশ্বস্ত দেশ", value: "৪৫", en: "Countries" },
-  { label: "নতুন আপডেট", value: "৩২০/দিন", en: "Daily Updates" },
 ];
 
 const TRUST_FEATURES = [
   {
     icon: ShieldCheck,
     title: "সরকারি উৎস অগ্রাধিকার",
-    body: "সরকারি ও অফিসিয়াল উৎস থেকে আসা তথ্য সবার আগে দেখানো হয়। প্রতিটি সুযোগের সাথে উৎস লিংক যুক্ত থাকে।",
+    titleEn: "Official Sources First",
+    body: "প্রতিটি সুযোগে উৎসের ধরন, ট্রাস্ট ব্যাজ, এবং যাচাইয়ের দিকনির্দেশ একসাথে দেখুন।",
+    bodyEn: "See source type, trust badges, and verification guidance together on every listing.",
   },
   {
     icon: Sparkles,
-    title: "AI মিল বিশ্লেষণ",
-    body: "আপনার প্রোফাইল ও পছন্দ অনুযায়ী সুযোগ বিশ্লেষণ করে সবচেয়ে প্রাসঙ্গিক তথ্য আগে দেখায়।",
+    title: "বাংলাদেশি আবেদনকারীদের জন্য সহজ ফিল্টার",
+    titleEn: "Simple Filters for BD Applicants",
+    body: "বাংলাদেশ থেকে আবেদনযোগ্য কিনা, কোন দেশে সুযোগ আছে, আর কখন শেষ তারিখ - দ্রুত বুঝে নিন।",
+    bodyEn: "Quickly understand whether you can apply from Bangladesh, where the opportunity is, and when it closes.",
   },
   {
-    icon: CheckCircle,
-    title: "নিয়মিত যাচাই",
-    body: "প্রতিটি সুযোগ নিয়মিতভাবে যাচাই করা হয়। মেয়াদোত্তীর্ণ বা ভুল তথ্য স্বয়ংক্রিয়ভাবে সরিয়ে নেওয়া হয়।",
+    icon: AlertCircle,
+    title: "নিরাপদ সিদ্ধান্তের জন্য পরিষ্কার তথ্য",
+    titleEn: "Clear Information for Safer Decisions",
+    body: "জটিল তথ্যকে সহজ ভাষায় সাজানো হয়েছে, যাতে নথি, বেতন, আর প্রক্রিয়া বুঝতে সুবিধা হয়।",
+    bodyEn: "Complex details are simplified so documents, salary, and process are easier to understand.",
   },
 ];
 
 export default async function HomePage() {
   const locale = await getLocale();
+  const isEn = locale === "en";
   const [featured, recent, tickerItems] = await Promise.all([
     getFeaturedOpportunities(),
     getRecentOpportunities(),
@@ -149,108 +152,59 @@ export default async function HomePage() {
   ]);
 
   return (
-    <div className="pb-16">
-      {/* ── Hero ── */}
-      <section className="relative overflow-hidden bg-navy text-white">
-        {/* Subtle gradient overlay */}
-        <div className="absolute inset-0 bg-gradient-to-br from-[#07152f] via-[#0d1f45] to-[#1a3060] pointer-events-none" />
-        <div className="absolute inset-0 bg-gradient-to-r from-primary/10 to-transparent pointer-events-none" />
-
-        <div className="relative mx-auto max-w-7xl px-4 py-12 sm:py-16 lg:py-20">
-          <div className="grid gap-10 lg:grid-cols-[1.15fr_0.85fr] lg:items-center">
-            {/* Left: Copy */}
-            <div className="space-y-6">
-              <span className="inline-block rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-semibold tracking-wide backdrop-blur">
-                বিশ্বস্ত সুযোগের প্ল্যাটফর্ম
-              </span>
-              <h1 className="text-3xl font-bold leading-snug sm:text-4xl lg:text-5xl">
-                বিদেশে চাকরি, স্কলারশিপ ও{" "}
-                <span className="text-primary">মাইগ্রেশন আপডেট</span> এক জায়গায়
-              </h1>
-              <p className="max-w-xl text-base text-slate-300 leading-relaxed">
-                বাংলাদেশিদের জন্য যাচাই করা চাকরি, প্রশিক্ষণ, ভিসা নীতি ও
-                স্কলারশিপ তথ্য সহজভাবে খুঁজুন।
-              </p>
-              <div className="flex flex-wrap items-center gap-3">
-                <Link
-                  href="/search"
-                  className="inline-flex items-center gap-2 rounded-md bg-primary px-6 py-3 text-sm font-bold text-white hover:opacity-90 transition-opacity"
-                >
-                  সুযোগ খুঁজুন
-                  <ArrowRight className="h-4 w-4" />
-                </Link>
-                <Link
-                  href="/auth/register"
-                  className="inline-flex items-center gap-2 rounded-md border border-white/30 bg-white/10 px-6 py-3 text-sm font-bold text-white hover:bg-white/20 transition-colors backdrop-blur"
-                >
-                  ফ্রি অ্যাকাউন্ট খুলুন
-                </Link>
-              </div>
-            </div>
-
-            {/* Right: Stats cards */}
-            <div className="grid grid-cols-2 gap-3">
-              {STATS.map(({ label, value, en }) => (
-                <div
-                  key={label}
-                  className="rounded-lg border border-white/15 bg-white/10 p-4 backdrop-blur"
-                >
-                  <p className="text-2xl font-bold text-white">{value}</p>
-                  <p className="mt-1 text-sm font-medium text-slate-200">{label}</p>
-                  <p className="text-[11px] text-slate-400">{en}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ── News Ticker ── */}
+    <main className="space-y-8 bg-background pb-8">
+      <HeroSlider />
       <NewsTicker items={tickerItems} />
 
-      {/* ── Category blocks ── */}
-      <section className="mx-auto max-w-7xl px-4 py-8">
-        <div className="mb-5">
-          <h2 className="text-xl font-bold text-foreground section-underline">
-            বিভাগ অনুযায়ী খুঁজুন
+      <section className="mx-auto max-w-7xl space-y-8 px-4" aria-labelledby="home-categories">
+        <div className="space-y-2">
+          <h2 id="home-categories" className="section-underline text-xl font-bold text-foreground">
+            {isEn ? "Browse by Category" : "বিভাগ অনুযায়ী খুঁজুন"}
           </h2>
+          <p className="text-muted-foreground">
+            {isEn
+              ? "Start from the type of opportunity you need most."
+              : "আপনার প্রয়োজনের ধরন অনুযায়ী সুযোগ বেছে নিন।"}
+          </p>
         </div>
+
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-          {CATEGORIES.map(({ icon: Icon, label, sub, href, color, bg }) => (
+          {CATEGORIES.map(({ icon: Icon, label, labelEn, href, color, bg }) => (
             <Link
               key={href}
               href={href}
-              className="group flex flex-col items-center gap-2 rounded-lg border border-border bg-card p-4 text-center hover:border-primary hover:shadow-card-hover transition-all"
+              className="group rounded-2xl border border-border bg-card p-4 text-center shadow-card transition-all hover:border-primary hover:shadow-card-hover sm:p-5"
             >
-              <div className={`flex h-10 w-10 items-center justify-center rounded-full ${bg}`}>
-                <Icon className={`h-5 w-5 ${color}`} />
+              <div className={`mx-auto flex h-12 w-12 items-center justify-center rounded-2xl ${bg}`}>
+                <Icon className={`h-6 w-6 ${color}`} />
               </div>
-              <div>
-                <p className="text-sm font-bold text-foreground group-hover:text-primary transition-colors">
-                  {label}
-                </p>
-                <p className="text-[10px] text-muted-foreground">{sub}</p>
-              </div>
+              <p className="mt-3 text-sm font-semibold text-foreground group-hover:text-primary">
+                {isEn ? labelEn : label}
+              </p>
             </Link>
           ))}
         </div>
       </section>
 
-      {/* ── Featured + Most Viewed ── */}
       {featured.items.length > 0 && (
-        <section className="mx-auto max-w-7xl px-4 py-4">
-          <div className="mb-5 flex items-center justify-between">
-            <h2 className="text-xl font-bold text-foreground section-underline">
-              বিশ্বস্ত সুযোগ
-            </h2>
-            <Link
-              href="/search?sort=trust"
-              className="text-sm font-semibold text-primary hover:underline"
-            >
-              সব দেখুন →
+        <section className="mx-auto max-w-7xl space-y-4 px-4" aria-labelledby="featured-opportunities">
+          <div className="flex items-center justify-between gap-3">
+            <div className="space-y-2">
+              <h2 id="featured-opportunities" className="section-underline text-xl font-bold text-foreground">
+                {isEn ? "Trusted Opportunities" : "বিশ্বস্ত সুযোগ"}
+              </h2>
+              <p className="text-muted-foreground">
+                {isEn
+                  ? "High-trust listings with clear application links and deadlines."
+                  : "যাচাই করা উৎস, স্পষ্ট আবেদন লিংক, আর পরিষ্কার শেষ তারিখসহ বাছাই করা সুযোগ।"}
+              </p>
+            </div>
+            <Link href="/search?sort=trust" className="text-sm font-semibold text-primary hover:underline">
+              {isEn ? "View all" : "সব দেখুন"} →
             </Link>
           </div>
-          <div className="grid gap-4 md:grid-cols-3">
+
+          <div className="grid gap-4 lg:grid-cols-3">
             {featured.items.map((item) => (
               <OpportunityCard key={item.id} item={item} />
             ))}
@@ -258,154 +212,114 @@ export default async function HomePage() {
         </section>
       )}
 
-      {/* ── Latest + Sidebar ── */}
-      <section className="mx-auto max-w-7xl px-4 py-6">
+      <section className="mx-auto max-w-7xl px-4" aria-labelledby="latest-opportunities">
         <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
-          {/* Latest */}
-          <div>
-            <div className="mb-5 flex items-center justify-between">
-              <h2 className="text-xl font-bold text-foreground section-underline">
-                সর্বশেষ সুযোগ
-              </h2>
-              <Link
-                href="/search?sort=newest"
-                className="text-sm font-semibold text-primary hover:underline"
-              >
-                সব দেখুন →
+          <section className="space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="space-y-2">
+                <h2 id="latest-opportunities" className="section-underline text-xl font-bold text-foreground">
+                  {isEn ? "Latest Opportunities" : "সর্বশেষ সুযোগ"}
+                </h2>
+                <p className="text-muted-foreground">
+                  {isEn
+                    ? "Updated listings across jobs, scholarships, and visa notices."
+                    : "চাকরি, স্কলারশিপ, আর ভিসা নোটিশের নতুন আপডেট একসাথে দেখুন।"}
+                </p>
+              </div>
+              <Link href="/search?sort=newest" className="text-sm font-semibold text-primary hover:underline">
+                {isEn ? "View all" : "সব দেখুন"} →
               </Link>
             </div>
+
             <div className="space-y-4">
               {recent.items.length === 0 ? (
-                <div className="rounded-lg border border-border bg-card p-8 text-center text-muted-foreground">
-                  <p>এই মুহূর্তে কোনো সুযোগ পাওয়া যাচ্ছে না।</p>
-                </div>
+                <Card className="text-center">
+                  <p className="font-semibold text-foreground">
+                    {isEn ? "No opportunities available right now." : "এই মুহূর্তে কোনো সুযোগ পাওয়া যাচ্ছে না।"}
+                  </p>
+                </Card>
               ) : (
-                recent.items.map((item) => (
-                  <OpportunityCard key={item.id} item={item} />
-                ))
+                recent.items.map((item) => <OpportunityCard key={item.id} item={item} />)
               )}
             </div>
-          </div>
+          </section>
 
-          {/* Sidebar */}
-          <div className="space-y-5">
-            {/* Quick links card */}
+          <aside className="space-y-4">
             <Card>
-              <h3 className="mb-3 text-base font-bold section-underline">
-                দ্রুত অ্যাক্সেস
+              <h3 className="section-underline text-base font-semibold text-foreground">
+                {isEn ? "Quick Access" : "দ্রুত অ্যাক্সেস"}
               </h3>
-              <div className="space-y-1">
-                {(
-                [
-                  { label: "কানাডার চাকরি", href: "/search?country=Canada&record_type=job" as Route },
-                  { label: "জার্মানি Ausbildung", href: "/search?country=Germany" as Route },
-                  { label: "মালয়েশিয়া কর্মসংস্থান", href: "/search?country=Malaysia&record_type=job" as Route },
-                  { label: "Erasmus স্কলারশিপ", href: "/search?record_type=scholarship&q=Erasmus" as Route },
-                  { label: "UK ভিসা আপডেট", href: "/search?country=UK&record_type=policy_update" as Route },
-                  { label: "কোরিয়া EPS প্রোগ্রাম", href: "/search?country=Korea&record_type=job" as Route },
-                ] satisfies { label: string; href: Route }[]
-              ).map(({ label, href }) => (
+              <div className="mt-4 space-y-1">
+                {[
+                  { label: "কানাডার চাকরি", labelEn: "Jobs in Canada", href: "/search?country=Canada&record_type=job" as Route },
+                  { label: "মালয়েশিয়া কর্মসংস্থান", labelEn: "Malaysia jobs", href: "/search?country=Malaysia&record_type=job" as Route },
+                  { label: "জার্মানি স্কিল প্রোগ্রাম", labelEn: "Germany skill programs", href: "/search?country=Germany" as Route },
+                  { label: "সরকারি সার্কুলার", labelEn: "Official circulars", href: "/search?trust_tier=official_gov" as Route },
+                ].map(({ label, labelEn, href }) => (
                   <Link
                     key={href}
                     href={href}
-                    className="flex items-center justify-between rounded-md px-3 py-2 text-sm hover:bg-muted hover:text-primary transition-colors"
+                    className="flex items-center justify-between rounded-xl px-3 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-muted hover:text-primary"
                   >
-                    <span>{label}</span>
-                    <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span>{isEn ? labelEn : label}</span>
+                    <ArrowRight className="h-4 w-4" />
                   </Link>
                 ))}
               </div>
             </Card>
 
-            {/* AI Copilot CTA */}
-            <div className="rounded-lg border-2 border-primary/20 bg-primary/5 p-5">
+            <div className="rounded-2xl border border-primary/20 bg-primary/5 p-5">
               <div className="mb-3 flex items-center gap-2">
                 <Sparkles className="h-5 w-5 text-primary" />
-                <span className="font-bold text-foreground">AI Copilot</span>
+                <h3 className="text-base font-semibold text-foreground">AI Copilot</h3>
               </div>
-              <p className="mb-4 text-sm text-muted-foreground">
-                আপনার প্রোফাইল অনুযায়ী সবচেয়ে ভালো সুযোগ খুঁজে পেতে AI
-                সহকারী ব্যবহার করুন।
+              <p className="text-muted-foreground">
+                {isEn
+                  ? "Ask AI to explain a listing, compare countries, or help you prepare next steps."
+                  : "AI-কে দিয়ে সুযোগ বুঝুন, দেশ তুলনা করুন, আর পরের করণীয় জেনে নিন।"}
               </p>
               <Link
                 href="/copilot"
-                className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-bold text-white hover:opacity-90 transition-opacity"
+                className="mt-4 inline-flex items-center gap-2 rounded-full bg-primary px-5 py-3 text-sm font-bold text-white transition-opacity hover:opacity-90"
               >
-                AI-তে জিজ্ঞেস করুন
+                <span>{isEn ? "Ask AI" : "AI-কে জিজ্ঞেস করুন"}</span>
                 <ArrowRight className="h-4 w-4" />
               </Link>
             </div>
-
-            {/* Trust notice */}
-            <Card>
-              <div className="flex items-start gap-2">
-                <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-success" />
-                <div>
-                  <p className="text-sm font-bold text-foreground">
-                    বিশ্বাসযোগ্যতার নিশ্চয়তা
-                  </p>
-                  <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
-                    প্রতিটি সুযোগ সরকারি বা অফিসিয়াল উৎস থেকে সংগৃহীত। কোনো
-                    অর্থ লেনদেনের আগে মূল উৎস যাচাই করুন।
-                  </p>
-                </div>
-              </div>
-            </Card>
-          </div>
+          </aside>
         </div>
       </section>
 
-      {/* ── Trust features ── */}
-      <section className="border-t border-border bg-muted/40 py-12">
-        <div className="mx-auto max-w-7xl px-4">
-          <div className="mb-8 text-center">
-            <h2 className="text-2xl font-bold text-foreground">
-              কেন আমাদের বিশ্বাস করবেন?
+      <section className="bg-muted/40 py-12" aria-labelledby="trust-features">
+        <div className="mx-auto max-w-7xl space-y-8 px-4">
+          <div className="space-y-2 text-center">
+            <h2 id="trust-features" className="text-3xl font-bold text-foreground">
+              {isEn ? "Built for Clarity and Trust" : "বিশ্বাস ও স্পষ্টতার জন্য তৈরি"}
             </h2>
-            <p className="mt-2 text-sm text-muted-foreground">
-              বাংলাদেশিদের জন্য নির্ভরযোগ্য ও যাচাই করা বিদেশি সুযোগের
-              প্ল্যাটফর্ম
+            <p className="mx-auto max-w-2xl text-muted-foreground">
+              {isEn
+                ? "The platform is designed so non-technical users can understand opportunities faster and more safely."
+                : "প্ল্যাটফর্মটি এমনভাবে সাজানো হয়েছে যাতে সাধারণ ব্যবহারকারীরা দ্রুত এবং নিরাপদভাবে সুযোগ বুঝতে পারেন।"}
             </p>
           </div>
-          <div className="grid gap-5 md:grid-cols-3">
-            {TRUST_FEATURES.map(({ icon: Icon, title, body }) => (
+
+          <div className="grid gap-4 lg:grid-cols-3">
+            {TRUST_FEATURES.map(({ icon: Icon, title, titleEn, body, bodyEn }) => (
               <Card key={title}>
-                <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-                  <Icon className="h-5 w-5 text-primary" />
+                <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10">
+                  <Icon className="h-6 w-6 text-primary" />
                 </div>
-                <h3 className="mb-2 font-bold text-foreground">{title}</h3>
-                <p className="text-sm text-muted-foreground leading-relaxed">{body}</p>
+                <h3 className="text-base font-semibold text-foreground">
+                  {isEn ? titleEn : title}
+                </h3>
+                <p className="mt-2 text-muted-foreground">
+                  {isEn ? bodyEn : body}
+                </p>
               </Card>
             ))}
           </div>
         </div>
       </section>
-
-      {/* ── Bottom CTA ── */}
-      <section className="bg-navy py-12 text-white">
-        <div className="mx-auto max-w-7xl px-4 text-center">
-          <h2 className="text-2xl font-bold sm:text-3xl">
-            আজই শুরু করুন — বিনামূল্যে
-          </h2>
-          <p className="mt-3 text-slate-300">
-            অ্যাকাউন্ট খুলুন, সুযোগ সংরক্ষণ করুন এবং সতর্কতা চালু রাখুন।
-          </p>
-          <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-            <Link
-              href="/auth/register"
-              className="rounded-md bg-primary px-6 py-3 text-sm font-bold text-white hover:opacity-90 transition-opacity"
-            >
-              ফ্রি অ্যাকাউন্ট তৈরি করুন
-            </Link>
-            <Link
-              href="/search"
-              className="rounded-md border border-white/30 px-6 py-3 text-sm font-bold text-white hover:bg-white/10 transition-colors"
-            >
-              সুযোগ খুঁজুন
-            </Link>
-          </div>
-        </div>
-      </section>
-    </div>
+    </main>
   );
 }

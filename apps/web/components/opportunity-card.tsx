@@ -2,166 +2,124 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { useLocale, useTranslations } from "next-intl";
+import { useLocale } from "next-intl";
 import {
-  Calendar,
-  Clock,
-  MapPin,
+  Banknote,
   Bookmark,
   BookmarkCheck,
-  Shield,
-  ShieldCheck,
-  Banknote,
+  Calendar,
   ExternalLink,
-  FileText,
-  Globe,
-  Lock,
+  MapPin,
+  ShieldCheck,
 } from "lucide-react";
 
-import type { OpportunityCard as OpportunityCardType, RecommendationCard } from "@/lib/types";
-import { cn, formatDateTime } from "@/lib/utils";
-import { ShareButton } from "@/components/share-button";
-
-const ISC_SECTOR_LABELS: Record<string, { bn: string; en: string }> = {
-  informal_isc:       { bn: "ইনফরমাল সেক্টর আইএসসি",                   en: "Informal Sector ISC" },
-  ict_isc:            { bn: "আইসিটি আইএসসি",                            en: "ICT ISC" },
-  agrofood_isc:       { bn: "অ্যাগ্রোফুড আইএসসি",                       en: "Agrofood ISC" },
-  jute_isc:           { bn: "জুট সেক্টর আইএসসি",                        en: "Jute Sector ISC" },
-  ceramic_isc:        { bn: "সিরামিক আইএসসি",                           en: "Ceramic ISC" },
-  leather_isc:        { bn: "লেদার ও লেদার গুডস আইএসসি",              en: "Leather & Leather Goods ISC" },
-  light_eng_isc:      { bn: "লাইট ইঞ্জিনিয়ারিং আইএসসি",              en: "Light Engineering ISC" },
-  rgt_isc:            { bn: "রেডিমেড গার্মেন্টস ও টেক্সটাইল আইএসসি", en: "Readymade Garments & Textile ISC" },
-  pharma_isc:         { bn: "ফার্মাসিউটিক্যাল আইএসসি",                 en: "Pharmaceutical ISC" },
-  furniture_isc:      { bn: "ফার্নিচার আইএসসি",                         en: "Furniture ISC" },
-  plastics_isc:       { bn: "প্লাস্টিকস আইএসসি",                        en: "Plastics ISC" },
-  tourism_isc:        { bn: "ট্যুরিজম ও হসপিটালিটি আইএসসি",           en: "Tourism & Hospitality ISC" },
-  creative_media_isc: { bn: "ক্রিয়েটিভ মিডিয়া আইএসসি",              en: "Creative Media ISC" },
-  construction_isc:   { bn: "কনস্ট্রাকশন আইএসসি",                       en: "Construction ISC" },
-  agriculture_isc:    { bn: "এগ্রিকালচার আইএসসি",                       en: "Agriculture ISC" },
-};
+import type {
+  OpportunityCard as OpportunityCardType,
+  RecommendationCard,
+} from "@/lib/types";
+import { cn, formatDate } from "@/lib/utils";
 
 type AnyCard = OpportunityCardType | RecommendationCard;
+
+const TYPE_LABELS = {
+  overseas_job: { bn: "প্রবাস চাকরি", en: "Overseas Job" },
+  local_job: { bn: "স্থানীয় চাকরি", en: "Local Job" },
+  scholarship: { bn: "স্কলারশিপ", en: "Scholarship" },
+  training: { bn: "প্রশিক্ষণ", en: "Training" },
+  migration_policy: { bn: "ভিসা নীতি", en: "Visa Policy" },
+  visa_update: { bn: "ভিসা আপডেট", en: "Visa Update" },
+  circular: { bn: "সার্কুলার", en: "Circular" },
+  warning: { bn: "সতর্কতা", en: "Warning" },
+  news: { bn: "সংবাদ", en: "News" },
+} as const;
 
 function daysUntil(deadline: string): number {
   const now = new Date();
   now.setHours(0, 0, 0, 0);
-  const d = new Date(deadline + "T00:00:00Z");
-  return Math.ceil((d.getTime() - now.getTime()) / 86400000);
+  const target = new Date(`${deadline}T00:00:00Z`);
+  return Math.ceil((target.getTime() - now.getTime()) / 86400000);
 }
 
-function RecordTypePill({ type }: { type: string | null | undefined }) {
-  const labels: Record<string, string> = {
-    overseas_job: "প্রবাস চাকরি",
-    local_job: "স্থানীয় চাকরি",
-    scholarship: "স্কলারশিপ",
-    training: "প্রশিক্ষণ",
-    migration_policy: "ভিসা নীতি",
-    visa_update: "ভিসা আপডেট",
-    circular: "সার্কুলার",
-    warning: "সতর্কতা",
-    news: "সংবাদ",
-    // legacy backward compat
-    job: "প্রবাস চাকরি",
-    policy_update: "ভিসা নীতি",
-  };
-  if (!type) return null;
+function getDeadlineTone(days: number | null) {
+  if (days == null) {
+    return "text-muted-foreground";
+  }
+
+  if (days <= 7) {
+    return "text-red-600 dark:text-red-400";
+  }
+
+  if (days <= 30) {
+    return "text-amber-600 dark:text-amber-400";
+  }
+
+  return "text-emerald-600 dark:text-emerald-400";
+}
+
+function typeLabel(type: string | null | undefined, locale: "bn" | "en") {
+  if (!type) {
+    return locale === "en" ? "Opportunity" : "সুযোগ";
+  }
+
+  const label = TYPE_LABELS[type as keyof typeof TYPE_LABELS];
+  return label ? label[locale] : type;
+}
+
+function trustLabel(badge: string | null | undefined, locale: "bn" | "en") {
+  if (!badge) {
+    return null;
+  }
+
+  if (badge.includes("সরকারি")) {
+    return locale === "en" ? "Official" : "সরকারি ✓";
+  }
+
+  return badge;
+}
+
+function buildSalaryText(item: AnyCard, locale: "bn" | "en") {
+  if (item.salary_text) {
+    return item.salary_text;
+  }
+
+  if (item.salary_min == null) {
+    return locale === "en" ? "Not specified" : "উল্লেখ নেই";
+  }
+
+  const max = item.salary_max ? ` - ${item.salary_max}` : "";
+  return `${item.salary_min}${max} ${item.salary_currency ?? ""}`.trim();
+}
+
+function CompactMeta({
+  item,
+  locale,
+}: {
+  item: AnyCard;
+  locale: "bn" | "en";
+}) {
+  const days = item.deadline ? daysUntil(item.deadline) : null;
+
   return (
-    <span className="text-xs font-semibold text-primary">
-      {labels[type] ?? type}
-    </span>
-  );
-}
-
-function TrustBadge({ badge }: { badge: string | null | undefined }) {
-  if (!badge) return null;
-  const isGov = badge === "সরকারি উৎস";
-  const isPartner = badge === "অফিসিয়াল পার্টনার";
-
-  if (isGov) {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full border border-green-600/30 bg-green-50 px-2 py-0.5 text-[10px] font-semibold text-green-700 dark:border-green-700/30 dark:bg-green-900/20 dark:text-green-400">
-        <ShieldCheck className="h-3 w-3" />
-        {badge}
-      </span>
-    );
-  }
-  if (isPartner) {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full border border-blue-600/30 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:border-blue-700/30 dark:bg-blue-900/20 dark:text-blue-400">
-        <Shield className="h-3 w-3" />
-        {badge}
-      </span>
-    );
-  }
-  return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-600 dark:border-slate-700/30 dark:bg-slate-800/20 dark:text-slate-400">
-      {badge}
-    </span>
-  );
-}
-
-function DeadlineChip({ deadline }: { deadline: string | null | undefined }) {
-  if (!deadline) return null;
-  const days = Math.ceil((new Date(deadline + "T00:00:00Z").getTime() - Date.now()) / 86400000);
-  if (days < 0) return <span className="text-xs text-muted-foreground line-through">মেয়াদ শেষ</span>;
-  if (days <= 7) return <span className="text-xs font-bold text-red-600 dark:text-red-400">⏰ {days} দিন বাকি</span>;
-  if (days <= 30) return <span className="text-xs text-amber-600 dark:text-amber-400">{days} দিন বাকি</span>;
-  return <span className="text-xs text-muted-foreground">আবেদনের শেষ: {new Date(deadline).toLocaleDateString("bn-BD")}</span>;
-}
-
-function EligibilityBadges({ item }: { item: AnyCard }) {
-  const badges: React.ReactNode[] = [];
-
-  if ("can_apply_from_bd" in item && item.can_apply_from_bd === true) {
-    badges.push(
-      <span key="bd" className="inline-flex items-center gap-0.5 rounded-full bg-green-50 border border-green-200 px-2 py-0.5 text-[10px] font-semibold text-green-700 dark:border-green-700/30 dark:bg-green-900/20 dark:text-green-400">
-        বাংলাদেশ থেকে আবেদনযোগ্য
-      </span>
-    );
-  }
-  if ("open_to_international_candidates" in item && item.open_to_international_candidates === true) {
-    badges.push(
-      <span key="intl" className="inline-flex items-center gap-0.5 rounded-full bg-blue-50 border border-blue-200 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:border-blue-700/30 dark:bg-blue-900/20 dark:text-blue-400">
-        <Globe className="h-2.5 w-2.5" />
-        International
-      </span>
-    );
-  }
-  if ("lmia_status" in item && item.lmia_status && item.lmia_status !== "none") {
-    badges.push(
-      <span key="lmia" className="inline-flex items-center gap-0.5 rounded-full bg-purple-50 border border-purple-200 px-2 py-0.5 text-[10px] font-semibold text-purple-700 dark:border-purple-700/30 dark:bg-purple-900/20 dark:text-purple-400">
-        LMIA {item.lmia_status}
-      </span>
-    );
-  }
-  if ("requires_existing_work_permit" in item && item.requires_existing_work_permit === true) {
-    badges.push(
-      <span key="wp" className="inline-flex items-center gap-0.5 rounded-full bg-orange-50 border border-orange-200 px-2 py-0.5 text-[10px] font-semibold text-orange-700 dark:border-orange-700/30 dark:bg-orange-900/20 dark:text-orange-400">
-        <Lock className="h-2.5 w-2.5" />
-        ওয়ার্ক পারমিট দরকার
-      </span>
-    );
-  }
-
-  if (badges.length === 0) return null;
-  return <div className="mt-2 flex flex-wrap gap-1.5">{badges}</div>;
-}
-
-function MatchBadge({ score }: { score: number }) {
-  const pct = Math.round(score * 100);
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold",
-        pct >= 75
-          ? "bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400"
-          : pct >= 50
-          ? "bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400"
-          : "bg-muted text-muted-foreground"
+    <div className="mt-2 flex flex-wrap gap-3 text-xs text-muted-foreground">
+      {item.deadline && (
+        <span className={cn("inline-flex items-center gap-1 font-semibold", getDeadlineTone(days))}>
+          <Calendar className="h-3.5 w-3.5" />
+          {formatDate(item.deadline, locale)}
+        </span>
       )}
-    >
-      {pct}% মিল
-    </span>
+      {(item.destination_country || item.country) && (
+        <span className="inline-flex items-center gap-1">
+          <MapPin className="h-3.5 w-3.5" />
+          {[item.destination_country, item.country].filter(Boolean).join(", ")}
+        </span>
+      )}
+      {(item.salary_min != null || item.salary_text) && (
+        <span className="inline-flex items-center gap-1">
+          <Banknote className="h-3.5 w-3.5" />
+          {buildSalaryText(item, locale)}
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -175,23 +133,29 @@ export function OpportunityCard({
   variant?: "default" | "compact";
 }) {
   const locale = useLocale() as "bn" | "en";
-  const t = useTranslations("opportunity");
+  const isEn = locale === "en";
   const [saved, setSaved] = useState(item.is_saved);
   const [saving, setSaving] = useState(false);
 
-  const matchScore = "match_score" in item ? item.match_score : null;
-  const iscMatchKey = "isc_match_key" in item ? (item as RecommendationCard).isc_match_key : null;
+  const deadlineDays = item.deadline ? daysUntil(item.deadline) : null;
+  const trust = trustLabel(item.source_trust_badge, locale);
+  const summary = locale === "en" ? item.summary ?? item.summary_bn : item.summary_bn ?? item.summary;
+  const applyHref = item.original_apply_url ?? item.source_url;
 
   const toggleSave = async () => {
     setSaving(true);
     try {
-      const res = await fetch(`/api/saved/${item.id}`, {
+      const response = await fetch(`/api/saved/${item.id}`, {
         method: saved ? "DELETE" : "POST",
         headers: { "Content-Type": "application/json" },
       });
-      if (!res.ok) return;
-      setSaved((prev) => {
-        const next = !prev;
+
+      if (!response.ok) {
+        return;
+      }
+
+      setSaved((current) => {
+        const next = !current;
         onSavedChange?.(next);
         return next;
       });
@@ -200,162 +164,111 @@ export function OpportunityCard({
     }
   };
 
-  const deadlineDays = item.deadline ? daysUntil(item.deadline) : null;
-
-  const orgName = item.employer_or_organization;
-  const location = [item.destination_country, item.country].filter(Boolean).join(", ");
-  const hasSalary = item.salary_min != null || item.salary_text;
-
-  const shareUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/opportunity/${item.id}`;
-
   if (variant === "compact") {
     return (
       <Link
         href={`/opportunity/${item.id}`}
-        className="group flex items-start gap-3 rounded-lg border border-border bg-card p-3 hover:border-primary hover:shadow-card-hover transition-all"
+        className="rounded-2xl border border-border bg-card p-4 shadow-card transition-all hover:border-primary hover:shadow-card-hover"
       >
-        <div className="flex-1 min-w-0">
-          <RecordTypePill type={item.opportunity_type} />
-          <p className="mt-0.5 text-sm font-semibold line-clamp-2 text-foreground group-hover:text-primary transition-colors">
-            {item.title}
-          </p>
-          {item.country && (
-            <p className="mt-1 text-xs text-muted-foreground">{item.country}</p>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <span className="text-xs font-semibold text-primary">
+              {typeLabel(item.opportunity_type, locale)}
+            </span>
+            <p className="mt-1 line-clamp-2 text-base font-semibold text-foreground">
+              {locale === "en" ? item.title : item.title_bn || item.title}
+            </p>
+          </div>
+          {item.deadline && (
+            <span className={cn("text-xs font-semibold", getDeadlineTone(deadlineDays))}>
+              {formatDate(item.deadline, locale)}
+            </span>
           )}
         </div>
-        {deadlineDays !== null && deadlineDays >= 0 && (
-          <span className="shrink-0">
-            <DeadlineChip deadline={item.deadline} />
-          </span>
-        )}
       </Link>
     );
   }
 
   return (
-    <article className="group rounded-lg border border-border bg-card shadow-card hover:shadow-card-hover hover:border-primary/30 transition-all">
-      <div className="p-5">
-        {/* Top: type / trust / match / PDF */}
-        <div className="mb-2 flex flex-wrap items-center gap-2">
-          <RecordTypePill type={item.opportunity_type} />
-          {item.source_trust_badge && <span className="text-muted-foreground text-xs">·</span>}
-          <TrustBadge badge={item.source_trust_badge} />
-          {matchScore != null && <MatchBadge score={matchScore} />}
-          {item.document_url && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-semibold text-red-700 dark:bg-red-900/20 dark:text-red-400">
-              <FileText className="h-3 w-3" />
-              PDF
+    <article className="rounded-2xl border border-border bg-card shadow-card transition-all hover:border-primary/40 hover:shadow-card-hover">
+      <div className="p-4 sm:p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+              {typeLabel(item.opportunity_type, locale)}
             </span>
-          )}
-        </div>
-
-        {/* Title + org + save + share */}
-        <div className="flex items-start gap-3">
-          <div className="flex-1 min-w-0">
-            <Link
-              href={`/opportunity/${item.id}`}
-              className="text-base font-bold leading-snug text-foreground hover:text-primary transition-colors line-clamp-2"
-            >
-              {item.title}
-            </Link>
-            {orgName && (
-              <p className="mt-0.5 text-sm text-muted-foreground">{orgName}</p>
-            )}
-            {iscMatchKey && (
-              <span className="mt-1 inline-flex items-center rounded-full bg-teal-50 border border-teal-200 px-2 py-0.5 text-[10px] font-semibold text-teal-700">
-                {ISC_SECTOR_LABELS[iscMatchKey]?.[locale] ?? iscMatchKey}
+            {trust && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 dark:border-emerald-700/30 dark:bg-emerald-900/20 dark:text-emerald-400">
+                <ShieldCheck className="h-3.5 w-3.5" />
+                {trust}
               </span>
             )}
           </div>
-          <div className="mt-0.5 flex shrink-0 items-center gap-2">
-            <ShareButton url={shareUrl} title={item.title} />
-            <button
-              onClick={toggleSave}
-              disabled={saving}
-              aria-label={saved ? "সংরক্ষণ বাতিল করুন" : "সংরক্ষণ করুন"}
-              className="text-muted-foreground/50 hover:text-primary transition-colors disabled:opacity-40"
-            >
-              {saved ? (
-                <BookmarkCheck className="h-5 w-5 text-primary" />
-              ) : (
-                <Bookmark className="h-5 w-5" />
-              )}
-            </button>
-          </div>
+
+          <button
+            type="button"
+            onClick={toggleSave}
+            disabled={saving}
+            className="inline-flex items-center gap-1 rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:border-primary hover:text-primary disabled:opacity-50"
+            aria-label={saved ? (isEn ? "Remove from saved" : "সংরক্ষণ বাতিল করুন") : (isEn ? "Save this opportunity" : "সুযোগটি সংরক্ষণ করুন")}
+          >
+            {saved ? <BookmarkCheck className="h-3.5 w-3.5" /> : <Bookmark className="h-3.5 w-3.5" />}
+            <span>{saved ? (isEn ? "Saved" : "সংরক্ষিত") : (isEn ? "Save" : "সংরক্ষণ")}</span>
+          </button>
         </div>
 
-        {/* Summary */}
-        {item.summary && (
-          <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">
-            {item.summary}
+        <div className="mt-4 space-y-2">
+          <Link
+            href={`/opportunity/${item.id}`}
+            className="line-clamp-2 text-base font-semibold text-foreground transition-colors hover:text-primary sm:text-lg"
+          >
+            {locale === "en" ? item.title : item.title_bn || item.title}
+          </Link>
+
+          {(item.employer_or_organization || item.destination_country || item.country) && (
+            <p className="text-muted-foreground">
+              {[item.employer_or_organization, item.destination_country || item.country]
+                .filter(Boolean)
+                .join(" • ")}
+            </p>
+          )}
+        </div>
+
+        {item.can_apply_from_bd && (
+          <div className="mt-4">
+            <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-700 dark:border-emerald-700/30 dark:bg-emerald-900/20 dark:text-emerald-400">
+              {isEn ? "Eligible to apply from Bangladesh" : "বাংলাদেশ থেকে আবেদনযোগ্য"}
+            </span>
+          </div>
+        )}
+
+        {summary && (
+          <p className="mt-4 line-clamp-2 text-muted-foreground">
+            {summary}
           </p>
         )}
 
-        {/* Eligibility badges */}
-        <EligibilityBadges item={item} />
-
-        {/* Meta row */}
-        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
-          {location && (
-            <span className="flex items-center gap-1">
-              <MapPin className="h-3.5 w-3.5 shrink-0" />
-              {location}
-            </span>
-          )}
-          {item.deadline && (
-            <span className="flex items-center gap-1">
-              <Calendar className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              <DeadlineChip deadline={item.deadline} />
-            </span>
-          )}
-          {hasSalary && (
-            <span className="flex items-center gap-1">
-              <Banknote className="h-3.5 w-3.5 shrink-0" />
-              {item.salary_min
-                ? `${item.salary_min}${item.salary_max ? `–${item.salary_max}` : ""} ${item.salary_currency ?? ""}`
-                : item.salary_text}
-            </span>
-          )}
-          {item.published_at && (
-            <span className="flex items-center gap-1">
-              <Clock className="h-3.5 w-3.5 shrink-0" />
-              {formatDateTime(item.published_at, locale)}
-            </span>
-          )}
-        </div>
+        <CompactMeta item={item} locale={locale} />
       </div>
 
-      {/* Footer */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-5 py-3">
-        <Link
-          href={`/opportunity/${item.id}`}
-          className="text-sm font-semibold text-primary hover:underline"
-        >
-          বিস্তারিত দেখুন →
-        </Link>
-        <div className="flex items-center gap-2">
-          {item.document_url && (
-            <a
-              href={item.document_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2.5 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50 transition-colors dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/20"
-            >
-              <FileText className="h-3.5 w-3.5" />
-              মূল সার্কুলার
-            </a>
-          )}
-          {item.original_apply_url && (
-            <a
-              href={item.original_apply_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-xs font-bold text-primary-foreground hover:opacity-90 transition-opacity"
-            >
-              <ExternalLink className="h-3.5 w-3.5" />
-              আবেদন করুন
-            </a>
-          )}
+      <div className="border-t border-border px-4 py-4 sm:px-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <Link
+            href={`/opportunity/${item.id}`}
+            className="text-sm font-semibold text-primary hover:underline"
+          >
+            {isEn ? "View details" : "বিস্তারিত"} →
+          </Link>
+
+          <a
+            href={applyHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-bold text-white transition-opacity hover:opacity-90 sm:w-auto"
+          >
+            <span>{isEn ? "Apply Now" : "আবেদন করুন"}</span>
+            <ExternalLink className="h-4 w-4" />
+          </a>
         </div>
       </div>
     </article>

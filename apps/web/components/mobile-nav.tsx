@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Menu, X, Search } from "lucide-react";
+import { CircleUserRound, LogIn, Menu, Sparkles, X } from "lucide-react";
 import type { Route } from "next";
+
 import type { AuthUser } from "@/lib/types";
 
 interface MobileNavProps {
@@ -17,89 +18,85 @@ export function MobileNav({ navLinks, user }: MobileNavProps) {
   return (
     <div className="md:hidden">
       <button
-        onClick={() => setOpen((v) => !v)}
+        type="button"
+        onClick={() => setOpen((value) => !value)}
         aria-label={open ? "মেনু বন্ধ করুন" : "মেনু খুলুন"}
-        className="flex h-8 w-8 items-center justify-center rounded-md border border-white/35 text-white hover:border-white/70 transition-colors"
+        className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:border-primary hover:text-primary"
       >
-        {open ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+        {open ? <X className="h-3.5 w-3.5" /> : <Menu className="h-3.5 w-3.5" />}
+        <span>মেনু</span>
       </button>
 
       {open && (
-        <div className="fixed inset-0 top-[57px] z-50 overflow-y-auto border-t border-white/20 bg-[#071a3a]/95 text-white backdrop-blur-md">
-          <div className="p-4 space-y-1">
-            {/* Mobile search */}
-            <form action="/search" className="mb-4">
-              <label className="flex items-center gap-2 rounded-md border border-white/35 bg-white/10 px-3 py-2.5 text-sm focus-within:border-white/70 focus-within:ring-1 focus-within:ring-white/30">
-                <Search className="h-4 w-4 shrink-0 text-slate-100" />
-                <input
-                  name="q"
-                  placeholder="চাকরি, স্কলারশিপ বা দেশ খুঁজুন…"
-                  className="flex-1 bg-transparent text-sm text-white outline-none placeholder:text-slate-100/80"
-                />
-              </label>
-            </form>
-
-            {navLinks.map(({ label, href }) => (
-              <Link
-                key={href}
-                href={href}
+        <div className="fixed inset-0 z-50 bg-[#07152f]/70 backdrop-blur-sm">
+          <div className="absolute inset-y-0 right-0 w-full max-w-sm overflow-y-auto border-l border-border bg-card p-4 text-foreground shadow-2xl">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Menu</p>
+                <h2 className="text-lg font-bold">Sudokkho Probash</h2>
+              </div>
+              <button
+                type="button"
                 onClick={() => setOpen(false)}
-                className="block rounded-md px-4 py-2.5 text-sm font-medium text-white/95 transition-colors hover:bg-white/10"
+                className="inline-flex items-center gap-1 rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-foreground"
               >
-                {label}
-              </Link>
-            ))}
+                <X className="h-3.5 w-3.5" />
+                <span>বন্ধ</span>
+              </button>
+            </div>
 
-            <div className="my-3 h-px bg-white/20" />
+            <div className="grid gap-2">
+              {navLinks.map(({ label, href }) => (
+                <Link
+                  key={href}
+                  href={href}
+                  onClick={() => setOpen(false)}
+                  className="rounded-2xl border border-border bg-background px-4 py-3 text-sm font-semibold text-foreground transition-colors hover:border-primary hover:text-primary"
+                >
+                  {label}
+                </Link>
+              ))}
+            </div>
+
+            <div className="my-4 h-px bg-border" />
 
             {user ? (
-              <>
+              <div className="grid gap-2">
                 <Link
                   href="/dashboard"
                   onClick={() => setOpen(false)}
-                  className="block rounded-md px-4 py-2.5 text-sm font-medium text-white/95 hover:bg-white/10"
+                  className="inline-flex items-center gap-2 rounded-2xl border border-border bg-background px-4 py-3 text-sm font-semibold text-foreground"
                 >
-                  ড্যাশবোর্ড
-                </Link>
-                <Link
-                  href="/saved"
-                  onClick={() => setOpen(false)}
-                  className="block rounded-md px-4 py-2.5 text-sm font-medium text-white/95 hover:bg-white/10"
-                >
-                  সংরক্ষিত
-                </Link>
-                <Link
-                  href="/alerts"
-                  onClick={() => setOpen(false)}
-                  className="block rounded-md px-4 py-2.5 text-sm font-medium text-white/95 hover:bg-white/10"
-                >
-                  সতর্কতা
+                  <CircleUserRound className="h-4 w-4 text-primary" />
+                  <span>ড্যাশবোর্ড</span>
                 </Link>
                 <Link
                   href="/copilot"
                   onClick={() => setOpen(false)}
-                  className="block rounded-md px-4 py-2.5 text-sm font-semibold text-primary hover:bg-white/10"
+                  className="inline-flex items-center gap-2 rounded-2xl border border-border bg-background px-4 py-3 text-sm font-semibold text-foreground"
                 >
-                  AI Copilot
+                  <Sparkles className="h-4 w-4 text-primary" />
+                  <span>AI Copilot</span>
                 </Link>
-              </>
+              </div>
             ) : (
-              <>
+              <div className="grid gap-2">
                 <Link
                   href="/auth/login"
                   onClick={() => setOpen(false)}
-                  className="block rounded-md px-4 py-2.5 text-sm font-medium text-white/95 hover:bg-white/10"
+                  className="inline-flex items-center justify-center gap-2 rounded-2xl border border-border bg-background px-4 py-3 text-sm font-semibold text-foreground"
                 >
-                  প্রবেশ করুন
+                  <LogIn className="h-4 w-4 text-primary" />
+                  <span>প্রবেশ করুন</span>
                 </Link>
                 <Link
                   href="/auth/register"
                   onClick={() => setOpen(false)}
-                  className="mt-2 block rounded-md border border-white/40 bg-white/10 px-4 py-2.5 text-center text-sm font-bold text-white"
+                  className="inline-flex items-center justify-center rounded-2xl bg-primary px-4 py-3 text-sm font-bold text-white"
                 >
                   ফ্রি অ্যাকাউন্ট তৈরি করুন
                 </Link>
-              </>
+              </div>
             )}
           </div>
         </div>

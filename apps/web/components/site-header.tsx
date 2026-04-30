@@ -3,9 +3,12 @@ import Image from "next/image";
 import Link from "next/link";
 import { Search } from "lucide-react";
 
+import { HeaderNavLinks } from "@/components/header-nav-links";
+import { HeaderUserMenu } from "@/components/header-user-menu";
 import { LanguageToggle } from "@/components/language-toggle";
 import { LogoutButton } from "@/components/logout-button";
 import { MobileNav } from "@/components/mobile-nav";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { getCurrentUser } from "@/lib/server-auth-fetch";
 import { getLocale } from "@/lib/i18n";
 
@@ -30,20 +33,29 @@ function getBanglaDate(): string {
 export async function SiteHeader() {
   const [user, locale] = await Promise.all([getCurrentUser(), getLocale()]);
   const banglaDate = getBanglaDate();
+  const isEn = locale === "en";
+
+  const userMenuLinks: Array<{ label: string; href: Route }> = [
+    { label: isEn ? "Dashboard" : "ড্যাশবোর্ড", href: "/dashboard" },
+    { label: isEn ? "Alerts" : "সতর্কতা", href: "/alerts" },
+    { label: "AI Copilot", href: "/copilot" },
+    ...(user?.is_admin ? [{ label: "Admin", href: "/admin" as Route }] : []),
+  ];
 
   return (
-    <header className="sticky top-0 z-50 shadow-sm">
-      {/* ── Top utility bar ── */}
-      <div className="border-b border-border bg-muted/60 text-xs text-muted-foreground">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-1.5">
-          <span className="hidden sm:block">{banglaDate}</span>
+    <header className="sticky top-0 z-50 border-b border-border bg-background/95 shadow-sm backdrop-blur">
+      <div className="hidden border-b border-border bg-muted/60 text-xs text-muted-foreground md:block">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-2">
+          <span>{banglaDate}</span>
           <div className="ml-auto flex items-center gap-3">
             <LanguageToggle />
+            <ThemeToggle />
+            <span className="text-border">|</span>
             {user ? (
               <div className="flex items-center gap-3">
                 <Link
                   href="/dashboard"
-                  className="font-medium text-foreground hover:text-primary transition-colors"
+                  className="font-medium text-foreground transition-colors hover:text-primary"
                 >
                   {user.full_name.split(" ")[0]}
                 </Link>
@@ -54,15 +66,15 @@ export async function SiteHeader() {
               <div className="flex items-center gap-3">
                 <Link
                   href="/auth/login"
-                  className="font-medium text-foreground hover:text-primary transition-colors"
+                  className="font-medium text-foreground transition-colors hover:text-primary"
                 >
-                  প্রবেশ করুন
+                  {isEn ? "Login" : "প্রবেশ করুন"}
                 </Link>
                 <Link
                   href="/auth/register"
-                  className="rounded bg-primary px-2.5 py-0.5 font-semibold text-white hover:opacity-90 transition-opacity"
+                  className="rounded-full bg-primary px-3 py-1 font-semibold text-white transition-opacity hover:opacity-90"
                 >
-                  ফ্রি অ্যাকাউন্ট
+                  {isEn ? "Free Account" : "ফ্রি অ্যাকাউন্ট"}
                 </Link>
               </div>
             )}
@@ -70,87 +82,82 @@ export async function SiteHeader() {
         </div>
       </div>
 
-      {/* ── Main header: logo + search ── */}
-      <div className="border-b border-border bg-white dark:bg-card">
-        <div className="mx-auto flex max-w-7xl items-center gap-4 px-4 py-3">
-          {/* Logo */}
+      <div className="border-b border-border bg-card">
+        <div className="mx-auto hidden max-w-7xl items-center gap-4 px-4 py-4 md:flex">
           <Link href="/" className="shrink-0">
             <Image
               src="/assets/images/sudokkho-logo.png"
-              alt="Sudokkho"
+              alt="সুদক্ষ প্রবাস লোগো"
               width={220}
               height={70}
-              className="h-10 w-auto sm:h-11"
+              className="h-11 w-auto"
               priority
             />
           </Link>
 
-          {/* Search */}
-          <form action="/search" className="hidden flex-1 md:flex">
-            <label className="flex w-full items-center gap-2 rounded-md border border-border bg-muted/60 px-3 py-2.5 text-sm transition-colors focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/30">
+          <form action="/search" className="flex flex-1">
+            <label className="flex w-full items-center gap-2 rounded-full border border-border bg-background px-4 py-3 text-sm transition-colors focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/30">
               <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
               <input
                 name="q"
-                placeholder="চাকরি, স্কলারশিপ বা দেশ খুঁজুন…"
-                className="flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/80"
+                placeholder={
+                  isEn
+                    ? "Search jobs, scholarships, countries, or visa updates"
+                    : "চাকরি, স্কলারশিপ, দেশ বা ভিসা আপডেট খুঁজুন"
+                }
+                className="flex-1 bg-transparent text-base text-foreground outline-none placeholder:text-muted-foreground/80"
                 autoComplete="off"
               />
             </label>
           </form>
 
-          {/* Mobile hamburger */}
-          <div className="ml-auto md:hidden">
+          <div className="ml-auto">
+            {user ? (
+              <HeaderUserMenu
+                label={isEn ? "Menu" : "মেনু"}
+                links={userMenuLinks}
+              />
+            ) : (
+              <Link
+                href="/auth/register"
+                className="inline-flex items-center rounded-full bg-primary px-5 py-3 text-sm font-bold text-white transition-opacity hover:opacity-90"
+              >
+                {isEn ? "Free Account" : "ফ্রি অ্যাকাউন্ট"}
+              </Link>
+            )}
+          </div>
+        </div>
+
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 md:hidden">
+          <Link href="/" className="shrink-0">
+            <Image
+              src="/assets/images/sudokkho-logo.png"
+              alt="সুদক্ষ প্রবাস লোগো"
+              width={180}
+              height={56}
+              className="h-10 w-auto"
+              priority
+            />
+          </Link>
+
+          <div className="ml-auto flex items-center gap-2">
+            <Link
+              href="/search"
+              className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:border-primary hover:text-primary"
+            >
+              <Search className="h-3.5 w-3.5" />
+              <span>{isEn ? "Search" : "খুঁজুন"}</span>
+            </Link>
+            <ThemeToggle />
+            <LanguageToggle />
             <MobileNav navLinks={NAV_LINKS} user={user} />
           </div>
         </div>
       </div>
 
-      {/* ── Navigation row ── */}
-      <div className="bg-[#0a1f44]">
+      <div className="hidden bg-[#0a1f44] md:block">
         <div className="mx-auto max-w-7xl px-4">
-          <nav className="scrollbar-none flex items-center overflow-x-auto">
-            {NAV_LINKS.map(({ label, href }) => (
-              <Link
-                key={href}
-                href={href}
-                className="whitespace-nowrap border-b-2 border-transparent px-3.5 py-2.5 text-sm font-medium text-slate-200 transition-colors hover:border-primary hover:text-white"
-              >
-                {label}
-              </Link>
-            ))}
-
-            {user && (
-              <>
-                <div className="mx-2 h-4 w-px shrink-0 bg-white/20" />
-                <Link
-                  href="/dashboard"
-                  className="whitespace-nowrap px-3.5 py-2.5 text-sm font-medium text-slate-200 hover:text-white transition-colors"
-                >
-                  ড্যাশবোর্ড
-                </Link>
-                <Link
-                  href="/alerts"
-                  className="whitespace-nowrap px-3.5 py-2.5 text-sm font-medium text-slate-200 hover:text-white transition-colors"
-                >
-                  সতর্কতা
-                </Link>
-                <Link
-                  href="/copilot"
-                  className="whitespace-nowrap px-3.5 py-2.5 text-sm font-semibold text-primary hover:text-primary/80 transition-colors"
-                >
-                  AI Copilot
-                </Link>
-                {user.is_admin && (
-                  <Link
-                    href="/admin"
-                    className="whitespace-nowrap px-3.5 py-2.5 text-sm font-medium text-slate-200 hover:text-white transition-colors"
-                  >
-                    Admin
-                  </Link>
-                )}
-              </>
-            )}
-          </nav>
+          <HeaderNavLinks links={NAV_LINKS} />
         </div>
       </div>
     </header>

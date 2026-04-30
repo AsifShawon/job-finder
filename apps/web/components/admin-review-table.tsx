@@ -301,12 +301,12 @@ export function AdminReviewTable({
                 </div>
 
                 {/* Action buttons */}
-                <div className="flex shrink-0 flex-col gap-2 items-end">
+                <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto sm:items-end">
                   {item.review_status !== "approved" && (
                     <button
                       onClick={() => doAction(item.id, "approve", "approved")}
                       disabled={busy === item.id || translating === item.id}
-                      className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+                      className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-emerald-700 disabled:opacity-50 sm:w-auto"
                     >
                       <CheckCircle className="h-3.5 w-3.5" />
                       {isEn ? "Approve & Publish" : "অনুমোদন করুন"}
@@ -316,7 +316,7 @@ export function AdminReviewTable({
                     <button
                       onClick={() => doTranslate(item.id)}
                       disabled={busy === item.id || translating === item.id}
-                      className="inline-flex items-center gap-1.5 rounded-md border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-bold text-sky-700 hover:bg-sky-100 disabled:opacity-50 dark:border-sky-700 dark:bg-sky-900/20 dark:text-sky-400"
+                      className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-sky-300 bg-sky-50 px-4 py-2.5 text-sm font-bold text-sky-700 hover:bg-sky-100 disabled:opacity-50 dark:border-sky-700 dark:bg-sky-900/20 dark:text-sky-400 sm:w-auto"
                     >
                       <Languages className="h-3.5 w-3.5" />
                       {translating === item.id
@@ -328,7 +328,7 @@ export function AdminReviewTable({
                     <button
                       onClick={() => doAction(item.id, "needs-manual-fix", "needs_manual_fix")}
                       disabled={busy === item.id || translating === item.id}
-                      className="inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-700 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-400"
+                      className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-bold text-amber-700 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-400 sm:w-auto"
                     >
                       <AlertTriangle className="h-3.5 w-3.5" />
                       {isEn ? "Needs fix" : "সংশোধন দরকার"}
@@ -338,7 +338,7 @@ export function AdminReviewTable({
                     <button
                       onClick={() => doAction(item.id, "reject", "rejected")}
                       disabled={busy === item.id || translating === item.id}
-                      className="inline-flex items-center gap-1.5 rounded-md border border-rose-300 bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-700 hover:bg-rose-100 disabled:opacity-50 dark:border-rose-700 dark:bg-rose-900/20 dark:text-rose-400"
+                      className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-rose-300 bg-rose-50 px-4 py-2.5 text-sm font-bold text-rose-700 hover:bg-rose-100 disabled:opacity-50 dark:border-rose-700 dark:bg-rose-900/20 dark:text-rose-400 sm:w-auto"
                     >
                       <XCircle className="h-3.5 w-3.5" />
                       {isEn ? "Reject" : "প্রত্যাখ্যান"}

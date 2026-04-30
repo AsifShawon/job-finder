@@ -133,6 +133,17 @@ export interface PublishedOpportunityDetail extends PublishedOpportunityCard {
   updated_at: string | null;
   draft_id: number | null;
   source_id: number | null;
+  employer: string | null;
+  organization: string | null;
+  city: string | null;
+  application_url: string | null;
+  funding_type: string | null;
+  visa_support: boolean | null;
+  record_type: RecordType | null;
+  trust_tier: TrustTier | null;
+  requirements_json?: { items?: string[] } | null;
+  benefits_json?: { items?: string[] } | null;
+  language_requirements_json?: { items?: string[] } | null;
 }
 
 export interface SearchResponse {
@@ -376,6 +387,7 @@ export interface RecommendationResponse {
 // ── Legacy aliases (kept so existing OpportunityCard references don't break) ──
 
 export type OpportunityCard = PublishedOpportunityCard;
+export type OpportunityDetail = PublishedOpportunityDetail;
 export type ReviewQueueItem = DraftItem;
 
 export interface FailedExtraction {

@@ -1,18 +1,19 @@
+import type { HTMLAttributes } from "react";
+
 import { cn } from "@/lib/utils";
 
 export function Card({
   className,
   children,
-}: {
-  className?: string;
-  children: React.ReactNode;
-}) {
+  ...props
+}: HTMLAttributes<HTMLElement>) {
   return (
     <section
       className={cn(
-        "rounded-lg border border-border bg-card p-5 shadow-card",
+        "rounded-2xl border border-border bg-card p-4 shadow-card sm:p-5",
         className
       )}
+      {...props}
     >
       {children}
     </section>

@@ -29,7 +29,11 @@ export default async function AdminLayout({
   return (
     <div className="min-h-screen bg-background">
       {/* Admin top banner */}
-      <div className="border-b border-border bg-navy text-white">
+      <div
+        className="border-b border-border bg-navy text-white"
+        role="region"
+        aria-label={isEn ? "Admin top bar" : "অ্যাডমিন উপরের বার"}
+      >
         <div className="mx-auto max-w-7xl px-4 py-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2.5">
@@ -64,7 +68,13 @@ export default async function AdminLayout({
       </div>
 
       {/* Page content */}
-      <div className="mx-auto max-w-7xl px-4 py-6">{children}</div>
+      <div
+        className="mx-auto max-w-7xl px-4 py-6"
+        role="region"
+        aria-label={isEn ? "Admin page content" : "অ্যাডমিন পেজের কনটেন্ট"}
+      >
+        {children}
+      </div>
     </div>
   );
 }

@@ -27,7 +27,7 @@ const config: Config = {
         border: "hsl(var(--border))",
         success: "hsl(var(--success))",
         warning: "hsl(var(--warning))",
-        navy: "#07152f",
+        navy: "hsl(var(--navy))",
         portal: {
           red: "#ef233c",
           navy: "#07152f",

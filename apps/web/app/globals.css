@@ -3,34 +3,26 @@
 @tailwind utilities;
 
 :root {
-  /* Portal Red — #ef233c */
   --primary: 352 84% 54%;
   --primary-foreground: 0 0% 100%;
-  /* Deep navy text — #07152f */
+  --navy: 217 74% 11%;
   --foreground: 217 74% 11%;
-  /* Soft background — #f5f6f8 */
   --background: 220 17% 97%;
-  /* White cards */
   --card: 0 0% 100%;
   --card-foreground: 217 74% 11%;
-  /* Muted */
   --muted: 220 14% 93%;
   --muted-foreground: 217 25% 42%;
-  /* Border */
   --border: 220 13% 91%;
-  /* Success green — #16a34a */
   --success: 142 71% 29%;
-  /* Warning amber — #f59e0b */
   --warning: 38 92% 50%;
-  /* Focus ring */
   --ring: 352 84% 54%;
-  /* Radius */
-  --radius: 0.375rem;
+  --radius: 0.75rem;
 }
 
 .dark {
-  --primary: 352 84% 54%;
+  --primary: 352 84% 58%;
   --primary-foreground: 0 0% 100%;
+  --navy: 217 50% 15%;
   --background: 217 74% 5%;
   --foreground: 220 16% 94%;
   --card: 217 55% 9%;
@@ -40,6 +32,31 @@
   --border: 217 30% 20%;
   --success: 142 60% 38%;
   --warning: 38 90% 55%;
+  --ring: 352 84% 58%;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+@layer base {
+  body {
+    @apply bg-background font-bengali text-base text-foreground antialiased;
+  }
+
+  p {
+    @apply text-base leading-relaxed;
+  }
+
+  input,
+  select,
+  textarea {
+    @apply text-base;
+  }
 }
 
 body {
@@ -47,7 +64,6 @@ body {
   color: hsl(var(--foreground));
 }
 
-/* News ticker scroll animation */
 @keyframes ticker-scroll {
   from {
     transform: translateX(0);
@@ -66,7 +82,6 @@ body {
   animation-play-state: paused;
 }
 
-/* Portal fade-up entry */
 .fade-up {
   animation: fadeUp 380ms ease-out;
 }
@@ -82,7 +97,36 @@ body {
   }
 }
 
-/* Red section underline utility */
+@keyframes hero-fade-in {
+  from {
+    opacity: 0;
+    transform: translateX(60px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes hero-fade-out {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-60px);
+  }
+}
+
+.hero-slide-active {
+  animation: hero-fade-in 700ms ease-out;
+}
+
+.hero-slide-exit {
+  animation: hero-fade-out 700ms ease-out;
+}
+
 .section-underline::after {
   content: "";
   display: block;
@@ -92,11 +136,11 @@ body {
   margin-top: 0.4rem;
 }
 
-/* Scrollbar hide */
 .scrollbar-none {
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
+
 .scrollbar-none::-webkit-scrollbar {
   display: none;
 }

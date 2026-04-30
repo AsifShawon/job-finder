@@ -21,10 +21,10 @@ export function LanguageToggle() {
     <button
       onClick={switchLocale}
       disabled={isPending}
-      className="rounded-lg border border-white/35 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:border-white/70 hover:bg-white/20 disabled:opacity-50"
+      className="inline-flex items-center rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:border-primary hover:text-primary disabled:opacity-50"
       aria-label={locale === "bn" ? "View in English" : "View in Bangla"}
     >
-      {locale === "bn" ? "English" : "Bangla"}
+      {locale === "bn" ? "EN" : "বাং"}
     </button>
   );
 }

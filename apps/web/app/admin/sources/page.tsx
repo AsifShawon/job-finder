@@ -15,7 +15,7 @@ export default async function AdminSourcesPage() {
 
   return (
     <div className="space-y-6">
-      <div>
+      <div role="region" aria-label={isEn ? "Source page header" : "সোর্স পেজের শিরোনাম"}>
         <p className="text-xs font-semibold uppercase tracking-wider text-primary">
           {isEn ? "Source Registry" : "উৎস রেজিস্ট্রি"}
         </p>
@@ -30,7 +30,11 @@ export default async function AdminSourcesPage() {
       </div>
 
       {/* Stats */}
-      <div className="flex flex-wrap items-center gap-3">
+      <div
+        className="flex flex-wrap items-center gap-3"
+        role="region"
+        aria-label={isEn ? "Source summary badges" : "সোর্স সারাংশ ব্যাজ"}
+      >
         {[
           {
             label: isEn ? "Total" : "মোট",

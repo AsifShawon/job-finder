@@ -172,7 +172,7 @@ export default async function AdminPage() {
       {/* Bottom grid */}
       <div className="grid gap-6 xl:grid-cols-[1.3fr_0.7fr]">
         {/* Recent crawls */}
-        <Card>
+        <Card role="region" aria-label={isEn ? "Recent crawls" : "সাম্প্রতিক ক্রল"}>
           <div className="mb-4 flex items-center justify-between">
             <h2 className="font-bold text-foreground section-underline">
               {isEn ? "Recent Crawls" : "সাম্প্রতিক ক্রল"}
@@ -220,7 +220,7 @@ export default async function AdminPage() {
         {/* Right column */}
         <div className="space-y-5">
           {/* AI Settings */}
-          <Card>
+          <Card role="region" aria-label={isEn ? "AI settings" : "এআই সেটিংস"}>
             <h2 className="mb-4 font-bold text-foreground section-underline">
               {isEn ? "AI Settings" : "AI সেটিংস"}
             </h2>
@@ -228,7 +228,7 @@ export default async function AdminPage() {
           </Card>
 
           {/* Source coverage mini-list */}
-          <Card>
+          <Card role="region" aria-label={isEn ? "Source coverage" : "উৎস কভারেজ"}>
             <div className="mb-3 flex items-center justify-between">
               <h2 className="font-bold text-foreground section-underline">
                 {isEn ? "Sources" : "উৎস কভারেজ"}
