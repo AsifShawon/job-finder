@@ -21,41 +21,94 @@ class ExtractionEnvelope(BaseModel):
 
 
 def _fallback_extract(cleaned: dict[str, Any]) -> ExtractionBase:
+    """
+    Fallback extractor used when LLM is not configured.
+    Rejects news articles and only extracts genuine opportunity pages.
+    """
+    import re as _re
+
     title = cleaned.get("title") or "Untitled"
     body = (cleaned.get("body_text") or "")[:3000]
     text = f"{title} {body}".lower()
-    bd_relevant = any(term in text for term in ["bangladesh", "bangladeshi", "migrant worker", "bd worker"])
-    opportunity_relevant = any(
-        term in text
-        for term in [
-            "job",
-            "jobs",
-            "recruitment",
-            "visa",
-            "work permit",
-            "migration",
-            "migrant",
-            "worker",
-            "policy",
-            "requirement",
-            "salary",
-        ]
+
+    # Patterns that strongly indicate a news article about employment statistics
+    news_patterns = [
+        r"\d+-month (low|high)",
+        r"(drops?|fell|declined|decreased)\s+(by\s+)?\d+\s*%",
+        r"(rose|increased|grew)\s+(by\s+)?\d+\s*%",
+        r"year.on.year",
+        r"month.on.month",
+        r"according to (data|bbs|statistics|survey)",
+        r"workers? (sent|deployed) abroad in [a-z]+",
+        r"remittance (inflow|outflow|earning)",
+        r"(research unit|rmmru|analysts?|experts?) (say|said|found|report)",
+        r"\d+,\d+ workers? (were )?(sent|deployed|went)",
+        r"(highest|lowest) (since|in) \d+ (months?|years?)",
+    ]
+
+    # Count how many news patterns match
+    news_signal_count = sum(
+        1 for pattern in news_patterns
+        if _re.search(pattern, text)
     )
-    if not (bd_relevant and opportunity_relevant):
+
+    # If 2 or more news patterns match, reject as news article
+    if news_signal_count >= 2:
         return ExtractionBase(
             record_type="unknown",
             title=title,
-            summary=body[:400],
-            extraction_confidence=0.2,
-            evidence_snippets=["No clear Bangladesh job or migration policy relevance found without AI."],
+            extraction_confidence=0.1,
+            evidence_snippets=[
+                f"Detected as news article (matched {news_signal_count} news patterns). "
+                "No actionable opportunity found."
+            ],
         )
-    record_type = "policy_update" if "policy" in text or "visa" in text or "permit" in text else "job"
+
+    # Signals that indicate an actual opportunity listing
+    opportunity_signals = [
+        "apply", "application", "deadline", "last date", "apply before",
+        "vacancy", "circular", "recruitment notice", "job circular",
+        "requirement", "requirements", "eligibility", "eligible",
+        "salary", "wage", "remuneration",
+        "passport", "visa", "work permit",
+        "position", "post", "opening",
+        "employer", "company", "organization",
+    ]
+
+    opportunity_signal_count = sum(1 for s in opportunity_signals if s in text)
+
+    # Need at least 3 opportunity signals to proceed
+    if opportunity_signal_count < 3:
+        return ExtractionBase(
+            record_type="unknown",
+            title=title,
+            extraction_confidence=0.1,
+            evidence_snippets=[
+                f"Only {opportunity_signal_count} opportunity signals found (need 3+). "
+                "Page does not appear to contain an actionable opportunity."
+            ],
+        )
+
+    # Determine record type
+    if any(w in text for w in [
+        "scholarship", "fellowship", "bursary", "stipend",
+        "study abroad", "fully funded", "tuition waiver",
+    ]):
+        record_type = "scholarship"
+    elif any(w in text for w in [
+        "visa rule change", "new policy", "circular issued", "government notification",
+        "work permit process", "new regulation", "ministry announced",
+    ]):
+        record_type = "policy_update"
+    else:
+        record_type = "job"
+
     return ExtractionBase(
         record_type=record_type,
         title=title,
         summary=body[:400],
         application_url=cleaned.get("apply_link"),
-        extraction_confidence=0.55,
+        extraction_confidence=0.45,
         evidence_snippets=[title, body[:200]],
     )
 
@@ -82,31 +135,85 @@ _VALID_SECTORS = (
 )
 
 _PROMPT_TEMPLATE = (
-    "You are an overseas opportunity extractor for Bangladeshi workers.\n"
-    "Extract ALL fields from the content below.\n\n"
-    "CRITICAL: You MUST provide BOTH Bangla and English for these fields:\n"
-    "- summary_bn: 2-3 sentence summary IN BANGLA (বাংলায় লিখুন)\n"
-    "- summary_en: same summary IN ENGLISH\n"
-    "- title_bn: translate the title to Bangla if not already in Bangla\n"
-    "- eligibility_text: list requirements clearly\n\n"
-    "CLASSIFICATION:\n"
-    "- job: recruitment notice or job posting for Bangladeshi overseas workers\n"
-    "- scholarship: academic funding open to Bangladeshis\n"
-    "- policy_update: visa/migration/work permit rule changes\n"
-    "- unknown: irrelevant content\n\n"
-    "EXTRACTION RULES:\n"
-    "- deadline_text: ISO date YYYY-MM-DD or null. Never guess.\n"
-    "- salary_min/max/currency: null unless explicitly stated\n"
-    "- country: destination country for the opportunity\n"
-    "- requirements: JSON array of strings, each requirement separately\n"
-    "- evidence_snippets: 1-3 direct quotes supporting classification\n"
-    "- extraction_confidence: 0.0-1.0\n"
-    f"- sector: One of {_VALID_SECTORS} or null.\n"
-    "- application_url: Full URL or null. Never invent.\n"
-    "- visa_support: true only if explicitly stated.\n\n"
-    "INPUT TITLE: {title}\n"
-    "INPUT BODY:\n{body}\n\n"
-    "Return ONLY the structured JSON. No preamble.\n"
+    "You are a strict opportunity extractor for a Bangladeshi migrant worker platform.\n"
+    "Your job is to determine if a web page contains an ACTIONABLE OPPORTUNITY and extract structured data.\n\n"
+    "## STEP 1 - CLASSIFY THE PAGE\n\n"
+    "### Set record_type = 'unknown' and STOP if the page is any of these:\n"
+    "- A news article reporting employment STATISTICS or TRENDS\n"
+    "  (signals: '43-month low', 'drops 64%', 'declined by', 'year-on-year', 'according to data',\n"
+    "   'remittance', 'BBS data', 'research unit', 'analysts say', 'survey shows')\n"
+    "- An opinion piece, editorial, interview, or commentary about migration\n"
+    "- A general report about labor market conditions with no specific vacancy\n"
+    "- A page that has NO employer name, NO application process, NO deadline, NO requirements list\n"
+    "- A page where the main content is about numbers/percentages of workers deployed\n\n"
+    "### Set record_type = 'job' ONLY when the page has ALL THREE of these:\n"
+    "1. A specific employer name OR government recruitment agency (e.g. BOESL, manpower agency)\n"
+    "2. A destination country or city where the job is located\n"
+    "3. At least TWO of: job title, salary, deadline, requirements list, application URL\n\n"
+    "### Set record_type = 'scholarship' ONLY when the page has ALL THREE of these:\n"
+    "1. A specific university, government body, or organization offering the funding\n"
+    "2. An application deadline OR clear eligibility criteria\n"
+    "3. The destination country for study\n\n"
+    "### Set record_type = 'policy_update' ONLY when ALL THREE are true:\n"
+    "1. A SPECIFIC CHANGE to visa rules, work permit process, or government circular\n"
+    "2. A date when the change takes effect OR was officially announced\n"
+    "3. It directly changes what a Bangladeshi worker must DO or CAN DO\n"
+    "NOTE: News articles reporting that worker numbers went up or down are NOT policy updates.\n\n"
+    "## STEP 2 - EXTRACT STRUCTURED DATA (only when record_type is NOT unknown)\n\n"
+    "BILINGUAL FIELDS (required when extracting):\n"
+    "- title: Original title from the page\n"
+    "- title_bn: Bengali translation of the title. Write in proper Bangla script.\n"
+    "- summary_en: 2-3 sentences in plain English. Answer: what is the opportunity, "
+    "where is it, who can apply, how to apply.\n"
+    "- summary_bn: Same 2-3 sentences in plain Bangla. Write for a non-technical "
+    "migrant worker who may have only finished SSC.\n\n"
+    "LOCATION:\n"
+    "- country: The DESTINATION country where the job/study is. Not Bangladesh unless it is a local job.\n\n"
+    "DEADLINE:\n"
+    "- deadline_text: Application deadline in YYYY-MM-DD format only.\n"
+    "  Return null if not explicitly stated. NEVER guess or infer a date.\n\n"
+    "SALARY:\n"
+    "- salary_min: Numeric value only, null if not stated\n"
+    "- salary_max: Numeric value only, null if not stated\n"
+    "- salary_currency: 3-letter currency code (BDT, USD, SAR, MYR, CAD, EUR, GBP, KRW, JPY)\n"
+    "  All three salary fields must be null together if salary is not explicitly mentioned.\n\n"
+    "REQUIREMENTS:\n"
+    "- requirements: A JSON array of strings. Each string is ONE single requirement.\n"
+    "  Write each requirement as a short clear sentence.\n"
+    "  Good example: ['Age 22 to 40 years', 'Minimum SSC passed', 'Valid passport required',\n"
+    "  'No criminal record', 'Physically fit']\n"
+    "  Bad example: ['Age 22-40, SSC passed, valid passport, no criminal record, physically fit']\n"
+    "  Return empty array [] if no requirements are stated.\n\n"
+    "ELIGIBILITY:\n"
+    "- eligibility_text: Plain text paragraph listing who can apply. Include age range,\n"
+    "  education level, gender requirements, nationality requirements if stated.\n"
+    "- visa_support: true ONLY if the page explicitly says visa/air ticket/accommodation\n"
+    "  is provided by the employer. false if not mentioned. Never guess.\n\n"
+    "APPLICATION:\n"
+    "- application_url: The direct link to apply or the official circular PDF URL.\n"
+    "  Must be a complete URL starting with http. Return null if not found.\n"
+    "  NEVER invent or guess a URL.\n\n"
+    "CONFIDENCE SCORING:\n"
+    "Rate extraction_confidence from 0.0 to 1.0 based on how much structured data was found:\n"
+    "- 0.85 to 1.0: Has employer + country + deadline + requirements + salary + application URL\n"
+    "- 0.70 to 0.84: Has employer + country + requirements, missing deadline or salary\n"
+    "- 0.50 to 0.69: Has job title and country but missing most structured fields\n"
+    "- 0.30 to 0.49: Very sparse, only title and partial info extractable\n"
+    "- 0.10 to 0.29: Almost nothing extractable, borderline unknown\n\n"
+    "EVIDENCE:\n"
+    "- evidence_snippets: 1 to 3 direct quotes from the page that support your classification.\n"
+    "  For unknown pages, quote the part that shows it is a news article not a job listing.\n\n"
+    "## INPUT\n"
+    "Title: {title}\n\n"
+    "Body:\n{body}\n\n"
+    "## OUTPUT FORMAT\n"
+    "Return ONLY a single valid JSON object. No markdown, no code fences, no explanation.\n\n"
+    "If record_type is 'unknown', return exactly this structure:\n"
+    '{{"record_type": "unknown", "title": "<original title>", '
+    '"extraction_confidence": 0.1, '
+    '"evidence_snippets": ["<quote from page showing why it is not actionable>"]}}\n\n'
+    "If record_type is 'job', 'scholarship', or 'policy_update', return the full schema "
+    "with every field present (use null for missing optional fields, [] for empty arrays).\n"
 )
 
 

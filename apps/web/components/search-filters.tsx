@@ -5,6 +5,8 @@ import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import {
   BriefcaseBusiness,
+  ChevronDown,
+  ChevronUp,
   GraduationCap,
   SlidersHorizontal,
   Stamp,
@@ -13,6 +15,7 @@ import {
 
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { getISCSectorSearchParam, ISC_SECTORS } from "@/lib/isc-sectors";
 import { cn } from "@/lib/utils";
 
 const TYPE_OPTIONS = [
@@ -49,12 +52,16 @@ function FilterFields({
   isEn,
   showMore,
   setShowMore,
+  categoriesOpen,
+  setCategoriesOpen,
 }: {
   values: FilterValues;
   setValues: React.Dispatch<React.SetStateAction<FilterValues>>;
   isEn: boolean;
   showMore: boolean;
   setShowMore: React.Dispatch<React.SetStateAction<boolean>>;
+  categoriesOpen: boolean;
+  setCategoriesOpen: React.Dispatch<React.SetStateAction<boolean>>;
 }) {
   return (
     <div className="space-y-5">
@@ -98,6 +105,49 @@ function FilterFields({
       </div>
 
       <div className="space-y-2">
+        <button
+          type="button"
+          onClick={() => setCategoriesOpen((current) => !current)}
+          className="flex w-full items-center justify-between text-left text-sm font-semibold text-foreground"
+        >
+          <span>{isEn ? "Categories" : "ক্যাটাগরি"}</span>
+          {categoriesOpen ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+        </button>
+
+        {categoriesOpen && (
+          <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+            {ISC_SECTORS.map((sector) => {
+              const active = values.isc_sector === sector.key;
+
+              return (
+                <button
+                  key={sector.key}
+                  type="button"
+                  onClick={() =>
+                    setValues((current) => ({
+                      ...current,
+                      isc_sector: current.isc_sector === sector.key ? "" : sector.key,
+                    }))
+                  }
+                  className={cn(
+                    "w-full rounded-xl border px-4 py-3 text-left text-sm transition-colors",
+                    active
+                      ? "border-primary bg-primary/5 text-primary"
+                      : "border-border bg-background text-foreground hover:border-primary hover:text-primary",
+                  )}
+                >
+                  <span className="block font-semibold">{sector.bn}</span>
+                  <span className={cn("block text-xs", active ? "text-primary/80" : "text-muted-foreground")}>
+                    {sector.en}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-2">
         <label className="block text-sm font-semibold text-foreground">
           {isEn ? "Which country?" : "কোন দেশে?"}
         </label>
@@ -131,7 +181,9 @@ function FilterFields({
             {isEn ? "Apply directly from Bangladesh" : "বাংলাদেশ থেকে সরাসরি আবেদন করা যাবে"}
           </p>
           <p className="text-xs text-muted-foreground">
-            {isEn ? "Show opportunities suitable for Bangladeshi applicants" : "বাংলাদেশি আবেদনকারীদের জন্য উপযোগী সুযোগ দেখান"}
+            {isEn
+              ? "Show opportunities suitable for Bangladeshi applicants"
+              : "বাংলাদেশি আবেদনকারীদের জন্য উপযোগী সুযোগ দেখান"}
           </p>
         </div>
         <input
@@ -222,6 +274,7 @@ export function SearchFilters({
 }) {
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [categoriesOpen, setCategoriesOpen] = useState(Boolean(initialValues.isc_sector));
   const [showMore, setShowMore] = useState(
     Boolean(initialValues.deadline_within || initialValues.salary_min || initialValues.lmia_status),
   );
@@ -233,7 +286,7 @@ export function SearchFilters({
     if (values.q) params.set("q", values.q);
     if (values.opportunity_type) params.set("opportunity_type", values.opportunity_type);
     if (values.country) params.set("country", values.country);
-    if (values.isc_sector) params.set("isc_sector", values.isc_sector);
+    if (values.isc_sector) params.set("sector", getISCSectorSearchParam(values.isc_sector));
     if (values.official_sources_only) params.set("official_sources_only", "true");
     if (values.can_apply_from_bd) params.set("can_apply_from_bd", "true");
     if (values.deadline_within) params.set("deadline_within", values.deadline_within);
@@ -262,6 +315,7 @@ export function SearchFilters({
     };
 
     setValues(resetValues);
+    setCategoriesOpen(false);
     router.push((values.sort ? `/search?sort=${values.sort}` : "/search") as Route);
     setMobileOpen(false);
   };
@@ -293,6 +347,8 @@ export function SearchFilters({
             isEn={isEn}
             showMore={showMore}
             setShowMore={setShowMore}
+            categoriesOpen={categoriesOpen}
+            setCategoriesOpen={setCategoriesOpen}
           />
           <div className="mt-5 flex flex-col gap-2">
             <button
@@ -341,6 +397,8 @@ export function SearchFilters({
               isEn={isEn}
               showMore={showMore}
               setShowMore={setShowMore}
+              categoriesOpen={categoriesOpen}
+              setCategoriesOpen={setCategoriesOpen}
             />
 
             <div className="mt-5 grid gap-2">

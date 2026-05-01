@@ -7,7 +7,6 @@ import { HeaderNavLinks } from "@/components/header-nav-links";
 import { HeaderUserMenu } from "@/components/header-user-menu";
 import { LanguageToggle } from "@/components/language-toggle";
 import { LogoutButton } from "@/components/logout-button";
-import { MobileNav } from "@/components/mobile-nav";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { getCurrentUser } from "@/lib/server-auth-fetch";
 import { getLocale } from "@/lib/i18n";
@@ -150,7 +149,6 @@ export async function SiteHeader() {
             </Link>
             <ThemeToggle />
             <LanguageToggle />
-            <MobileNav navLinks={NAV_LINKS} user={user} />
           </div>
         </div>
       </div>

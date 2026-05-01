@@ -4,42 +4,26 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { CheckCircle } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
+import { ISC_SECTORS } from "@/lib/isc-sectors";
 import { cn } from "@/lib/utils";
 
-const ISC_SECTORS = [
-  { key: "informal_isc",       bn: "ইনফরমাল সেক্টর আইএসসি",                   en: "Informal Sector ISC" },
-  { key: "ict_isc",            bn: "আইসিটি আইএসসি",                            en: "ICT ISC" },
-  { key: "agrofood_isc",       bn: "অ্যাগ্রোফুড আইএসসি",                       en: "Agrofood ISC" },
-  { key: "jute_isc",           bn: "জুট সেক্টর আইএসসি",                        en: "Jute Sector ISC" },
-  { key: "ceramic_isc",        bn: "সিরামিক আইএসসি",                           en: "Ceramic ISC" },
-  { key: "leather_isc",        bn: "লেদার ও লেদার গুডস আইএসসি",              en: "Leather & Leather Goods ISC" },
-  { key: "light_eng_isc",      bn: "লাইট ইঞ্জিনিয়ারিং আইএসসি",              en: "Light Engineering ISC" },
-  { key: "rgt_isc",            bn: "রেডিমেড গার্মেন্টস ও টেক্সটাইল আইএসসি", en: "Readymade Garments & Textile ISC" },
-  { key: "pharma_isc",         bn: "ফার্মাসিউটিক্যাল আইএসসি",                 en: "Pharmaceutical ISC" },
-  { key: "furniture_isc",      bn: "ফার্নিচার আইএসসি",                         en: "Furniture ISC" },
-  { key: "plastics_isc",       bn: "প্লাস্টিকস আইএসসি",                        en: "Plastics ISC" },
-  { key: "tourism_isc",        bn: "ট্যুরিজম ও হসপিটালিটি আইএসসি",           en: "Tourism & Hospitality ISC" },
-  { key: "creative_media_isc", bn: "ক্রিয়েটিভ মিডিয়া আইএসসি",              en: "Creative Media ISC" },
-  { key: "construction_isc",   bn: "কনস্ট্রাকশন আইএসসি",                       en: "Construction ISC" },
-  { key: "agriculture_isc",    bn: "এগ্রিকালচার আইএসসি",                       en: "Agriculture ISC" },
-];
-
 const COUNTRIES = [
-  { en: "Malaysia", bn: "মালয়েশিয়া" },
+  { en: "Malaysia", bn: "মালয়েশিয়া" },
   { en: "Saudi Arabia", bn: "সৌদি আরব" },
   { en: "Qatar", bn: "কাতার" },
   { en: "United Arab Emirates", bn: "সংযুক্ত আরব আমিরাত" },
-  { en: "Kuwait", bn: "কুয়েত" },
+  { en: "Kuwait", bn: "কুয়েত" },
   { en: "Bahrain", bn: "বাহরাইন" },
   { en: "Oman", bn: "ওমান" },
   { en: "Singapore", bn: "সিঙ্গাপুর" },
-  { en: "South Korea", bn: "দক্ষিণ কোরিয়া" },
+  { en: "South Korea", bn: "দক্ষিণ কোরিয়া" },
   { en: "Japan", bn: "জাপান" },
   { en: "Italy", bn: "ইতালি" },
   { en: "United Kingdom", bn: "যুক্তরাজ্য" },
   { en: "Canada", bn: "কানাডা" },
-  { en: "Australia", bn: "অস্ট্রেলিয়া" },
+  { en: "Australia", bn: "অস্ট্রেলিয়া" },
   { en: "Germany", bn: "জার্মানি" },
 ];
 
@@ -67,6 +51,7 @@ function MultiSelectPill({
   const toggle = (opt: string) => {
     onChange(selected.includes(opt) ? selected.filter((s) => s !== opt) : [...selected, opt]);
   };
+
   return (
     <div className="flex flex-wrap gap-2">
       {options.map((opt) => (
@@ -78,7 +63,7 @@ function MultiSelectPill({
             "rounded-full border px-4 py-1.5 text-sm font-medium transition-colors",
             selected.includes(opt)
               ? "border-primary bg-primary text-white"
-              : "border-slate-200 bg-white text-slate-700 hover:border-primary hover:text-primary"
+              : "border-slate-200 bg-white text-slate-700 hover:border-primary hover:text-primary",
           )}
         >
           {selected.includes(opt) && <CheckCircle className="mr-1 inline-block h-3.5 w-3.5" />}
@@ -98,22 +83,22 @@ function ISCSectorGrid({
   onChange: (next: string[]) => void;
   shakeKey: string | null;
 }) {
-  const locale = useLocale() as "bn" | "en";
   const toggle = (key: string) => {
     if (selected.includes(key)) {
       onChange(selected.filter((s) => s !== key));
     } else if (selected.length >= 3) {
-      // max 3 — ignore, shake handled by parent via shakeKey
       return;
     } else {
       onChange([...selected, key]);
     }
   };
+
   return (
     <div className="grid gap-2 sm:grid-cols-2">
       {ISC_SECTORS.map((sector) => {
         const isSelected = selected.includes(sector.key);
         const isShaking = shakeKey === sector.key;
+
         return (
           <button
             key={sector.key}
@@ -124,7 +109,7 @@ function ISCSectorGrid({
               isSelected
                 ? "border-primary bg-primary/5 text-primary"
                 : "border-slate-200 bg-white text-slate-700 hover:border-primary hover:text-primary",
-              isShaking && "animate-shake"
+              isShaking && "animate-shake",
             )}
           >
             {isSelected && <CheckCircle className="mr-2 inline-block h-4 w-4 text-primary" />}
@@ -159,7 +144,7 @@ function SingleSelectList<T extends string>({
             "rounded-xl border px-4 py-3 text-left text-sm font-medium transition-colors",
             selected === opt
               ? "border-primary bg-primary/5 text-primary"
-              : "border-slate-200 bg-white text-slate-700 hover:border-primary hover:text-primary"
+              : "border-slate-200 bg-white text-slate-700 hover:border-primary hover:text-primary",
           )}
         >
           {selected === opt && <CheckCircle className="mr-2 inline-block h-4 w-4 text-primary" />}
@@ -186,7 +171,7 @@ export function OnboardingWizard() {
   const [iscError, setIscError] = useState(false);
   const [shakeKey, setShakeKey] = useState<string | null>(null);
 
-  const TOTAL_STEPS = 4;
+  const totalSteps = 4;
 
   const steps = [
     { title: t("step1Title"), subtitle: t("step1Subtitle") },
@@ -197,16 +182,18 @@ export function OnboardingWizard() {
 
   const handleIscChange = (next: string[]) => {
     if (next.length > 3) {
-      // find the newly attempted key and shake it
-      const attempted = next.find((k) => !state.isc_sectors.includes(k));
+      const attempted = next.find((key) => !state.isc_sectors.includes(key));
       if (attempted) {
         setShakeKey(attempted);
         setTimeout(() => setShakeKey(null), 600);
       }
       return;
     }
-    setState((s) => ({ ...s, isc_sectors: next }));
-    if (next.length >= 2) setIscError(false);
+
+    setState((current) => ({ ...current, isc_sectors: next }));
+    if (next.length >= 2) {
+      setIscError(false);
+    }
   };
 
   const handleNext = () => {
@@ -214,8 +201,9 @@ export function OnboardingWizard() {
       setIscError(true);
       return;
     }
+
     setIscError(false);
-    setStep((s) => (s + 1) as Step);
+    setStep((current) => (current + 1) as Step);
   };
 
   const saveAndFinish = async (skipProfile = false) => {
@@ -233,7 +221,7 @@ export function OnboardingWizard() {
                 current_status: state.status || undefined,
                 education_level: state.education || undefined,
                 onboarding_complete: true,
-              }
+              },
         ),
       });
     } finally {
@@ -258,21 +246,19 @@ export function OnboardingWizard() {
         .animate-shake { animation: shake 0.5s ease; }
       `}</style>
 
-      {/* Progress bar */}
       <div className="mb-8">
         <div className="mb-2 flex justify-between text-xs text-slate-400">
           <span>{steps[step - 1].title}</span>
-          <span>{t("stepOf", { current: step, total: TOTAL_STEPS })}</span>
+          <span>{t("stepOf", { current: step, total: totalSteps })}</span>
         </div>
         <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
           <div
             className="h-full rounded-full bg-primary transition-all duration-300"
-            style={{ width: `${(step / TOTAL_STEPS) * 100}%` }}
+            style={{ width: `${(step / totalSteps) * 100}%` }}
           />
         </div>
       </div>
 
-      {/* Step content */}
       <div className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
         <h2 className="mb-1 text-xl font-bold">{steps[step - 1].title}</h2>
         <p className="mb-6 text-sm text-slate-500">{steps[step - 1].subtitle}</p>
@@ -286,9 +272,7 @@ export function OnboardingWizard() {
             />
             {iscError && (
               <p className="mt-3 text-sm font-medium text-red-600">
-                {locale === "bn"
-                  ? "কমপক্ষে ২টি সেক্টর বেছে নিন"
-                  : "Please select at least 2 sectors"}
+                {locale === "bn" ? "কমপক্ষে ২টি সেক্টর বেছে নিন" : "Please select at least 2 sectors"}
               </p>
             )}
             <p className="mt-3 text-xs text-muted-foreground">
@@ -303,7 +287,7 @@ export function OnboardingWizard() {
           <MultiSelectPill
             options={localizedCountries}
             selected={state.countries}
-            onChange={(countries) => setState((s) => ({ ...s, countries }))}
+            onChange={(countries) => setState((current) => ({ ...current, countries }))}
           />
         )}
 
@@ -312,7 +296,7 @@ export function OnboardingWizard() {
             options={STATUS_OPTIONS}
             selected={state.status}
             labelMap={(opt) => t(`status.${opt}`)}
-            onChange={(status) => setState((s) => ({ ...s, status }))}
+            onChange={(status) => setState((current) => ({ ...current, status }))}
           />
         )}
 
@@ -321,16 +305,15 @@ export function OnboardingWizard() {
             options={EDUCATION_OPTIONS}
             selected={state.education}
             labelMap={(opt) => t(`education.${opt}`)}
-            onChange={(education) => setState((s) => ({ ...s, education }))}
+            onChange={(education) => setState((current) => ({ ...current, education }))}
           />
         )}
       </div>
 
-      {/* Navigation */}
       <div className="mt-6 flex items-center justify-between">
         <div className="flex gap-3">
           {step > 1 && (
-            <Button variant="outline" onClick={() => setStep((s) => (s - 1) as Step)}>
+            <Button variant="outline" onClick={() => setStep((current) => (current - 1) as Step)}>
               {t("back")}
             </Button>
           )}
@@ -341,11 +324,11 @@ export function OnboardingWizard() {
             {t("skip")}
           </button>
         </div>
-        {step < TOTAL_STEPS ? (
+        {step < totalSteps ? (
           <Button
             onClick={handleNext}
             disabled={step === 1 && !canAdvance}
-            className={cn(step === 1 && !canAdvance && "opacity-50 cursor-not-allowed")}
+            className={cn(step === 1 && !canAdvance && "cursor-not-allowed opacity-50")}
           >
             {t("next")}
           </Button>

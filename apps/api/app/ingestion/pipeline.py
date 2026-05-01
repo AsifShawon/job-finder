@@ -328,6 +328,39 @@ def _process_page(
     db.add(raw)
     db.flush()
 
+    # ── 4.5. Pre-filter: reject obvious news articles before LLM call ────────
+    import re as _pre_re
+    _NEWS_REJECT_PATTERNS = [
+        r"\d+-month (low|high)",
+        r"\d+-year (low|high)",
+        r"(drops?|fell|declined?|decreased?)\s+(by\s+)?\d+\s*%",
+        r"(rose|increased?|grew|surged?)\s+(by\s+)?\d+\s*%",
+        r"year.on.year (change|growth|decline|drop|increase)",
+        r"according to (bbs|data|statistics|a survey|a report)",
+        r"remittance (inflow|outflow|earning)",
+        r"\d+,\d+ workers? (were )?(sent|deployed|went) abroad",
+        r"(highest|lowest) (monthly |)figure since",
+        r"(research unit|rmmru) (says?|said|found|report)",
+        r"labour market (data|analysis|report|trend)",
+    ]
+
+    _pre_title = cleaned.get("title") or ""
+    _pre_body = (cleaned.get("body_text") or "")[:600]
+    _pre_text = f"{_pre_title} {_pre_body}".lower()
+
+    _news_pattern_hits = sum(
+        1 for _p in _NEWS_REJECT_PATTERNS
+        if _pre_re.search(_p, _pre_text)
+    )
+
+    if _news_pattern_hits >= 2:
+        logs.append(
+            f"Pre-filter rejected news article: '{_pre_title[:80]}' "
+            f"(matched {_news_pattern_hits} news patterns)"
+        )
+        result.failed += 1
+        return
+
     # ── 5. LLM extraction ─────────────────────────────────────────────────────
     try:
         extraction = extract_structured(db, cleaned)

@@ -33,45 +33,132 @@ _DEFAULT_SEARCH_TERMS = [
     "job requirements Bangladesh",
 ]
 RELEVANT_TERMS = {
-    "bangladesh": 8,
-    "bangladeshi": 8,
-    "migrant": 5,
-    "migration": 5,
-    "worker": 4,
-    "workers": 4,
-    "job": 5,
-    "jobs": 5,
-    "career": 3,
-    "employment": 4,
-    "recruitment": 5,
-    "visa": 5,
-    "work permit": 6,
-    "labour": 3,
-    "labor": 3,
-    "policy": 4,
-    "requirement": 4,
-    "requirements": 4,
-    "salary": 3,
-    "permit": 3,
-    "quota": 3,
-    "overseas": 4,
+    # Strongest signals - actual job listing vocabulary
+    "job circular": 12,
+    "circular": 10,
+    "vacancy": 12,
+    "vacancies": 12,
+    "apply now": 11,
+    "application deadline": 12,
+    "last date of application": 12,
+    "apply before": 11,
+    "recruitment notice": 11,
+    "job opening": 10,
+    "positions available": 10,
+    "hiring": 8,
+    "work permit": 9,
+    "visa support": 9,
+    "accommodation provided": 8,
+    "air ticket": 8,
+    "food provided": 7,
+    # Requirements vocabulary
+    "requirements": 8,
+    "eligibility": 8,
+    "qualification": 7,
+    "experience required": 8,
+    "education required": 7,
+    "age limit": 8,
+    "age requirement": 8,
+    "passport required": 9,
+    # Job-specific vocabulary
+    "salary": 8,
+    "monthly salary": 9,
+    "basic salary": 9,
+    "overseas job": 9,
+    "foreign job": 9,
+    "abroad": 6,
+    "foreign employment": 9,
+    "manpower": 7,
+    "recruitment agency": 8,
+    "employer": 6,
+    # Bangladesh-specific official sources
+    "boesl": 12,
+    "bmet": 12,
+    "probashi kallyan": 10,
+    "manpower export": 9,
+    "overseas employment": 8,
+    "migrant worker": 7,
+    "bangladeshi workers": 6,
+    # Destination countries
+    "malaysia": 5,
+    "saudi arabia": 5,
+    "qatar": 5,
+    "germany": 5,
+    "canada": 5,
+    "italy": 5,
+    "south korea": 5,
+    "japan": 5,
+    "oman": 4,
+    "kuwait": 4,
+    "bahrain": 4,
+    "singapore": 4,
+    "united arab emirates": 4,
+    "uae": 4,
+    # Scholarship vocabulary
+    "scholarship": 9,
+    "fellowship": 8,
+    "bursary": 8,
+    "fully funded": 9,
+    "stipend": 7,
+    "study abroad": 8,
+    "application open": 9,
 }
 NEGATIVE_TERMS = {
+    # News article patterns - these indicate statistics reporting not job listings
+    "month low",
+    "month high",
+    "year low",
+    "year high",
+    "dropped by",
+    "fell by",
+    "declined by",
+    "decreased by",
+    "increased by",
+    "rose by",
+    "grew by",
+    "year-on-year",
+    "month-on-month",
+    "remittance inflow",
+    "remittance outflow",
+    "bbs data",
+    "according to data",
+    "according to statistics",
+    "research unit",
+    "analysts say",
+    "experts say",
+    "survey shows",
+    "report shows",
+    "data shows",
+    "statistics show",
+    "workers deployed",
+    "workers sent abroad",
+    "lowest since",
+    "highest since",
+    "labour market analysis",
+    "employment trend",
+    # Standard web page negatives
     "login",
     "signin",
     "signup",
-    "subscribe",
-    "advertise",
-    "privacy",
-    "terms",
+    "register to read",
+    "subscribe to read",
+    "advertise with us",
+    "privacy policy",
+    "terms of service",
+    "cookie policy",
+    "about us",
+    "contact us",
+    "newsletter signup",
+    "weather forecast",
+    "stock market",
+    "cryptocurrency",
+    "sports news",
+    "entertainment",
+    "celebrity",
+    "sitemap",
     "tag",
-    "author",
-    "video",
-    "photo",
-    "gallery",
-    "podcast",
-    "newsletter",
-    "weather",
+    "category",
+    "author profile",
 }
 
 
@@ -130,18 +217,50 @@ def _is_recent(candidate: CandidateLink, since: datetime | None) -> bool:
 
 
 def _score_candidate(candidate: CandidateLink) -> int:
+    import re as _re
     text = " ".join([candidate.url, candidate.title or "", candidate.summary or ""]).lower()
     score = 0
+
     for term, weight in RELEVANT_TERMS.items():
         if term in text:
             score += weight
+
     for term in NEGATIVE_TERMS:
-        if re.search(rf"[/\-_?=&.]({re.escape(term)})([/\-_?=&.]|$)", text):
+        if term in text:
+            score -= 18
+
+    # Strongly reward URLs that look like job listing or circular pages
+    job_url_signals = [
+        "/circular", "/vacancy", "/vacancies", "/job-circular",
+        "/recruitment", "/career", "/careers", "/notice",
+        "/apply", "/demand", "/hiring", "/post", "/opening",
+        "/probashi", "/overseas", "/manpower",
+    ]
+    for signal in job_url_signals:
+        if signal in candidate.url.lower():
+            score += 10
+            break
+
+    # Strongly penalize URLs that look like news articles
+    news_url_signals = [
+        "/news/", "/article/", "/articles/", "/story/", "/stories/",
+        "/report/", "/reports/", "/analysis/", "/opinion/", "/editorial/",
+        "/column/", "/columns/", "/blog/", "/blogs/", "/feature/",
+        "/interview/", "/commentary/",
+    ]
+    for signal in news_url_signals:
+        if signal in candidate.url.lower():
             score -= 20
-    if re.search(r"/20\d{2}/|[?&](id|articleid)=", text):
-        score += 2
+            break
+
+    # Small bonus for pages with date-based URLs (can be either news or circulars)
+    if _re.search(r"/20\d{2}/\d{2}/", candidate.url):
+        score += 1
+
+    # Bonus if the page has a known publication date (freshness signal)
     if candidate.published_at:
         score += 3
+
     return score
 
 

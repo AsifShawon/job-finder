@@ -5,6 +5,7 @@ import { OpportunityCard } from "@/components/opportunity-card";
 import { SearchFilters } from "@/components/search-filters";
 import { Card } from "@/components/ui/card";
 import { searchOpportunities } from "@/lib/api";
+import { getISCSectorFromSearchParam } from "@/lib/isc-sectors";
 import { getLocale } from "@/lib/i18n";
 
 interface SearchPageProps {
@@ -15,12 +16,24 @@ const FILTER_LABELS = {
   q: { bn: "খোঁজ", en: "Search" },
   opportunity_type: { bn: "ধরন", en: "Type" },
   country: { bn: "দেশ", en: "Country" },
+  sector: { bn: "ক্যাটাগরি", en: "Category" },
   official_sources_only: { bn: "সরকারি উৎস", en: "Official only" },
   can_apply_from_bd: { bn: "বাংলাদেশ থেকে আবেদন", en: "Apply from BD" },
   deadline_within: { bn: "শেষ সময়", en: "Deadline" },
   salary_min: { bn: "বেতন", en: "Salary" },
   sort: { bn: "সাজানো", en: "Sort" },
 } as const;
+
+function getFilterValueLabel(key: string, value: string, isEn: boolean): string {
+  if (key === "sector") {
+    const sector = getISCSectorFromSearchParam(value);
+    if (sector) {
+      return isEn ? sector.en : sector.bn;
+    }
+  }
+
+  return value;
+}
 
 export default async function SearchPage({ searchParams }: SearchPageProps) {
   const [locale, params] = await Promise.all([getLocale(), searchParams]);
@@ -53,9 +66,9 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
       };
     }
   })();
-  const filterEntries = Array.from(query.entries()).filter(
-    ([key]) => !["page", "page_size"].includes(key),
-  );
+
+  const filterEntries = Array.from(query.entries()).filter(([key]) => !["page", "page_size"].includes(key));
+  const selectedSector = getISCSectorFromSearchParam(query.get("sector")) ?? getISCSectorFromSearchParam(query.get("isc_sector"));
 
   return (
     <main className="bg-background">
@@ -87,7 +100,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
                   <input key={`${key}-${value}`} type="hidden" name={key} value={value} />
                 ))}
               <label className="text-sm font-semibold text-muted-foreground">
-                {isEn ? "Sort" : "সাজান"}
+                {isEn ? "Sort" : "সাজানো"}
               </label>
               <select
                 name="sort"
@@ -121,7 +134,9 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
                     href={`/search${nextParams.toString() ? `?${nextParams.toString()}` : ""}`}
                     className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary"
                   >
-                    <span>{label ? (isEn ? label.en : label.bn) : key}: {value}</span>
+                    <span>
+                      {label ? (isEn ? label.en : label.bn) : key}: {getFilterValueLabel(key, value, isEn)}
+                    </span>
                     <X className="h-3 w-3" />
                   </a>
                 );
@@ -146,7 +161,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
               q: query.get("q") ?? "",
               opportunity_type: query.get("opportunity_type") ?? "",
               country: query.get("country") ?? "",
-              isc_sector: query.get("isc_sector") ?? "",
+              isc_sector: selectedSector?.key ?? "",
               official_sources_only: query.get("official_sources_only") === "true",
               can_apply_from_bd: query.get("can_apply_from_bd") === "true",
               deadline_within: query.get("deadline_within") ?? "",
