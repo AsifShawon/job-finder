@@ -250,7 +250,17 @@ class BOESLBRMSConnector(BaseSourceConnector):
             page.goto(detail_url, wait_until="networkidle", timeout=_TIMEOUT)
             logger.debug("boesl_brms_fetched", extra={"url": detail_url})
 
+            # Capture the fully-rendered HTML so trafilatura can extract the
+            # English metadata (title, country, deadline) that the SPA renders
+            # into the detail page header.  This is the most reliable source.
+            rendered_html = page.content()
+
             pdf_url = self._extract_pdf_url(page, detail_url)
+
+            # Extract metadata from the rendered page; fall back to card values
+            title = self._extract_page_title(page, card.get("title"))
+            closing_date = self._extract_closing_date(page) or card.get("closing_date")
+            country = self._extract_country(page) or card.get("country")
 
             # Apply URL: prefer the one from the detail page if present
             apply_url = card.get("apply_url")
@@ -267,15 +277,16 @@ class BOESLBRMSConnector(BaseSourceConnector):
             return FetchedPage(
                 url=detail_url,
                 canonical_url=detail_url,
-                title=card.get("title"),
+                title=title,
+                raw_html=rendered_html,
                 content_type="pdf" if pdf_url else "html",
                 document_url=pdf_url,
                 source_page_url=source.base_url,
                 original_apply_url=apply_url,
                 metadata={
                     "source": "boesl_brms",
-                    "closing_date": card.get("closing_date"),
-                    "country": card.get("country"),
+                    "closing_date": closing_date,
+                    "country": country,
                     "discovery_source": "boesl_brms_listing",
                 },
             )
@@ -289,6 +300,86 @@ class BOESLBRMSConnector(BaseSourceConnector):
         finally:
             if page is not None:
                 page.close()
+
+    def _extract_page_title(self, page, fallback: str | None) -> str | None:
+        """Extract job title from the rendered detail page."""
+        try:
+            tab = page.title()
+            if tab and "|" in tab:
+                part = tab.split("|")[-1].strip()
+                if part and len(part) > 2:
+                    return part
+            if tab and len(tab) > 2:
+                return tab
+        except Exception:
+            pass
+
+        for selector in ["h1", "h2", ".page-title", ".card-title", ".job-title", ".detail-title"]:
+            try:
+                t = page.locator(selector).first.inner_text()
+                if t and t.strip() and len(t.strip()) > 2:
+                    return t.strip()
+            except Exception:
+                pass
+
+        return fallback
+
+    def _extract_closing_date(self, page) -> str | None:
+        """Extract application deadline from the rendered detail page."""
+        for selector in ["[class*='closing']", "[class*='deadline']", "[class*='expire']"]:
+            try:
+                t = page.locator(selector).first.inner_text().strip()
+                if t and any(c.isdigit() for c in t):
+                    return t
+            except Exception:
+                pass
+
+        try:
+            result = page.evaluate("""() => {
+                const walker = document.createTreeWalker(
+                    document.body, NodeFilter.SHOW_TEXT
+                );
+                let node;
+                while ((node = walker.nextNode())) {
+                    const t = node.textContent.trim();
+                    if (/\\d{4}-\\d{2}-\\d{2}/.test(t) || /\\d{2}\\/\\d{2}\\/\\d{4}/.test(t)) {
+                        return t;
+                    }
+                }
+                return null;
+            }""")
+            if result:
+                return result
+        except Exception:
+            pass
+
+        return None
+
+    def _extract_country(self, page) -> str | None:
+        """Extract destination country from the rendered detail page."""
+        _KNOWN = [
+            "FIJI", "MALAYSIA", "SAUDI ARABIA", "SAUDI", "UAE",
+            "UNITED ARAB EMIRATES", "QATAR", "KUWAIT", "BAHRAIN", "OMAN",
+            "JORDAN", "KOREA", "JAPAN", "SINGAPORE", "HONG KONG",
+            "TAIWAN", "CYPRUS", "MAURITIUS",
+        ]
+        for selector in ["[class*='country']", "[class*='destination']"]:
+            try:
+                t = page.locator(selector).first.inner_text().strip()
+                if t:
+                    return t
+            except Exception:
+                pass
+
+        try:
+            text = page.inner_text("body").upper()
+            for name in _KNOWN:
+                if name in text:
+                    return name
+        except Exception:
+            pass
+
+        return None
 
     def _extract_pdf_url(self, page, base_url: str) -> str | None:
         """Find the embedded PDF URL from the rendered detail page."""
