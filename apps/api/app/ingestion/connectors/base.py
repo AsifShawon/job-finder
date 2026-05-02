@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from datetime import datetime
+from typing import Any
 from typing import TYPE_CHECKING
 
 from app.ingestion.schemas import FetchedPage, ParsedItem, OpportunityDraftPayload
@@ -19,10 +20,16 @@ class BaseConnector(ABC):
 
     connector_key: str = "base"
 
+    def __init__(self) -> None:
+        self.last_discovery_diagnostics: dict[str, Any] = {}
+
     @abstractmethod
     def discover_items(self, source: "Source", crawl_mode: str = "active_only") -> list[FetchedPage]:
         """Return a list of raw fetched pages/items for this source."""
         raise NotImplementedError
+
+    def get_last_discovery_diagnostics(self) -> dict[str, Any]:
+        return dict(self.last_discovery_diagnostics)
 
     def parse_item(self, raw_item: FetchedPage, source: "Source") -> ParsedItem:
         """Parse a FetchedPage into a structured ParsedItem."""

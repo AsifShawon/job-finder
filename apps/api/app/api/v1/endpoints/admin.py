@@ -183,6 +183,10 @@ def _serialize_sources(db: Session, sources: list[Source]) -> list[AdminSourceOu
                 is_active=src.is_active,
                 parser_key=src.parser_key,
                 search_queries=src.search_queries or [],
+                search_results_limit=src.search_results_limit,
+                child_page_limit=src.child_page_limit,
+                page_ai_limit=src.page_ai_limit,
+                max_jobs_per_page=src.max_jobs_per_page,
                 # Stats
                 draft_count=int(dc.total) if dc else 0,
                 pending_review_count=int(dc.pending) if dc else 0,
@@ -459,6 +463,9 @@ def trigger_crawl(
 @router.post("/sources/{source_id}/test", response_model=SourceTestResult)
 def test_source(source_id: int, db: Session = Depends(get_db), _: User = Depends(get_admin_user)) -> SourceTestResult:
     from app.ingestion.compliance_guard import ComplianceError, check_before_crawl
+    from app.ingestion.cleaner import clean_page
+    from app.ingestion.extractor import extract_jobs_structured
+    from app.ingestion.parsers.registry import get_parser
     from app.ingestion.source_router import get_connector
 
     source = db.scalar(select(Source).where(Source.id == source_id))
@@ -471,20 +478,52 @@ def test_source(source_id: int, db: Session = Depends(get_db), _: User = Depends
     except ComplianceError as exc:
         return SourceTestResult(
             source_id=source_id, source_name=source.name, pages_found=0,
-            sample_titles=[], compliance_warning=str(exc), error=None,
+            sample_titles=[],
+            queries_used=[],
+            search_results_found=0,
+            child_pages_followed=0,
+            pages_selected_for_ai=0,
+            jobs_extracted_preview=0,
+            compliance_warning=str(exc),
+            error=None,
         )
     try:
         connector = get_connector(source)
         pages = connector.discover_items(source, crawl_mode="preview_only")
         sample_titles = [(p.title or p.url)[:120] for p in pages[:5]]
+        diagnostics = connector.get_last_discovery_diagnostics()
+        jobs_extracted_preview = 0
+        if source.connector_key == "search_html_jobs":
+            parser = get_parser(source.parser_key)
+            for page in pages[:2]:
+                parsed = parser(page)
+                cleaned = clean_page(page)
+                cleaned["title"] = parsed.get("title") or cleaned.get("title")
+                jobs_extracted_preview += len(
+                    extract_jobs_structured(db, cleaned, max_jobs=max(1, source.max_jobs_per_page or 10))
+                )
         return SourceTestResult(
             source_id=source_id, source_name=source.name, pages_found=len(pages),
-            sample_titles=sample_titles, compliance_warning=compliance_warning, error=None,
+            sample_titles=sample_titles,
+            queries_used=diagnostics.get("queries_used", []),
+            search_results_found=int(diagnostics.get("search_results_found", 0) or 0),
+            child_pages_followed=int(diagnostics.get("child_pages_followed", 0) or 0),
+            pages_selected_for_ai=int(diagnostics.get("pages_selected_for_ai", len(pages)) or len(pages)),
+            jobs_extracted_preview=jobs_extracted_preview,
+            compliance_warning=compliance_warning,
+            error=None,
         )
     except Exception as exc:
         return SourceTestResult(
             source_id=source_id, source_name=source.name, pages_found=0,
-            sample_titles=[], compliance_warning=compliance_warning, error=str(exc)[:500],
+            sample_titles=[],
+            queries_used=[],
+            search_results_found=0,
+            child_pages_followed=0,
+            pages_selected_for_ai=0,
+            jobs_extracted_preview=0,
+            compliance_warning=compliance_warning,
+            error=str(exc)[:500],
         )
 
 
@@ -985,6 +1024,10 @@ def bulk_import_sources(
                 first_crawl_mode=row.get("first_crawl_mode") or "active_only",
                 requires_admin_review=str(row.get("requires_admin_review", "true")).lower() in ("true", "1", "yes"),
                 enabled=str(row.get("enabled", row.get("is_active", "true"))).lower() not in ("false", "0", "no"),
+                search_results_limit=int(row.get("search_results_limit") or 10),
+                child_page_limit=int(row.get("child_page_limit") or 10),
+                page_ai_limit=int(row.get("page_ai_limit") or 25),
+                max_jobs_per_page=int(row.get("max_jobs_per_page") or 10),
             )
         except Exception as exc:
             errors.append(BulkImportError(row=idx, detail=str(exc)))

@@ -2,17 +2,18 @@
 Ingestion pipeline.
 
 Flow:
-  Source → ComplianceGuard → CrawlRun created
-       → SourceRouter → Connector.discover_items()
-       → for each FetchedPage:
-           → PDF extraction (if needed)
-           → parse + clean
-           → raw-doc dedup
-           → LLM extraction
-           → eligibility_engine
-           → content_hash dedup
-           → save/update OpportunityDraft (review_status='pending')
-  → CrawlRun finished
+  Source -> ComplianceGuard -> CrawlRun created
+       -> SourceRouter -> Connector.discover_items()
+       -> for each FetchedPage:
+           -> PDF extraction (if needed)
+           -> parse + clean
+           -> raw snapshot versioning
+           -> page-level dedup
+           -> LLM extraction (single or multi-job)
+           -> eligibility_engine
+           -> opportunity-level dedup
+           -> save/update OpportunityDraft rows (review_status='pending')
+  -> CrawlRun finished
 
 CRITICAL: Nothing in this pipeline sets review_status='approved' or creates
 a PublishedOpportunity. All items MUST go through admin review first.
@@ -21,22 +22,28 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+import re
+from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from app.ingestion.cleaner import clean_page
 from app.core.config import get_settings
+from app.ingestion.cleaner import clean_page
 from app.ingestion.compliance_guard import ComplianceError, check_before_crawl
 from app.ingestion.eligibility_engine import tag_eligibility
 from app.ingestion.errors import ConnectorNotImplementedError, SourceConfigError
-from app.ingestion.extractor import extract_structured
+from app.ingestion.extractor import extract_jobs_structured, extract_structured
 from app.ingestion.parsers.registry import get_parser
 from app.ingestion.pdf_extractor import download_pdf, extract_text as pdf_extract_text
 from app.ingestion.source_router import get_connector
-from app.ingestion.validators import is_duplicate, is_opportunity_duplicate, parse_deadline, validate_extraction
+from app.ingestion.validators import (
+    find_existing_opportunity,
+    is_latest_snapshot_duplicate,
+    parse_deadline,
+    validate_extraction,
+)
 from app.models.entities import CrawlJob, CrawlRun, Opportunity, RawDocument, Source
 from app.models.enums import CrawlRunStatus, CrawlStatus
 from app.services.storage_service import ObjectStorage
@@ -44,6 +51,19 @@ from app.services.storage_service import ObjectStorage
 logger = logging.getLogger(__name__)
 
 _PDF_CONTENT_TYPES = {"pdf", "image_pdf"}
+_NEWS_REJECT_PATTERNS = [
+    r"\d+-month (low|high)",
+    r"\d+-year (low|high)",
+    r"(drops?|fell|declined?|decreased?)\s+(by\s+)?\d+\s*%",
+    r"(rose|increased?|grew|surged?)\s+(by\s+)?\d+\s*%",
+    r"year.on.year (change|growth|decline|drop|increase)",
+    r"according to (bbs|data|statistics|a survey|a report)",
+    r"remittance (inflow|outflow|earning)",
+    r"\d+,\d+ workers? (were )?(sent|deployed|went) abroad",
+    r"(highest|lowest) (monthly |)figure since",
+    r"(research unit|rmmru) (says?|said|found|report)",
+    r"labour market (data|analysis|report|trend)",
+]
 
 
 @dataclass
@@ -80,12 +100,32 @@ def _content_hash(
     return hashlib.sha256(combined.encode()).hexdigest()[:64]
 
 
+def _source_item_key(
+    *,
+    source_page_url: str,
+    title: str | None,
+    employer: str | None,
+    country: str | None,
+    deadline: str | None,
+    application_url: str | None,
+) -> str:
+    combined = "|".join([
+        source_page_url,
+        (title or "").strip().lower(),
+        (employer or "").strip().lower(),
+        (country or "").strip().lower(),
+        deadline or "",
+        application_url or "",
+    ])
+    return hashlib.sha256(combined.encode()).hexdigest()[:64]
+
+
 def _trust_badge_for_source(source: Source) -> str | None:
     trust = source.trust_level or ""
     if trust == "government_official":
         return "সরকারি উৎস"
     if trust == "official_partner":
-        return "অফিসিয়াল পার্টনার"
+        return "অফিসিয়াল পার্টনার"
     if trust == "verified_source":
         return "যাচাইকৃত উৎস"
     return None
@@ -96,12 +136,10 @@ def run_source_ingestion(db: Session, source_id: int, *, force: bool = False) ->
     if not source:
         raise ValueError(f"Source {source_id} not found")
 
-    # Use enabled flag (new) with fallback to legacy is_active
     if not (source.enabled if source.enabled is not None else source.is_active):
         logger.info("pipeline_source_disabled", extra={"source_id": source_id})
         return PipelineResult(error="Source is disabled")
 
-    # ── Prevent duplicate concurrent runs ─────────────────────────────────────
     running_run = db.scalar(
         select(CrawlRun).where(
             CrawlRun.source_id == source.id,
@@ -111,7 +149,6 @@ def run_source_ingestion(db: Session, source_id: int, *, force: bool = False) ->
     if running_run:
         return PipelineResult(error=f"CrawlRun #{running_run.id} already running")
 
-    # ── Create CrawlRun ───────────────────────────────────────────────────────
     started_at = datetime.now(UTC)
     run = CrawlRun(
         source_id=source.id,
@@ -123,7 +160,6 @@ def run_source_ingestion(db: Session, source_id: int, *, force: bool = False) ->
         started_at=started_at,
     )
     db.add(run)
-    # Also create legacy CrawlJob for backward compat with admin pages
     legacy_job = CrawlJob(
         source_id=source.id,
         status=CrawlStatus.running,
@@ -137,7 +173,6 @@ def run_source_ingestion(db: Session, source_id: int, *, force: bool = False) ->
     logs: list[str] = []
     settings = get_settings()
 
-    # ── Compliance guard ──────────────────────────────────────────────────────
     try:
         compliance_warning = check_before_crawl(source, force=force)
         if compliance_warning:
@@ -150,16 +185,11 @@ def run_source_ingestion(db: Session, source_id: int, *, force: bool = False) ->
         run.finished_at = datetime.now(UTC)
         run.error_message = str(exc)
         run.logs = {"messages": logs + [f"Compliance block: {exc}"]}
-
         legacy_job.status = CrawlStatus.success
         legacy_job.finished_at = datetime.now(UTC)
         legacy_job.error_message = str(exc)
-
         db.commit()
-        logger.warning(
-            "pipeline_compliance_block",
-            extra={"source_id": source_id, "error": str(exc), "code": exc.code},
-        )
+        logger.warning("pipeline_compliance_block", extra={"source_id": source_id, "error": str(exc), "code": exc.code})
         return PipelineResult(error=str(exc))
 
     if settings.crawler_smoke_mode:
@@ -167,12 +197,8 @@ def run_source_ingestion(db: Session, source_id: int, *, force: bool = False) ->
         run.finished_at = datetime.now(UTC)
         run.discovered_count = 0
         run.logs = {"messages": logs + ["Smoke mode enabled; no discovery executed."]}
-
         legacy_job.status = CrawlStatus.success
         legacy_job.finished_at = datetime.now(UTC)
-        legacy_job.pages_fetched = 0
-        legacy_job.records_extracted = 0
-
         db.commit()
         return result
 
@@ -187,18 +213,19 @@ def run_source_ingestion(db: Session, source_id: int, *, force: bool = False) ->
             run.finished_at = datetime.now(UTC)
             run.error_message = str(exc)
             run.logs = {"messages": logs + [f"Config error: {exc}"]}
-
             legacy_job.status = CrawlStatus.failed
             legacy_job.finished_at = datetime.now(UTC)
             legacy_job.error_message = str(exc)
-
             db.commit()
             return PipelineResult(error=str(exc))
-        trust_badge = _trust_badge_for_source(source)
 
+        trust_badge = _trust_badge_for_source(source)
         pages = connector.discover_items(source, crawl_mode=run.crawl_mode)
+        diagnostics = connector.get_last_discovery_diagnostics()
         result.pages_fetched = len(pages)
         logs.append(f"Discovered {len(pages)} pages")
+        if diagnostics:
+            logs.append(f"Discovery diagnostics: {diagnostics}")
 
         for page in pages:
             try:
@@ -206,6 +233,7 @@ def run_source_ingestion(db: Session, source_id: int, *, force: bool = False) ->
                     db=db,
                     page=page,
                     source=source,
+                    crawl_run=run,
                     storage=storage,
                     parser=parser,
                     trust_badge=trust_badge,
@@ -215,13 +243,9 @@ def run_source_ingestion(db: Session, source_id: int, *, force: bool = False) ->
             except Exception as exc:
                 result.failed += 1
                 logs.append(f"Failed page {page.url}: {exc}")
-                logger.warning(
-                    "pipeline_page_error",
-                    extra={"source_id": source_id, "url": page.url, "error": str(exc)},
-                )
+                logger.warning("pipeline_page_error", extra={"source_id": source_id, "url": page.url, "error": str(exc)})
 
-        # ── Mark CrawlRun complete ─────────────────────────────────────────────
-        if result.pages_fetched == 0 and result.failed == 0 and result.draft_created == 0 and result.draft_updated == 0:
+        if result.pages_fetched == 0 and result.failed == 0 and result.records_extracted == 0:
             if (source.compliance_status or "").lower() == "linkout_only":
                 run.status = CrawlRunStatus.linkout_only_skipped
             else:
@@ -240,7 +264,7 @@ def run_source_ingestion(db: Session, source_id: int, *, force: bool = False) ->
         legacy_job.status = CrawlStatus.success
         legacy_job.finished_at = datetime.now(UTC)
         legacy_job.pages_fetched = result.pages_fetched
-        legacy_job.records_extracted = result.draft_created + result.draft_updated
+        legacy_job.records_extracted = result.records_extracted
 
         if run.status in (CrawlRunStatus.success, CrawlRunStatus.partial_success, CrawlRunStatus.success_empty):
             source.last_crawled_at = datetime.now(UTC)
@@ -253,7 +277,6 @@ def run_source_ingestion(db: Session, source_id: int, *, force: bool = False) ->
             extra={
                 "source_id": source_id,
                 "pages": result.pages_fetched,
-                # 'created' is a reserved LogRecord attribute; avoid collision
                 "drafts_created": result.draft_created,
                 "updated": result.draft_updated,
                 "dupes": result.duplicates,
@@ -261,21 +284,17 @@ def run_source_ingestion(db: Session, source_id: int, *, force: bool = False) ->
             },
         )
         return result
-
     except Exception as exc:
         db.rollback()
         err_msg = str(exc)[:2000]
         result.error = err_msg
-
         run.status = CrawlRunStatus.failed
         run.finished_at = datetime.now(UTC)
         run.error_message = err_msg
         run.logs = {"messages": logs + [f"Fatal error: {err_msg}"]}
-
         legacy_job.status = CrawlStatus.failed
         legacy_job.finished_at = datetime.now(UTC)
         legacy_job.error_message = err_msg
-
         _update_source_error(db, source, err_msg)
         db.commit()
         raise
@@ -285,13 +304,13 @@ def _process_page(
     db: Session,
     page,
     source: Source,
+    crawl_run: CrawlRun,
     storage: ObjectStorage,
     parser,
     trust_badge: str | None,
     result: PipelineResult,
     logs: list[str],
 ) -> None:
-    # ── 1. PDF extraction ─────────────────────────────────────────────────────
     if page.content_type in _PDF_CONTENT_TYPES:
         pdf_url = page.document_url or page.url
         pdf_bytes = download_pdf(pdf_url)
@@ -300,100 +319,123 @@ def _process_page(
         page.content_type = pdf_result.content_type
         page.ocr_used = pdf_result.used_ocr
 
-    # ── 2. Parse + clean ──────────────────────────────────────────────────────
     parsed = parser(page)
     cleaned = clean_page(page)
     cleaned["title"] = parsed.get("title") or cleaned.get("title")
-
-    # ── 3. Raw-document dedup ─────────────────────────────────────────────────
-    canon_url = cleaned.get("canonical_url")
+    canonical_url = cleaned.get("canonical_url") or page.canonical_url or page.url
     raw_hash = cleaned.get("content_hash", "")
-    raw_title = cleaned.get("title") or ""
-    if is_duplicate(db, canon_url, raw_hash, raw_title):
-        result.duplicates += 1
-        return
-
-    # ── 4. Store RawDocument ──────────────────────────────────────────────────
     raw_path = storage.put_text(page.url, page.raw_html or page.raw_text or "")
+
+    snapshot_duplicate = is_latest_snapshot_duplicate(
+        db,
+        source_id=source.id,
+        canonical_url=canonical_url,
+        content_hash=raw_hash,
+    )
+
     raw = RawDocument(
         source_id=source.id,
         source_url=page.url,
-        canonical_url=canon_url,
+        canonical_url=canonical_url,
         content_type=page.content_type,
         raw_text=cleaned.get("body_text"),
         raw_html_path=raw_path,
         metadata_json=page.metadata,
         content_hash=raw_hash or "unknown",
+        crawl_run_id=crawl_run.id,
     )
     db.add(raw)
     db.flush()
 
-    # ── 4.5. Pre-filter: reject obvious news articles before LLM call ────────
-    import re as _pre_re
-    _NEWS_REJECT_PATTERNS = [
-        r"\d+-month (low|high)",
-        r"\d+-year (low|high)",
-        r"(drops?|fell|declined?|decreased?)\s+(by\s+)?\d+\s*%",
-        r"(rose|increased?|grew|surged?)\s+(by\s+)?\d+\s*%",
-        r"year.on.year (change|growth|decline|drop|increase)",
-        r"according to (bbs|data|statistics|a survey|a report)",
-        r"remittance (inflow|outflow|earning)",
-        r"\d+,\d+ workers? (were )?(sent|deployed|went) abroad",
-        r"(highest|lowest) (monthly |)figure since",
-        r"(research unit|rmmru) (says?|said|found|report)",
-        r"labour market (data|analysis|report|trend)",
-    ]
+    if snapshot_duplicate:
+        result.duplicates += 1
+        logs.append(f"Skipped unchanged page: {canonical_url}")
+        return
 
-    _pre_title = cleaned.get("title") or ""
-    _pre_body = (cleaned.get("body_text") or "")[:600]
-    _pre_text = f"{_pre_title} {_pre_body}".lower()
+    if _should_reject_as_news(cleaned):
+        logs.append(f"Pre-filter rejected news article: '{(cleaned.get('title') or '')[:80]}'")
+        return
 
-    _news_pattern_hits = sum(
-        1 for _p in _NEWS_REJECT_PATTERNS
-        if _pre_re.search(_p, _pre_text)
-    )
+    extractions = _extract_records_for_page(db, source, cleaned)
+    if not extractions:
+        if source.connector_key != "search_html_jobs":
+            result.failed += 1
+        return
 
-    if _news_pattern_hits >= 2:
-        logs.append(
-            f"Pre-filter rejected news article: '{_pre_title[:80]}' "
-            f"(matched {_news_pattern_hits} news patterns)"
+    extracted_any = False
+    for extraction in extractions:
+        errors = validate_extraction(extraction)
+        if errors or extraction.record_type == "unknown":
+            continue
+        extracted_any = True
+        _process_extraction(
+            db=db,
+            extraction=extraction,
+            page=page,
+            source=source,
+            trust_badge=trust_badge,
+            raw=raw,
+            result=result,
+            logs=logs,
         )
-        result.failed += 1
-        return
 
-    # ── 5. LLM extraction ─────────────────────────────────────────────────────
-    try:
-        extraction = extract_structured(db, cleaned)
-    except Exception as exc:
-        logs.append(f"LLM extraction failed for {page.url}: {exc}")
+    if not extracted_any and source.connector_key != "search_html_jobs":
         result.failed += 1
-        return
 
-    errors = validate_extraction(extraction)
-    if errors or extraction.record_type == "unknown":
-        result.failed += 1
-        return
 
-    # ── 6. Content-hash dedup ────────────────────────────────────────────────
+def _extract_records_for_page(db: Session, source: Source, cleaned: dict) -> list:
+    if source.connector_key == "search_html_jobs":
+        max_jobs = max(1, source.max_jobs_per_page or 10)
+        return extract_jobs_structured(db, cleaned, max_jobs=max_jobs)
+
+    extraction = extract_structured(db, cleaned)
+    return [extraction] if extraction.record_type != "unknown" else []
+
+
+def _should_reject_as_news(cleaned: dict) -> bool:
+    pre_title = cleaned.get("title") or ""
+    pre_body = (cleaned.get("body_text") or "")[:600]
+    pre_text = f"{pre_title} {pre_body}".lower()
+    hits = sum(1 for pattern in _NEWS_REJECT_PATTERNS if re.search(pattern, pre_text))
+    return hits >= 2
+
+
+def _process_extraction(
+    db: Session,
+    extraction,
+    page,
+    source: Source,
+    trust_badge: str | None,
+    raw: RawDocument,
+    result: PipelineResult,
+    logs: list[str],
+) -> None:
+    source_page_url = page.source_page_url or page.url
+    application_url = extraction.application_url or getattr(page, "original_apply_url", None) or page.document_url
     opp_hash = _content_hash(
         title=extraction.title,
         source_id=source.id,
         deadline=extraction.deadline_text,
-        source_page_url=page.source_page_url or page.url,
+        source_page_url=source_page_url,
         document_url=page.document_url,
-        original_apply_url=getattr(page, "original_apply_url", None),
+        original_apply_url=application_url,
+    )
+    item_key = _source_item_key(
+        source_page_url=source_page_url,
+        title=extraction.title,
+        employer=extraction.employer or extraction.organization,
+        country=extraction.country or source.country,
+        deadline=extraction.deadline_text,
+        application_url=application_url,
     )
 
-    existing = db.scalar(select(Opportunity).where(Opportunity.content_hash == opp_hash))
-    if existing:
-        # Update the existing draft's last-seen timestamp only
-        existing.updated_at = datetime.now(UTC)
-        result.draft_updated += 1
-        result.duplicates += 1
-        db.flush()
-        return
+    existing = find_existing_opportunity(
+        db,
+        source_id=source.id,
+        source_item_key=item_key,
+        content_hash=opp_hash,
+    )
 
-    # ── 7. Eligibility tagging ────────────────────────────────────────────────
     eligibility = tag_eligibility(
         source_connector_key=source.connector_key,
         source_trust_level=source.trust_level,
@@ -406,27 +448,43 @@ def _process_page(
         employer=extraction.employer,
     )
 
-    # ── 8. Build OpportunityDraft ─────────────────────────────────────────────
     ocr_used = getattr(page, "ocr_used", False)
     force_review = bool(ocr_used or source.requires_admin_review)
-
     now = datetime.now(UTC)
+
+    if existing:
+        _apply_extraction_to_draft(
+            db=db,
+            draft=existing,
+            source=source,
+            page=page,
+            raw=raw,
+            extraction=extraction,
+            eligibility=eligibility,
+            trust_badge=trust_badge,
+            opp_hash=opp_hash,
+            source_item_key=item_key,
+            now=now,
+        )
+        result.draft_updated += 1
+        result.duplicates += 1
+        logs.append(f"Draft updated: id={existing.id} title='{(existing.title or '')[:60]}'")
+        return
+
     draft = Opportunity(
         source_id=source.id,
         source_name=source.name,
-        source_page_url=page.source_page_url or page.url,
-        source_url=page.source_page_url or page.url,   # legacy alias
+        source_page_url=source_page_url,
+        source_url=source_page_url,
         document_url=page.document_url,
         original_apply_url=getattr(page, "original_apply_url", None),
         content_type=page.content_type,
-
         opportunity_type=eligibility.opportunity_type,
         title=extraction.title or "Untitled",
         title_bn=getattr(extraction, "title_bn", None),
         summary=extraction.summary,
         summary_bn=getattr(extraction, "summary_bn", None),
         summary_en=getattr(extraction, "summary_en", None) or extraction.summary,
-
         country=extraction.country or source.country,
         destination_country=None,
         employer_or_organization=extraction.employer or extraction.organization,
@@ -434,19 +492,16 @@ def _process_page(
         organization=extraction.organization,
         sector=extraction.sector,
         degree_level=extraction.degree_level,
-
         salary_min=extraction.salary_min,
         salary_max=extraction.salary_max,
         salary_currency=extraction.salary_currency,
-
         deadline=parse_deadline(extraction.deadline_text),
-        application_url=extraction.application_url,
+        application_url=application_url,
         eligibility_text=extraction.eligibility_text,
         visa_support=extraction.visa_support,
         language_requirements_json={"items": extraction.language_requirements},
         requirements_json={"items": extraction.requirements},
         benefits_json={"items": extraction.benefits},
-
         lmia_status=eligibility.lmia_status,
         can_apply_from_bd=eligibility.can_apply_from_bd,
         requires_existing_work_permit=eligibility.requires_existing_work_permit,
@@ -456,56 +511,140 @@ def _process_page(
         target_audience_tags=eligibility.target_audience_tags,
         risk_flags=eligibility.risk_flags,
         source_trust_badge=trust_badge,
-
         extraction_confidence=extraction.extraction_confidence,
-        needs_admin_review=True,           # Always set for crawled content
-        review_status="pending",           # NEVER set to approved from here
-        status="pending",                  # Single-table status field
-        is_active=False,                   # Keep set for legacy compat
-
+        needs_admin_review=True,
+        review_status="pending",
+        status="pending",
+        is_active=False,
         content_hash=opp_hash,
-        raw_text=(page.raw_text or "")[:10_000] or None,
+        source_item_key=item_key,
+        raw_text=(page.raw_text or cleaned_text(raw.raw_text))[:10_000] or None,
         raw_document_id=raw.id,
         connector_key=source.connector_key,
         record_type=extraction.record_type,
-
+        extracted_json=extraction.model_dump(mode="json"),
         trust_score=_trust_score(source.trust_level or source.trust_tier.value if source.trust_tier else ""),
         freshness_score=_freshness_score(now),
         actionability_score=_action_score(
             has_deadline=bool(extraction.deadline_text),
-            has_apply=bool(extraction.application_url),
+            has_apply=bool(application_url),
             has_req=bool(extraction.requirements),
         ),
     )
-    draft.overall_rank_score = (
-        0.25 * draft.trust_score + 0.2 * draft.freshness_score + 0.1 * draft.actionability_score
-    )
-    draft.extraction_confidence = extraction.extraction_confidence
+    draft.overall_rank_score = 0.25 * draft.trust_score + 0.2 * draft.freshness_score + 0.1 * draft.actionability_score
 
     db.add(draft)
     db.flush()
 
-    # Auto-publish for trusted official sources — skip admin review queue
     if source.auto_publish:
-        import re as _re
-        import unicodedata as _ud
-        _t = _ud.normalize("NFKD", draft.title or "opportunity").encode("ascii", "ignore").decode("ascii")
-        _t = _re.sub(r"[^\w\s-]", "", _t.lower())
-        _slug = _re.sub(r"[-\s]+", "-", _t).strip("-")[:560]
         draft.status = "published"
         draft.published_at = now
         draft.is_active = True
         draft.review_status = "approved"
-        draft.slug = f"{_slug}-{draft.id}"
-        result.draft_created += 1  # count as created (published immediately)
+        draft.slug = _build_slug(draft.title or "opportunity", draft.id)
         logs.append(f"Auto-published: id={draft.id} source={source.name}")
-    else:
-        result.draft_created += 1
 
+    result.draft_created += 1
     if force_review:
         result.manual_review += 1
 
-    # Update search TSV
+    _refresh_search_tsv(db, draft.id)
+    logs.append(f"Draft created: id={draft.id} title='{draft.title[:60]}'")
+
+
+def _apply_extraction_to_draft(
+    *,
+    db: Session,
+    draft: Opportunity,
+    source: Source,
+    page,
+    raw: RawDocument,
+    extraction,
+    eligibility,
+    trust_badge: str | None,
+    opp_hash: str,
+    source_item_key: str,
+    now: datetime,
+) -> None:
+    application_url = extraction.application_url or getattr(page, "original_apply_url", None) or page.document_url
+    draft.source_name = source.name
+    draft.source_page_url = page.source_page_url or page.url
+    draft.source_url = page.source_page_url or page.url
+    draft.document_url = page.document_url
+    draft.original_apply_url = getattr(page, "original_apply_url", None)
+    draft.content_type = page.content_type
+    draft.opportunity_type = eligibility.opportunity_type
+    draft.title = extraction.title or draft.title
+    draft.title_bn = getattr(extraction, "title_bn", None) or draft.title_bn
+    draft.summary = extraction.summary
+    draft.summary_bn = getattr(extraction, "summary_bn", None)
+    draft.summary_en = getattr(extraction, "summary_en", None) or extraction.summary
+    draft.country = extraction.country or source.country
+    draft.employer_or_organization = extraction.employer or extraction.organization
+    draft.employer = extraction.employer
+    draft.organization = extraction.organization
+    draft.sector = extraction.sector
+    draft.degree_level = extraction.degree_level
+    draft.salary_min = extraction.salary_min
+    draft.salary_max = extraction.salary_max
+    draft.salary_currency = extraction.salary_currency
+    draft.deadline = parse_deadline(extraction.deadline_text)
+    draft.application_url = application_url
+    draft.eligibility_text = extraction.eligibility_text
+    draft.visa_support = extraction.visa_support
+    draft.language_requirements_json = {"items": extraction.language_requirements}
+    draft.requirements_json = {"items": extraction.requirements}
+    draft.benefits_json = {"items": extraction.benefits}
+    draft.lmia_status = eligibility.lmia_status
+    draft.can_apply_from_bd = eligibility.can_apply_from_bd
+    draft.requires_existing_work_permit = eligibility.requires_existing_work_permit
+    draft.open_to_international_candidates = eligibility.open_to_international_candidates
+    draft.open_to_authorized_workers_only = eligibility.open_to_authorized_workers_only
+    draft.eligibility_status = eligibility.eligibility_status
+    draft.target_audience_tags = eligibility.target_audience_tags
+    draft.risk_flags = eligibility.risk_flags
+    draft.source_trust_badge = trust_badge
+    draft.extraction_confidence = extraction.extraction_confidence
+    draft.content_hash = opp_hash
+    draft.source_item_key = source_item_key
+    draft.raw_text = (page.raw_text or cleaned_text(raw.raw_text))[:10_000] or None
+    draft.raw_document_id = raw.id
+    draft.connector_key = source.connector_key
+    draft.record_type = extraction.record_type
+    draft.extracted_json = extraction.model_dump(mode="json")
+    draft.trust_score = _trust_score(source.trust_level or source.trust_tier.value if source.trust_tier else "")
+    draft.freshness_score = _freshness_score(now)
+    draft.actionability_score = _action_score(
+        has_deadline=bool(extraction.deadline_text),
+        has_apply=bool(application_url),
+        has_req=bool(extraction.requirements),
+    )
+    draft.overall_rank_score = 0.25 * draft.trust_score + 0.2 * draft.freshness_score + 0.1 * draft.actionability_score
+    draft.updated_at = now
+    if source.auto_publish and draft.status != "published":
+        draft.status = "published"
+        draft.published_at = draft.published_at or now
+        draft.is_active = True
+        draft.review_status = "approved"
+        draft.slug = draft.slug or _build_slug(draft.title or "opportunity", draft.id)
+    _refresh_search_tsv(db, draft.id)
+
+
+def cleaned_text(value: str | None) -> str:
+    return value or ""
+
+
+def _build_slug(title: str, draft_id: int) -> str:
+    import re as _re
+    import unicodedata as _ud
+
+    text_value = _ud.normalize("NFKD", title).encode("ascii", "ignore").decode("ascii")
+    text_value = _re.sub(r"[^\w\s-]", "", text_value.lower())
+    slug = _re.sub(r"[-\s]+", "-", text_value).strip("-")[:560]
+    return f"{slug}-{draft_id}"
+
+
+def _refresh_search_tsv(db: Session, draft_id: int) -> None:
     db.execute(
         text(
             "UPDATE opportunities "
@@ -513,13 +652,9 @@ def _process_page(
             "coalesce(title,'') || ' ' || coalesce(summary_en,'') || ' ' || coalesce(eligibility_text,'')) "
             "WHERE id = :id"
         ),
-        {"id": draft.id},
+        {"id": draft_id},
     )
 
-    logs.append(f"Draft created: id={draft.id} title='{draft.title[:60]}'")
-
-
-# ── Score helpers ─────────────────────────────────────────────────────────────
 
 def _trust_score(trust: str) -> float:
     return {
@@ -543,9 +678,6 @@ def _action_score(has_deadline: bool, has_apply: bool, has_req: bool) -> float:
 
 
 def _update_source_error(db: Session, source: Source, error: str) -> None:
-    # Avoid committing on a possibly aborted session. Use a fresh session
-    # so that updating the Source.last_error does not fail when the
-    # current transaction is already in an aborted state.
     from app.db.session import SessionLocal
 
     try:
@@ -556,8 +688,6 @@ def _update_source_error(db: Session, source: Source, error: str) -> None:
             src.last_error = error
             new_db.commit()
     except Exception:
-        # Best-effort: don't raise from here as this function is called
-        # during error handling — avoid masking the original exception.
         try:
             db.rollback()
         except Exception:

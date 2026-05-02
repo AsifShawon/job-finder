@@ -15,6 +15,7 @@ export type IngestionMode =
 
 export type ConnectorKey =
   | "generic_news" | "generic_rss" | "generic_pdf" | "generic_policy"
+  | "search_html_jobs"
   | "generic_scholarship" | "generic_training"
   | "boesl_brms" | "boesl_reports_pdf" | "bmet_connector" | "oep_connector"
   | "eures_connector" | "usa_jobs_api" | "reliefweb_api"
@@ -250,6 +251,10 @@ export interface AdminSource {
   is_active: boolean;
   parser_key: string;
   search_queries: string[];
+  search_results_limit: number;
+  child_page_limit: number;
+  page_ai_limit: number;
+  max_jobs_per_page: number;
   opportunity_count: number;
   active_opportunity_count: number;
 }

@@ -111,6 +111,10 @@ class Source(Base):
     crawl_frequency_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=1440)
     parser_key: Mapped[str] = mapped_column(String(120), nullable=False, default="default")
     search_queries: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False, server_default="[]")
+    search_results_limit: Mapped[int] = mapped_column(Integer, nullable=False, default=10, server_default="10")
+    child_page_limit: Mapped[int] = mapped_column(Integer, nullable=False, default=10, server_default="10")
+    page_ai_limit: Mapped[int] = mapped_column(Integer, nullable=False, default=25, server_default="25")
+    max_jobs_per_page: Mapped[int] = mapped_column(Integer, nullable=False, default=10, server_default="10")
 
     @property
     def effective_root_url(self) -> str:
@@ -180,8 +184,8 @@ class CrawlJob(Base):
 class RawDocument(Base):
     __tablename__ = "raw_documents"
     __table_args__ = (
-        UniqueConstraint("source_id", "source_url", name="uq_raw_doc_source_url"),
         Index("ix_raw_documents_hash", "content_hash"),
+        Index("ix_raw_documents_source_canonical", "source_id", "canonical_url", "fetched_at"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -194,8 +198,10 @@ class RawDocument(Base):
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     content_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    crawl_run_id: Mapped[int | None] = mapped_column(ForeignKey("crawl_runs.id", ondelete="SET NULL"))
 
     source: Mapped[Source] = relationship()
+    crawl_run: Mapped[CrawlRun | None] = relationship()
 
 
 # ── Opportunity ───────────────────────────────────────────────────────────────
@@ -217,7 +223,7 @@ class Opportunity(Base):
         Index("ix_opportunity_review_status", "review_status"),
         Index("ix_opportunity_needs_review", "needs_admin_review"),
         Index("ix_opportunity_search_tsv", "search_tsv", postgresql_using="gin"),
-        UniqueConstraint("source_id", "source_url", name="uq_opportunity_source_url"),
+        UniqueConstraint("source_id", "source_item_key", name="uq_opportunity_source_item_key"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -283,6 +289,7 @@ class Opportunity(Base):
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     content_hash: Mapped[str | None] = mapped_column(String(64), index=True)
+    source_item_key: Mapped[str | None] = mapped_column(String(128), index=True)
     raw_text: Mapped[str | None] = mapped_column(Text)
     raw_html: Mapped[str | None] = mapped_column(Text)
     extracted_json: Mapped[dict[str, Any] | None] = mapped_column(JSON)

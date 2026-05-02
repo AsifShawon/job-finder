@@ -35,6 +35,10 @@ class SourceBase(BaseModel):
     crawl_frequency_minutes: int = 1440
     parser_key: str = "default"
     search_queries: list[str] = []
+    search_results_limit: int = 10
+    child_page_limit: int = 10
+    page_ai_limit: int = 25
+    max_jobs_per_page: int = 10
 
 
 class SourceCreate(SourceBase):
@@ -67,6 +71,10 @@ class SourceUpdate(BaseModel):
     parser_key: str | None = None
     search_queries: list[str] | None = None
     is_active: bool | None = None
+    search_results_limit: int | None = None
+    child_page_limit: int | None = None
+    page_ai_limit: int | None = None
+    max_jobs_per_page: int | None = None
 
 
 class SourceOut(SourceBase):

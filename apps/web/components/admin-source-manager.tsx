@@ -22,6 +22,13 @@ const FEED_TYPES = [
   { value: "pdf", label: "PDF নোটিশ" },
 ];
 
+const CONNECTOR_OPTIONS = [
+  { value: "", label: "Default connector" },
+  { value: "search_html_jobs", label: "Search HTML Jobs" },
+  { value: "generic_news", label: "Generic HTML" },
+  { value: "boesl_brms", label: "BOESL BRMS" },
+];
+
 const TRUST_LEVELS = [
   { value: "government_official", label: "সরকারি উৎস", en: "Government official" },
   { value: "verified_source", label: "যাচাইকৃত উৎস", en: "Verified source" },
@@ -36,7 +43,13 @@ interface SourceFormState {
   name: string;
   base_url: string;
   feed_type: string;
+  connector_key: string;
   trust_level: string;
+  search_queries: string;
+  search_results_limit: number;
+  child_page_limit: number;
+  page_ai_limit: number;
+  max_jobs_per_page: number;
   auto_publish: boolean;
   enabled: boolean;
 }
@@ -52,6 +65,11 @@ interface SourceTestResult {
   source_name: string;
   pages_found: number;
   sample_titles: string[];
+  queries_used: string[];
+  search_results_found: number;
+  child_pages_followed: number;
+  pages_selected_for_ai: number;
+  jobs_extracted_preview: number;
   compliance_warning: string | null;
   error: string | null;
 }
@@ -72,7 +90,13 @@ async function getResponseMessage(response: Response, fallback: string): Promise
 const defaultForm: SourceFormState = {
   name: "", base_url: "",
   feed_type: "html",
+  connector_key: "",
   trust_level: "news_source",
+  search_queries: "",
+  search_results_limit: 10,
+  child_page_limit: 10,
+  page_ai_limit: 25,
+  max_jobs_per_page: 10,
   auto_publish: false,
   enabled: true,
 };
@@ -82,7 +106,13 @@ function formFromSource(s: AdminSource): SourceFormState {
     name: s.name,
     base_url: s.base_url,
     feed_type: s.feed_type ?? "html",
+    connector_key: s.connector_key ?? "",
     trust_level: s.trust_level ?? "news_source",
+    search_queries: (s.search_queries ?? []).join(", "),
+    search_results_limit: s.search_results_limit ?? 10,
+    child_page_limit: s.child_page_limit ?? 10,
+    page_ai_limit: s.page_ai_limit ?? 25,
+    max_jobs_per_page: s.max_jobs_per_page ?? 10,
     auto_publish: s.auto_publish ?? false,
     enabled: s.enabled ?? s.is_active ?? true,
   };
@@ -173,7 +203,13 @@ export function AdminSourceManager({ initialSources }: { initialSources: AdminSo
         name: form.name,
         base_url: form.base_url,
         feed_type: form.feed_type || null,
+        connector_key: form.connector_key || null,
         trust_level: form.trust_level || null,
+        search_queries: form.search_queries.split(",").map((q) => q.trim()).filter(Boolean),
+        search_results_limit: form.search_results_limit,
+        child_page_limit: form.child_page_limit,
+        page_ai_limit: form.page_ai_limit,
+        max_jobs_per_page: form.max_jobs_per_page,
         auto_publish: form.auto_publish,
         enabled: form.enabled,
         requires_admin_review: !form.auto_publish,
@@ -539,6 +575,17 @@ export function AdminSourceManager({ initialSources }: { initialSources: AdminSo
             </select>
           </label>
 
+          <label className="space-y-1">
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{isEn ? "Connector" : "Connector"}</span>
+            <select
+              value={form.connector_key}
+              onChange={(e) => setField("connector_key", e.target.value)}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              {CONNECTOR_OPTIONS.map(({ value, label }) => <option key={value || "default"} value={value}>{label}</option>)}
+            </select>
+          </label>
+
           {/* Trust level */}
           <label className="space-y-1">
             <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{isEn ? "Trust Level" : "বিশ্বাসযোগ্যতা"}</span>
@@ -556,6 +603,55 @@ export function AdminSourceManager({ initialSources }: { initialSources: AdminSo
                 <option key={value} value={value}>{isEn ? en : label}</option>
               ))}
             </select>
+          </label>
+
+          <label className="space-y-1 lg:col-span-2">
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{isEn ? "Search Queries" : "Search Queries"}</span>
+            <Input
+              placeholder="welder jobs, recruitment notice, apply now"
+              value={form.search_queries}
+              onChange={(e) => setField("search_queries", e.target.value)}
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{isEn ? "Search Results Limit" : "Search Results Limit"}</span>
+            <Input
+              type="number"
+              min={1}
+              value={form.search_results_limit}
+              onChange={(e) => setField("search_results_limit", Number(e.target.value) || 1)}
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{isEn ? "Child Page Limit" : "Child Page Limit"}</span>
+            <Input
+              type="number"
+              min={0}
+              value={form.child_page_limit}
+              onChange={(e) => setField("child_page_limit", Number(e.target.value) || 0)}
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{isEn ? "AI Page Limit" : "AI Page Limit"}</span>
+            <Input
+              type="number"
+              min={1}
+              value={form.page_ai_limit}
+              onChange={(e) => setField("page_ai_limit", Number(e.target.value) || 1)}
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{isEn ? "Max Jobs Per Page" : "Max Jobs Per Page"}</span>
+            <Input
+              type="number"
+              min={1}
+              value={form.max_jobs_per_page}
+              onChange={(e) => setField("max_jobs_per_page", Number(e.target.value) || 1)}
+            />
           </label>
 
           {/* Toggles */}
@@ -609,7 +705,13 @@ export function AdminSourceManager({ initialSources }: { initialSources: AdminSo
             ? <p className="text-xs text-rose-700 mt-1">{testResult.error}</p>
             : <>
                 <p className="text-xs text-green-700 mt-1">{isEn ? `${testResult.pages_found} pages found.` : `${testResult.pages_found}টি পেজ পাওয়া গেছে।`}</p>
+                <p className="text-xs text-slate-700 mt-1">
+                  {`Queries: ${testResult.queries_used.length} · Search results: ${testResult.search_results_found} · Child pages: ${testResult.child_pages_followed} · AI pages: ${testResult.pages_selected_for_ai} · Jobs previewed: ${testResult.jobs_extracted_preview}`}
+                </p>
                 {testResult.compliance_warning && <p className="text-xs text-amber-700 mt-1">{testResult.compliance_warning}</p>}
+                {testResult.queries_used.length > 0 && (
+                  <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">{testResult.queries_used.join(" | ")}</p>
+                )}
                 {testResult.sample_titles.length > 0 && (
                   <ul className="mt-2 space-y-0.5 text-xs text-slate-600 dark:text-slate-400">
                     {testResult.sample_titles.map((t, i) => <li key={i} className="truncate">• {t}</li>)}

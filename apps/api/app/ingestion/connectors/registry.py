@@ -13,6 +13,7 @@ from app.ingestion.connectors.oep_connector import OEPConnector
 from app.ingestion.connectors.pdf_connector import PDFNoticeConnector
 from app.ingestion.connectors.reliefweb_api import ReliefWebAPIConnector
 from app.ingestion.connectors.rss_connector import RSSSourceConnector
+from app.ingestion.connectors.search_html_jobs_connector import SearchHTMLJobsConnector
 from app.ingestion.connectors.static_html_connector import StaticHTMLConnector
 from app.ingestion.connectors.usa_jobs_api import USAJobsAPIConnector
 
@@ -28,6 +29,7 @@ CONNECTOR_KEY_MAP: dict[str, type] = {
     "generic_rss": RSSSourceConnector,
     "generic_pdf": PDFNoticeConnector,
     "generic_policy": StaticHTMLConnector,
+    "search_html_jobs": SearchHTMLJobsConnector,
     "generic_scholarship": GenericScholarshipConnector,
     "generic_training": GenericTrainingConnector,
     # International job APIs

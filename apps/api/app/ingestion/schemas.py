@@ -127,3 +127,7 @@ class PolicyUpdateExtraction(ExtractionBase):
 
 class UnknownExtraction(ExtractionBase):
     record_type: Literal["unknown"] = "unknown"
+
+
+class PageJobsExtraction(BaseModel):
+    jobs: list[JobOpportunityExtraction] = Field(default_factory=list)

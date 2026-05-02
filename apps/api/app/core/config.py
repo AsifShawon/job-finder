@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     enable_scheduled_crawls: bool = False
     crawler_smoke_mode: bool = False
     reliefweb_appname: str = "ooi-bd-opportunities-dev"
+    search_provider: str = "searxng"
+    search_provider_base_url: str = ""
+    search_provider_api_key: str = ""
+    search_provider_timeout_seconds: int = 15
     rate_limit_copilot: str = "20/minute"
     web_base_url: str = "http://localhost:3000"
 

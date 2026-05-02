@@ -33,6 +33,7 @@ class ConnectorKey(str, Enum):
     generic_rss = "generic_rss"
     generic_pdf = "generic_pdf"
     generic_policy = "generic_policy"
+    search_html_jobs = "search_html_jobs"
     generic_scholarship = "generic_scholarship"
     generic_training = "generic_training"
     boesl_brms = "boesl_brms"

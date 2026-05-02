@@ -3,7 +3,7 @@ from difflib import SequenceMatcher
 from urllib.parse import urlparse
 
 from dateutil.parser import parse as parse_date
-from sqlalchemy import select
+from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.ingestion.schemas import ExtractionBase
@@ -39,8 +39,13 @@ def is_duplicate(
     title: str,
 ) -> bool:
     if canonical_url:
-        by_url = db.scalar(select(RawDocument).where(RawDocument.canonical_url == canonical_url))
-        if by_url:
+        latest = db.scalar(
+            select(RawDocument)
+            .where(RawDocument.canonical_url == canonical_url)
+            .order_by(desc(RawDocument.fetched_at), desc(RawDocument.id))
+            .limit(1)
+        )
+        if latest and latest.content_hash == content_hash:
             return True
 
     by_hash = db.scalar(select(RawDocument).where(RawDocument.content_hash == content_hash))
@@ -62,3 +67,48 @@ def stale_or_inactive(deadline: date | None) -> bool:
 def is_opportunity_duplicate(db: Session, content_hash: str) -> bool:
     """Check whether an Opportunity with this semantic content_hash already exists."""
     return bool(db.scalar(select(Opportunity).where(Opportunity.content_hash == content_hash)))
+
+
+def is_latest_snapshot_duplicate(
+    db: Session,
+    *,
+    source_id: int,
+    canonical_url: str | None,
+    content_hash: str,
+) -> bool:
+    if not canonical_url:
+        return False
+    latest = db.scalar(
+        select(RawDocument)
+        .where(
+            RawDocument.source_id == source_id,
+            RawDocument.canonical_url == canonical_url,
+        )
+        .order_by(desc(RawDocument.fetched_at), desc(RawDocument.id))
+        .limit(1)
+    )
+    return bool(latest and latest.content_hash == content_hash)
+
+
+def find_existing_opportunity(
+    db: Session,
+    *,
+    source_id: int,
+    source_item_key: str | None,
+    content_hash: str,
+) -> Opportunity | None:
+    if source_item_key:
+        existing = db.scalar(
+            select(Opportunity).where(
+                Opportunity.source_id == source_id,
+                Opportunity.source_item_key == source_item_key,
+            )
+        )
+        if existing:
+            return existing
+    return db.scalar(
+        select(Opportunity).where(
+            Opportunity.source_id == source_id,
+            Opportunity.content_hash == content_hash,
+        )
+    )

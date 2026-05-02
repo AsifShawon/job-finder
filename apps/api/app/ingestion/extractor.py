@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.ingestion.schemas import (
     ExtractionBase,
     JobOpportunityExtraction,
+    PageJobsExtraction,
     PolicyUpdateExtraction,
     ScholarshipExtraction,
     UnknownExtraction,
@@ -128,6 +129,17 @@ def _ensure_fields(extraction: ExtractionBase) -> ExtractionBase:
     return extraction
 
 
+def _ensure_job_fields(extraction: JobOpportunityExtraction) -> JobOpportunityExtraction:
+    return JobOpportunityExtraction.model_validate(_ensure_fields(extraction).model_dump())
+
+
+def _ensure_job_list(extractions: list[JobOpportunityExtraction], *, max_jobs: int) -> list[JobOpportunityExtraction]:
+    cleaned: list[JobOpportunityExtraction] = []
+    for extraction in extractions[:max_jobs]:
+        cleaned.append(_ensure_job_fields(extraction))
+    return cleaned
+
+
 _VALID_SECTORS = (
     "IT", "Healthcare", "Construction", "Education", "Hospitality", "Manufacturing",
     "Agriculture", "Fishing", "Transport", "Finance", "Retail", "Engineering",
@@ -216,6 +228,34 @@ _PROMPT_TEMPLATE = (
     "with every field present (use null for missing optional fields, [] for empty arrays).\n"
 )
 
+_PAGE_JOBS_PROMPT_TEMPLATE = (
+    "You extract actionable overseas job opportunities from a single web page.\n"
+    "The page may contain zero, one, or many jobs.\n"
+    "Return ONLY jobs. Ignore scholarship, policy, news, commentary, statistics, pagination, filters, and boilerplate.\n\n"
+    "RULES:\n"
+    "- Return a JSON object with a single field: jobs\n"
+    '- jobs must be an array of job objects. If there are no actionable jobs, return {"jobs": []}\n'
+    "- Each job must be uniquely identifiable from the page and must represent a real opening or recruitment notice.\n"
+    "- Do not invent missing values. Use null for unknown optional fields and [] for empty lists.\n"
+    "- Keep each requirement as a separate short sentence.\n"
+    "- country is the destination country.\n"
+    "- application_url must be an absolute http/https URL when present.\n"
+    "- deadline_text must be YYYY-MM-DD when explicitly stated; otherwise null.\n"
+    "- title_bn and summary_bn must use Bangla script.\n"
+    "- summary_en and summary_bn should each explain what the role is, where it is, who can apply, and how to apply.\n\n"
+    "JOB SCHEMA:\n"
+    "- record_type must always be 'job'\n"
+    "- title, title_bn, summary, summary_en, summary_bn, country, employer, salary_min, salary_max, salary_currency,\n"
+    "  deadline_text, application_url, eligibility_text, visa_support, requirements, benefits,\n"
+    "  language_requirements, extraction_confidence, evidence_snippets\n\n"
+    "INPUT\n"
+    "Title: {title}\n\n"
+    "Body:\n{body}\n\n"
+    "OUTPUT\n"
+    "Return only valid JSON with this shape:\n"
+    '{"jobs": [{...job schema...}]}\n'
+)
+
 
 def _strip_code_fences(text: str) -> str:
     cleaned = text.strip()
@@ -245,6 +285,25 @@ def _invoke_mistral(model: str, api_key: str, prompt: str) -> ExtractionEnvelope
     return ExtractionEnvelope.model_validate(json.loads(_strip_code_fences(content)))
 
 
+def _invoke_mistral_jobs(model: str, api_key: str, prompt: str) -> PageJobsExtraction:
+    response = httpx.post(
+        "https://api.mistral.ai/v1/chat/completions",
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        json={
+            "model": model,
+            "temperature": 0.0,
+            "messages": [
+                {"role": "system", "content": "Return only valid JSON matching the requested jobs schema."},
+                {"role": "user", "content": prompt},
+            ],
+        },
+        timeout=60,
+    )
+    response.raise_for_status()
+    content = response.json()["choices"][0]["message"]["content"]
+    return PageJobsExtraction.model_validate(json.loads(_strip_code_fences(content)))
+
+
 def extract_structured(db: Session, cleaned: dict[str, Any]) -> ExtractionBase:
     provider = get_ai_provider(db)
     api_key = get_ai_api_key(db)
@@ -266,3 +325,32 @@ def extract_structured(db: Session, cleaned: dict[str, Any]) -> ExtractionBase:
         return _ensure_fields(result.data)
     except Exception:
         return _ensure_fields(_fallback_extract(cleaned))
+
+
+def extract_jobs_structured(db: Session, cleaned: dict[str, Any], *, max_jobs: int = 10) -> list[JobOpportunityExtraction]:
+    provider = get_ai_provider(db)
+    api_key = get_ai_api_key(db)
+    if not api_key:
+        fallback = extract_structured(db, cleaned)
+        if fallback.record_type != "job":
+            return []
+        return _ensure_job_list([JobOpportunityExtraction.model_validate(fallback.model_dump())], max_jobs=max_jobs)
+
+    prompt = _PAGE_JOBS_PROMPT_TEMPLATE.format(
+        title=cleaned.get("title") or "",
+        body=(cleaned.get("body_text") or "")[:8000],
+    )
+    try:
+        if provider == "mistral":
+            result = _invoke_mistral_jobs(get_ai_model(db), api_key, prompt)
+            return _ensure_job_list(result.jobs, max_jobs=max_jobs)
+
+        model = ChatGroq(model=get_ai_model(db), api_key=api_key, temperature=0.0)
+        structured = model.with_structured_output(PageJobsExtraction)
+        result: PageJobsExtraction = structured.invoke(prompt)
+        return _ensure_job_list(result.jobs, max_jobs=max_jobs)
+    except Exception:
+        fallback = extract_structured(db, cleaned)
+        if fallback.record_type != "job":
+            return []
+        return _ensure_job_list([JobOpportunityExtraction.model_validate(fallback.model_dump())], max_jobs=max_jobs)

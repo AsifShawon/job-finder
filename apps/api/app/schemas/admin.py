@@ -89,6 +89,10 @@ class AdminSourceOut(BaseModel):
     is_active: bool = True
     parser_key: str = "default"
     search_queries: list[str] = []
+    search_results_limit: int = 10
+    child_page_limit: int = 10
+    page_ai_limit: int = 25
+    max_jobs_per_page: int = 10
     # Computed crawl stats
     draft_count: int = 0
     pending_review_count: int = 0
@@ -247,6 +251,11 @@ class SourceTestResult(BaseModel):
     source_name: str
     pages_found: int
     sample_titles: list[str]
+    queries_used: list[str] = []
+    search_results_found: int = 0
+    child_pages_followed: int = 0
+    pages_selected_for_ai: int = 0
+    jobs_extracted_preview: int = 0
     compliance_warning: str | None = None
     error: str | None = None
 
