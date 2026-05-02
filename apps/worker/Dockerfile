@@ -5,7 +5,11 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /workspace/apps/worker
 
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    tesseract-ocr tesseract-ocr-ben tesseract-ocr-eng \
+    libmupdf-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY apps/worker/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
