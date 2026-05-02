@@ -41,6 +41,7 @@ Production-oriented monorepo for ingesting, ranking, and serving verified overse
    - API docs: http://localhost:8000/docs
    - Flower: http://localhost:5555
    - MinIO console: http://localhost:9001
+   - SearXNG: http://localhost:8080
 
 ## Useful Commands
 - `make up`
