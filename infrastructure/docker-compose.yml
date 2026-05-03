@@ -165,8 +165,10 @@ services:
       NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
     volumes:
       - ..:/workspace
-    working_dir: /workspace/apps/web
-    command: sh -c "npm install --legacy-peer-deps && npm run dev -- --hostname 0.0.0.0 --port 3000"
+      - web_node_modules:/workspace/node_modules
+      - web_next_cache:/workspace/apps/web/.next
+    working_dir: /workspace
+    command: sh -c "npm ci --legacy-peer-deps && npm --workspace apps/web run dev -- --hostname 0.0.0.0 --port 3000"
     depends_on:
       api:
         condition: service_started
@@ -177,3 +179,5 @@ volumes:
   postgres_data:
   minio_data:
   fastembed_cache:
+  web_node_modules:
+  web_next_cache:
