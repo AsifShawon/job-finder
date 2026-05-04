@@ -15,3 +15,10 @@ coverage/
 apps/web/playwright-report/
 apps/web/test-results/
 data/
+
+# Celery Beat state file
+celerybeat-schedule
+celerybeat-schedule.db
+celerybeat-schedule.dir
+celerybeat-schedule.bak
+celerybeat-schedule.dat
