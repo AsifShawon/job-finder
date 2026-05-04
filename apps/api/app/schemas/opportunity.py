@@ -68,12 +68,26 @@ class PublishedOpportunityDetail(PublishedOpportunityCard):
     age_requirement: str | None = None
     gender_requirement: str | None = None
     visa_or_work_permit_info: str | None = None
+    journey_steps: list[str] = []
+    documents_needed: list[str] = []
+    typical_salary_bdt: int | None = None
     extraction_confidence: float = 0.0
     connector_key: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
     draft_id: int | None = None
     source_id: int | None = None
+    employer: str | None = None
+    organization: str | None = None
+    city: str | None = None
+    application_url: str | None = None
+    funding_type: str | None = None
+    visa_support: bool | None = None
+    record_type: RecordType | None = None
+    trust_tier: TrustTier | None = None
+    requirements_json: dict[str, Any] | None = None
+    benefits_json: dict[str, Any] | None = None
+    language_requirements_json: dict[str, Any] | None = None
 
 
 class PublishedSearchResponse(Page[PublishedOpportunityCard]):

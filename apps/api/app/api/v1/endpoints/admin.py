@@ -1,8 +1,10 @@
 import csv
+import hashlib
 import io
 import re
 import unicodedata
 from datetime import UTC, datetime, timedelta
+from urllib.parse import urlparse
 
 import logging
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
@@ -12,6 +14,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_admin_user, get_db
+from app.ingestion.eligibility_engine import tag_eligibility
+from app.ingestion.extractor import extract_structured
+from app.ingestion.scrapeability import check_scrapeability
+from app.ingestion.validators import parse_deadline
 from app.models.entities import (
     AlertEvent,
     AlertRule,
@@ -38,6 +44,7 @@ from app.schemas.admin import (
     DataResetResult,
     FailedExtractionOut,
     FailedExtractionPage,
+    ManualJobEntryRequest,
     ReviewQueueOut,
     ReviewQueuePage,
     ReviewStatusUpdate,
@@ -63,6 +70,8 @@ from app.services.runtime_settings_service import (
 router = APIRouter(prefix="/admin", tags=["admin"])
 logger = logging.getLogger(__name__)
 STALE_RUNNING_CRAWL_MINUTES = 30
+MANUAL_SOURCE_NAME = "Manual Entry"
+MANUAL_SOURCE_URL = "https://manual-entry.local/"
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -71,6 +80,134 @@ def _slugify(text: str) -> str:
     text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
     text = re.sub(r"[^\w\s-]", "", text.lower())
     return re.sub(r"[-\s]+", "-", text).strip("-")[:580]
+
+
+def _refresh_draft_search_tsv(db: Session, draft_id: int) -> None:
+    db.execute(
+        text(
+            "UPDATE opportunities "
+            "SET search_tsv = to_tsvector('simple', "
+            "coalesce(title,'') || ' ' || coalesce(summary_bn,'') || ' ' || "
+            "coalesce(summary_en,'') || ' ' || coalesce(eligibility_text,'')) "
+            "WHERE id = :id"
+        ),
+        {"id": draft_id},
+    )
+
+
+def _manual_source_item_key(source_url: str) -> str:
+    return hashlib.sha256(source_url.encode()).hexdigest()[:64]
+
+
+def _resolve_manual_source_name(source_url: str, supplied_name: str | None) -> str:
+    if supplied_name and supplied_name.strip():
+        return supplied_name.strip()
+    hostname = urlparse(source_url).netloc
+    return hostname or MANUAL_SOURCE_NAME
+
+
+def _get_or_create_manual_source(db: Session) -> Source:
+    source = db.scalar(select(Source).where(Source.name == MANUAL_SOURCE_NAME))
+    if source:
+        return source
+
+    source = Source(
+        name=MANUAL_SOURCE_NAME,
+        root_url=MANUAL_SOURCE_URL,
+        base_url=MANUAL_SOURCE_URL,
+        country="Bangladesh",
+        source_type="job_board",
+        ingestion_mode="manual",
+        connector_key="linkout_only",
+        trust_level="unknown",
+        compliance_status="manual_review_required",
+        crawl_frequency="manual",
+        enabled=False,
+        requires_admin_review=True,
+    )
+    db.add(source)
+    db.flush()
+    return source
+
+
+def _apply_manual_extraction(
+    draft: Opportunity,
+    *,
+    extraction,
+    requested_opportunity_type: str,
+) -> None:
+    if extraction.record_type == "unknown":
+        return
+
+    draft.title = extraction.title or draft.title
+    draft.title_bn = extraction.title_bn or draft.title_bn
+    draft.summary = extraction.summary or draft.summary
+    draft.summary_bn = extraction.summary_bn or draft.summary_bn
+    draft.summary_en = extraction.summary_en or draft.summary_en or extraction.summary
+    draft.country = extraction.country or draft.country
+    draft.employer_or_organization = extraction.employer or extraction.organization or draft.employer_or_organization
+    draft.employer = extraction.employer or draft.employer
+    draft.organization = extraction.organization or draft.organization
+    draft.sector = extraction.sector or draft.sector
+    draft.degree_level = extraction.degree_level or draft.degree_level
+    draft.salary_min = extraction.salary_min
+    draft.salary_max = extraction.salary_max
+    draft.salary_currency = extraction.salary_currency or draft.salary_currency
+    draft.deadline = parse_deadline(extraction.deadline_text) or draft.deadline
+    draft.application_url = extraction.application_url or draft.application_url
+    draft.eligibility_text = extraction.eligibility_text or draft.eligibility_text
+    draft.visa_support = extraction.visa_support
+    draft.journey_steps = extraction.journey_steps
+    draft.documents_needed = extraction.documents_needed
+    draft.typical_salary_bdt = extraction.typical_salary_bdt
+    draft.language_requirements_json = {"items": extraction.language_requirements}
+    draft.requirements_json = {"items": extraction.requirements}
+    draft.benefits_json = {"items": extraction.benefits}
+    draft.record_type = extraction.record_type
+    draft.extracted_json = extraction.model_dump(mode="json")
+    draft.extraction_confidence = extraction.extraction_confidence
+    draft.opportunity_type = requested_opportunity_type or draft.opportunity_type
+
+
+def _apply_manual_eligibility(
+    draft: Opportunity,
+    *,
+    requested_opportunity_type: str,
+    extracted_json: dict | None,
+) -> None:
+    eligibility = tag_eligibility(
+        source_connector_key="manual_entry",
+        source_trust_level="unknown",
+        record_type=(draft.record_type.value if hasattr(draft.record_type, "value") else draft.record_type) or "job",
+        country=draft.country,
+        eligibility_text=draft.eligibility_text,
+        requirements_json=draft.requirements_json or {"items": []},
+        extracted_json=extracted_json,
+        title=draft.title,
+        summary=draft.summary_en or draft.summary,
+        employer=draft.employer,
+    )
+    draft.can_apply_from_bd = eligibility.can_apply_from_bd
+    draft.requires_existing_work_permit = eligibility.requires_existing_work_permit
+    draft.open_to_international_candidates = eligibility.open_to_international_candidates
+    draft.open_to_authorized_workers_only = eligibility.open_to_authorized_workers_only
+    draft.lmia_status = eligibility.lmia_status
+    draft.eligibility_status = eligibility.eligibility_status
+    draft.target_audience_tags = eligibility.target_audience_tags
+    draft.risk_flags = eligibility.risk_flags
+    draft.source_trust_badge = eligibility.source_trust_badge
+    if not draft.opportunity_type:
+        draft.opportunity_type = eligibility.opportunity_type or requested_opportunity_type
+
+
+def _run_manual_extraction(db: Session, draft: Opportunity, requested_opportunity_type: str) -> None:
+    extraction = extract_structured(db, {"title": draft.title, "body_text": draft.raw_text or ""})
+    _apply_manual_extraction(draft, extraction=extraction, requested_opportunity_type=requested_opportunity_type)
+    _apply_manual_eligibility(
+        draft,
+        requested_opportunity_type=requested_opportunity_type,
+        extracted_json=extraction.model_dump(mode="json"),
+    )
 
 
 def _serialize_sources(db: Session, sources: list[Source]) -> list[AdminSourceOut]:
@@ -541,6 +678,7 @@ async def probe_source(
     suggested_name: str | None = None
     sample_titles: list[str] = []
     detected_language: str | None = None
+    scrapeability = check_scrapeability(url)
 
     try:
         async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
@@ -605,7 +743,13 @@ async def probe_source(
             detected_language = "en"
 
     except Exception as exc:
-        return SourceProbeResult(url=url, feed_type="html", error=str(exc)[:300])
+        return SourceProbeResult(
+            url=url,
+            feed_type="html",
+            is_scrapable=scrapeability.is_scrapable,
+            scrape_warning=None if scrapeability.is_scrapable else scrapeability.reason,
+            error=str(exc)[:300],
+        )
 
     # --- ISC sector suggestion via keyword matching ---
     suggested_isc_sector: str | None = None
@@ -648,6 +792,8 @@ async def probe_source(
         detected_language=detected_language,
         suggested_isc_sector=suggested_isc_sector,
         estimated_opportunities_per_crawl=estimated_opportunities_per_crawl,
+        is_scrapable=scrapeability.is_scrapable,
+        scrape_warning=None if scrapeability.is_scrapable else scrapeability.reason,
     )
 
 
@@ -773,17 +919,7 @@ def approve_draft(
 
     db.flush()
 
-    # Build search_tsv for full-text search
-    db.execute(
-        text(
-            "UPDATE opportunities "
-            "SET search_tsv = to_tsvector('simple', "
-            "coalesce(title,'') || ' ' || coalesce(summary_bn,'') || ' ' || "
-            "coalesce(summary_en,'') || ' ' || coalesce(eligibility_text,'')) "
-            "WHERE id = :id"
-        ),
-        {"id": draft.id},
-    )
+    _refresh_draft_search_tsv(db, draft.id)
 
     db.commit()
     source_name = db.scalar(select(Source.name).where(Source.id == draft.source_id))
@@ -943,7 +1079,7 @@ def edit_draft(
         "job_title", "deadline", "salary_text", "eligibility_text",
         "lmia_status", "can_apply_from_bd", "eligibility_status",
         "requires_existing_work_permit", "open_to_international_candidates",
-        "visa_or_work_permit_info", "application_process",
+        "visa_or_work_permit_info", "application_process", "raw_text",
     }
     for field, value in payload.items():
         if field in editable:
@@ -952,6 +1088,136 @@ def edit_draft(
     db.commit()
     source_name = db.scalar(select(Source.name).where(Source.id == draft.source_id))
     return _draft_to_review_out(draft, source_name)
+
+
+@router.post("/manual-entry", response_model=ReviewQueueOut)
+def create_manual_entry(
+    payload: ManualJobEntryRequest,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_admin_user),
+) -> ReviewQueueOut:
+    manual_source = _get_or_create_manual_source(db)
+    item_key = _manual_source_item_key(payload.source_url)
+    source_name = _resolve_manual_source_name(payload.source_url, payload.source_name)
+
+    draft = db.scalar(
+        select(Opportunity).where(
+            Opportunity.source_id == manual_source.id,
+            Opportunity.source_item_key == item_key,
+        )
+    )
+    if draft and draft.status == "published":
+        raise HTTPException(status_code=409, detail="A published item already exists for this source URL")
+
+    if draft is None:
+        draft = Opportunity(
+            source_id=manual_source.id,
+            source_item_key=item_key,
+            connector_key="manual_entry",
+            source_name=source_name,
+            source_page_url=payload.source_url,
+            source_url=payload.source_url,
+            original_apply_url=payload.source_url,
+            content_type="manual",
+            title=payload.title,
+            summary=payload.raw_description[:400] or None,
+            summary_en=payload.raw_description[:400] or None,
+            country=payload.country,
+            employer_or_organization=payload.employer,
+            employer=payload.employer,
+            deadline=parse_deadline(payload.deadline),
+            opportunity_type=payload.opportunity_type,
+            raw_text=payload.raw_description,
+            application_url=payload.source_url,
+            needs_admin_review=True,
+            review_status="pending",
+            status="pending",
+            is_active=False,
+            extraction_confidence=0.0,
+            requirements_json={"items": []},
+            language_requirements_json={"items": []},
+            benefits_json={"items": []},
+            journey_steps=[],
+            documents_needed=[],
+            target_audience_tags=[],
+            risk_flags=[],
+        )
+        db.add(draft)
+        db.flush()
+    else:
+        draft.source_name = source_name
+        draft.source_page_url = payload.source_url
+        draft.source_url = payload.source_url
+        draft.original_apply_url = payload.source_url
+        draft.title = payload.title
+        draft.country = payload.country or draft.country
+        draft.employer_or_organization = payload.employer or draft.employer_or_organization
+        draft.employer = payload.employer or draft.employer
+        draft.deadline = parse_deadline(payload.deadline) or draft.deadline
+        draft.opportunity_type = payload.opportunity_type
+        draft.raw_text = payload.raw_description
+        draft.summary = payload.raw_description[:400] or draft.summary
+        draft.summary_en = payload.raw_description[:400] or draft.summary_en
+
+    draft.connector_key = "manual_entry"
+    draft.content_type = "manual"
+    draft.application_url = payload.source_url
+    draft.needs_admin_review = True
+    draft.review_status = "pending"
+    draft.status = "pending"
+    draft.is_active = False
+    draft.reviewed_by = None
+    draft.reviewed_at = None
+    draft.slug = None
+    draft.published_at = None
+
+    if payload.run_ai_extraction:
+        _run_manual_extraction(db, draft, payload.opportunity_type)
+    else:
+        draft.extracted_json = None
+        draft.extraction_confidence = 0.0
+        _apply_manual_eligibility(
+            draft,
+            requested_opportunity_type=payload.opportunity_type,
+            extracted_json=None,
+        )
+
+    _refresh_draft_search_tsv(db, draft.id)
+    db.commit()
+    db.refresh(draft)
+    logger.info("admin_manual_entry_created", extra={"draft_id": draft.id, "source_url": payload.source_url})
+    return _draft_to_review_out(draft, draft.source_name)
+
+
+@router.post("/manual-entry/{draft_id}/re-extract", response_model=ReviewQueueOut)
+def re_extract_manual_entry(
+    draft_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_admin_user),
+) -> ReviewQueueOut:
+    draft = db.scalar(select(Opportunity).where(Opportunity.id == draft_id))
+    if not draft:
+        raise HTTPException(status_code=404, detail="Draft not found")
+    if draft.connector_key != "manual_entry":
+        raise HTTPException(status_code=400, detail="Only manual-entry drafts can be re-extracted")
+    if not draft.raw_text:
+        raise HTTPException(status_code=400, detail="Draft has no raw text to re-extract")
+
+    draft.needs_admin_review = True
+    draft.review_status = "pending"
+    draft.status = "pending"
+    draft.is_active = False
+    draft.reviewed_by = None
+    draft.reviewed_at = None
+    draft.slug = None
+    draft.published_at = None
+
+    _run_manual_extraction(db, draft, draft.opportunity_type or "overseas_job")
+    _refresh_draft_search_tsv(db, draft.id)
+    db.commit()
+    db.refresh(draft)
+    logger.info("admin_manual_entry_reextracted", extra={"draft_id": draft.id})
+    return _draft_to_review_out(draft, draft.source_name)
 
 
 # ── Published opportunities ────────────────────────────────────────────────────

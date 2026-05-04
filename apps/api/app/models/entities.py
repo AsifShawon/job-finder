@@ -266,6 +266,9 @@ class Opportunity(Base):
     age_requirement: Mapped[str | None] = mapped_column(String(120))
     gender_requirement: Mapped[str | None] = mapped_column(String(120))
     visa_or_work_permit_info: Mapped[str | None] = mapped_column(Text)
+    journey_steps: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False, server_default="[]")
+    documents_needed: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False, server_default="[]")
+    typical_salary_bdt: Mapped[int | None] = mapped_column(Integer)
 
     lmia_status: Mapped[str | None] = mapped_column(String(20))
     can_apply_from_bd: Mapped[bool | None] = mapped_column(Boolean)

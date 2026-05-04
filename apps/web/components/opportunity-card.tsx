@@ -248,6 +248,12 @@ export function OpportunityCard({
           </p>
         )}
 
+        {item.content_type === "linkout_only" && (
+          <span className="mt-3 inline-flex text-xs font-medium text-amber-600 dark:text-amber-400">
+            ⚠ সরাসরি লিংক — বিস্তারিত মূল সাইটে
+          </span>
+        )}
+
         <CompactMeta item={item} locale={locale} />
       </div>
 

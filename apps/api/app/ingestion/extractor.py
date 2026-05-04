@@ -116,7 +116,14 @@ def _fallback_extract(cleaned: dict[str, Any]) -> ExtractionBase:
 
 def _ensure_fields(extraction: ExtractionBase) -> ExtractionBase:
     """Coerce None list fields to [] and strip empty-string sentinels from Groq output."""
-    for field in ("requirements", "benefits", "language_requirements", "evidence_snippets"):
+    for field in (
+        "requirements",
+        "benefits",
+        "language_requirements",
+        "journey_steps",
+        "documents_needed",
+        "evidence_snippets",
+    ):
         val = getattr(extraction, field)
         if val is None:
             setattr(extraction, field, [])
@@ -205,6 +212,18 @@ _PROMPT_TEMPLATE = (
     "- application_url: The direct link to apply or the official circular PDF URL.\n"
     "  Must be a complete URL starting with http. Return null if not found.\n"
     "  NEVER invent or guess a URL.\n\n"
+    "BANGLADESH APPLICABILITY:\n"
+    "- can_apply_from_bd: true when the job appears open to Bangladeshi applicants or overseas applicants in general.\n"
+    "  false when the page clearly requires an existing local work permit, citizenship, or local residency.\n"
+    "  null only when the page is too sparse to estimate.\n"
+    "- For Bangladesh-context jobs, estimate whether visa/recruitment-agency processing is likely needed and reflect that clearly in journey_steps.\n\n"
+    "PRACTICAL JOURNEY SUPPORT:\n"
+    "- journey_steps: A JSON array of 3 to 6 short Bangla steps explaining what the worker should do next.\n"
+    "  Example: ['পাসপোর্ট করুন', 'প্রয়োজনীয় কাগজপত্র প্রস্তুত করুন', 'ভিসা আবেদন করুন']\n"
+    "- documents_needed: A JSON array of short Bangla document names or phrases.\n"
+    "  Example: ['পাসপোর্ট', 'জাতীয় পরিচয়পত্র', 'শিক্ষা সনদ']\n"
+    "- typical_salary_bdt: integer only. If salary is stated in a foreign currency, convert it to an approximate BDT amount.\n"
+    "  Return null when salary is not stated.\n\n"
     "CONFIDENCE SCORING:\n"
     "Rate extraction_confidence from 0.0 to 1.0 based on how much structured data was found:\n"
     "- 0.85 to 1.0: Has employer + country + deadline + requirements + salary + application URL\n"
@@ -243,17 +262,45 @@ _PAGE_JOBS_PROMPT_TEMPLATE = (
     "- deadline_text must be YYYY-MM-DD when explicitly stated; otherwise null.\n"
     "- title_bn and summary_bn must use Bangla script.\n"
     "- summary_en and summary_bn should each explain what the role is, where it is, who can apply, and how to apply.\n\n"
+    "- can_apply_from_bd should be an estimated boolean using the snippet/page context.\n"
+    "- journey_steps must be a Bangla array of short practical steps.\n"
+    "- documents_needed must be a Bangla array.\n"
+    "- typical_salary_bdt should be an approximate integer BDT conversion when salary is present.\n\n"
     "JOB SCHEMA:\n"
     "- record_type must always be 'job'\n"
     "- title, title_bn, summary, summary_en, summary_bn, country, employer, salary_min, salary_max, salary_currency,\n"
     "  deadline_text, application_url, eligibility_text, visa_support, requirements, benefits,\n"
-    "  language_requirements, extraction_confidence, evidence_snippets\n\n"
+    "  language_requirements, can_apply_from_bd, journey_steps, documents_needed,\n"
+    "  typical_salary_bdt, extraction_confidence, evidence_snippets\n\n"
     "INPUT\n"
     "Title: {title}\n\n"
     "Body:\n{body}\n\n"
     "OUTPUT\n"
     "Return only valid JSON with this shape:\n"
     '{"jobs": [{...job schema...}]}\n'
+)
+
+_LINKOUT_JOB_PROMPT_TEMPLATE = (
+    "You create a conservative draft from a search-result snippet for a Bangladeshi overseas job platform.\n"
+    "The source page could not be scraped, so use ONLY the title, snippet, and URL below.\n"
+    "Treat this as a likely job lead, not a verified full listing.\n\n"
+    "Return ONLY valid JSON for one job object with these fields:\n"
+    "- record_type='job'\n"
+    "- title, title_bn, summary, summary_en, summary_bn\n"
+    "- country, employer, salary_min, salary_max, salary_currency, typical_salary_bdt\n"
+    "- deadline_text, application_url, eligibility_text, visa_support, can_apply_from_bd\n"
+    "- requirements, benefits, language_requirements, journey_steps, documents_needed\n"
+    "- extraction_confidence, evidence_snippets\n\n"
+    "Rules:\n"
+    "- Set application_url to the provided URL.\n"
+    "- Do not invent specific salary, deadline, or employer facts that are not supported by the snippet.\n"
+    "- journey_steps and documents_needed must be practical Bangla arrays for low-literacy Bangladeshi users.\n"
+    "- summary_bn must clearly say that full details are on the original site.\n"
+    "- Keep extraction_confidence between 0.25 and 0.55 because this is snippet-only.\n\n"
+    "INPUT\n"
+    "Title: {title}\n"
+    "Snippet: {snippet}\n"
+    "URL: {url}\n"
 )
 
 
@@ -302,6 +349,25 @@ def _invoke_mistral_jobs(model: str, api_key: str, prompt: str) -> PageJobsExtra
     response.raise_for_status()
     content = response.json()["choices"][0]["message"]["content"]
     return PageJobsExtraction.model_validate(json.loads(_strip_code_fences(content)))
+
+
+def _invoke_mistral_job(model: str, api_key: str, prompt: str) -> JobOpportunityExtraction:
+    response = httpx.post(
+        "https://api.mistral.ai/v1/chat/completions",
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        json={
+            "model": model,
+            "temperature": 0.0,
+            "messages": [
+                {"role": "system", "content": "Return only valid JSON matching the requested job schema."},
+                {"role": "user", "content": prompt},
+            ],
+        },
+        timeout=60,
+    )
+    response.raise_for_status()
+    content = response.json()["choices"][0]["message"]["content"]
+    return JobOpportunityExtraction.model_validate(json.loads(_strip_code_fences(content)))
 
 
 def extract_structured(db: Session, cleaned: dict[str, Any]) -> ExtractionBase:
@@ -354,3 +420,58 @@ def extract_jobs_structured(db: Session, cleaned: dict[str, Any], *, max_jobs: i
         if fallback.record_type != "job":
             return []
         return _ensure_job_list([JobOpportunityExtraction.model_validate(fallback.model_dump())], max_jobs=max_jobs)
+
+
+def summarize_linkout_job(
+    db: Session,
+    *,
+    title: str,
+    snippet: str | None,
+    url: str,
+) -> JobOpportunityExtraction:
+    provider = get_ai_provider(db)
+    api_key = get_ai_api_key(db)
+    if not api_key:
+        summary_en = (snippet or title or "").strip()
+        summary_bn = "মূল সাইটে বিস্তারিত দেখুন।" if summary_en else "মূল সাইটে বিস্তারিত দেখুন।"
+        return _ensure_job_fields(
+            JobOpportunityExtraction(
+                title=title,
+                title_bn=title,
+                summary=summary_en or title,
+                summary_en=summary_en or title,
+                summary_bn=summary_bn,
+                application_url=url,
+                can_apply_from_bd=None,
+                journey_steps=["মূল সাইট খুলুন", "আবেদনের শর্ত দেখুন", "প্রয়োজনীয় কাগজপত্র প্রস্তুত করুন"],
+                documents_needed=["পাসপোর্ট", "জাতীয় পরিচয়পত্র"],
+                extraction_confidence=0.3,
+                evidence_snippets=[title, snippet or ""],
+            )
+        )
+
+    prompt = _LINKOUT_JOB_PROMPT_TEMPLATE.format(title=title, snippet=snippet or "", url=url)
+    try:
+        if provider == "mistral":
+            return _ensure_job_fields(_invoke_mistral_job(get_ai_model(db), api_key, prompt))
+
+        model = ChatGroq(model=get_ai_model(db), api_key=api_key, temperature=0.0)
+        structured = model.with_structured_output(JobOpportunityExtraction)
+        result: JobOpportunityExtraction = structured.invoke(prompt)
+        return _ensure_job_fields(result)
+    except Exception:
+        return _ensure_job_fields(
+            JobOpportunityExtraction(
+                title=title,
+                title_bn=title,
+                summary=(snippet or title or "").strip() or title,
+                summary_en=(snippet or title or "").strip() or title,
+                summary_bn="বিস্তারিত তথ্য মূল সাইটে দেওয়া আছে।",
+                application_url=url,
+                can_apply_from_bd=None,
+                journey_steps=["মূল সাইট খুলুন", "যোগ্যতা যাচাই করুন", "আবেদনের কাগজপত্র প্রস্তুত করুন"],
+                documents_needed=["পাসপোর্ট", "সিভি"],
+                extraction_confidence=0.3,
+                evidence_snippets=[title, snippet or ""],
+            )
+        )

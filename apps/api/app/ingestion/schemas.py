@@ -14,7 +14,7 @@ class FetchedPage(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
     extracted_links: list[str] = Field(default_factory=list)
     fetched_at: datetime = Field(default_factory=datetime.utcnow)
-    content_type: str = "html"           # html | pdf | html_with_pdf | image_pdf | rss | api | unknown
+    content_type: str = "html"           # html | pdf | html_with_pdf | image_pdf | rss | api | linkout_only | unknown
     document_url: str | None = None      # URL of an attached PDF
     source_page_url: str | None = None   # HTML page that linked to this PDF
     original_apply_url: str | None = None
@@ -106,9 +106,13 @@ class ExtractionBase(BaseModel):
     application_url: str | None = None
     eligibility_text: str | None = None
     visa_support: bool | None = None
+    can_apply_from_bd: bool | None = None
     requirements: list[str] = Field(default_factory=list)
     benefits: list[str] = Field(default_factory=list)
     language_requirements: list[str] = Field(default_factory=list)
+    journey_steps: list[str] = Field(default_factory=list)
+    documents_needed: list[str] = Field(default_factory=list)
+    typical_salary_bdt: int | None = None
     extraction_confidence: float = Field(ge=0, le=1, default=0.0)
     evidence_snippets: list[str] = Field(default_factory=list)
 

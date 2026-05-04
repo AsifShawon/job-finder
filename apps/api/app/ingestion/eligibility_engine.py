@@ -84,6 +84,9 @@ def tag_eligibility(
     employer: str | None = None,
 ) -> EligibilityResult:
     result = EligibilityResult()
+    extracted_can_apply = None
+    if extracted_json and "can_apply_from_bd" in extracted_json:
+        extracted_can_apply = extracted_json.get("can_apply_from_bd")
     blob = " ".join(filter(None, [
         _lower(eligibility_text),
         _lower(title),
@@ -102,7 +105,9 @@ def tag_eligibility(
 
     # ── Explicit BD open keywords ─────────────────────────────────────────────
     if result.can_apply_from_bd is None:
-        if _any_keyword(blob, _BD_OPEN_KEYWORDS):
+        if extracted_can_apply is not None:
+            result.can_apply_from_bd = bool(extracted_can_apply)
+        elif _any_keyword(blob, _BD_OPEN_KEYWORDS):
             result.can_apply_from_bd = True
 
     # ── Work permit required ──────────────────────────────────────────────────

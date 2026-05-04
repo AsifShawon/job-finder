@@ -211,16 +211,18 @@ def test_pipeline_does_not_create_published_opportunity() -> None:
 
 
 def test_review_gate_pending_draft_not_in_search_results() -> None:
-    """Search service must filter on is_active=True, which pending drafts never have."""
+    """Search service must filter on published status, which pending drafts never have."""
     from app.services.search_service import _apply_filters
     from app.schemas.opportunity import PublishedSearchQuery
     from sqlalchemy import select
-    from app.models.entities import PublishedOpportunity
+    from app.models.entities import Opportunity
 
     q = PublishedSearchQuery(q="test")
-    stmt = select(PublishedOpportunity)
+    stmt = select(Opportunity)
     filtered = _apply_filters(stmt, q, user_id=None)
 
-    # The compiled WHERE clause must include is_active filter
+    # The compiled WHERE clause must include the published-status gate
     compiled = str(filtered.whereclause.compile(compile_kwargs={"literal_binds": True}))
-    assert "is_active" in compiled, "Search must always filter on is_active"
+    assert "status" in compiled and "published" in compiled, (
+        "Search must always filter to published opportunities"
+    )

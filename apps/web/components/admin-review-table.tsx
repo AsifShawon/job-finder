@@ -3,7 +3,7 @@
 import { useState } from "react";
 import {
   AlertTriangle, CheckCircle, ExternalLink, FileText,
-  ShieldCheck, XCircle, Eye, EyeOff, Languages,
+  ShieldCheck, XCircle, Eye, EyeOff, Languages, PenLine, Sparkles,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -85,6 +85,7 @@ export function AdminReviewTable({
   const [items, setItems] = useState(initialItems);
   const [busy, setBusy] = useState<number | null>(null);
   const [translating, setTranslating] = useState<number | null>(null);
+  const [reExtracting, setReExtracting] = useState<number | null>(null);
   const [message, setMessage] = useState("");
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
 
@@ -145,6 +146,24 @@ export function AdminReviewTable({
     }
   };
 
+  const doReExtract = async (id: number) => {
+    setReExtracting(id);
+    setMessage("");
+    try {
+      const res = await fetch(`/api/admin/manual-entry/${id}/re-extract`, { method: "POST" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setMessage((err as { detail?: string }).detail || (isEn ? "AI re-extraction failed." : "AI re-extraction ব্যর্থ হয়েছে।"));
+        return;
+      }
+      const updated = await res.json() as DraftItem;
+      setItems((prev) => prev.map((item) => item.id === id ? { ...item, ...updated } : item));
+      setMessage(isEn ? `#${id} re-extracted with AI.` : `#${id}: AI দিয়ে আবার extraction করা হয়েছে।`);
+    } finally {
+      setReExtracting(null);
+    }
+  };
+
   return (
     <div className="space-y-3">
       {message && (
@@ -195,6 +214,12 @@ export function AdminReviewTable({
                     {item.content_type === "image_pdf" && (
                       <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:bg-amber-900/20 dark:text-amber-400">
                         OCR
+                      </span>
+                    )}
+                    {item.connector_key === "manual_entry" && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-semibold text-violet-700 dark:bg-violet-900/20 dark:text-violet-400">
+                        <PenLine className="h-3 w-3" />
+                        ম্যানুয়াল
                       </span>
                     )}
                     {(item.content_type === "pdf" || item.content_type === "html_with_pdf") && (
@@ -305,7 +330,7 @@ export function AdminReviewTable({
                   {item.review_status !== "approved" && (
                     <button
                       onClick={() => doAction(item.id, "approve", "approved")}
-                      disabled={busy === item.id || translating === item.id}
+                      disabled={busy === item.id || translating === item.id || reExtracting === item.id}
                       className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-emerald-700 disabled:opacity-50 sm:w-auto"
                     >
                       <CheckCircle className="h-3.5 w-3.5" />
@@ -315,7 +340,7 @@ export function AdminReviewTable({
                   {(!item.title_bn || !item.summary_bn || !item.summary_en) && (
                     <button
                       onClick={() => doTranslate(item.id)}
-                      disabled={busy === item.id || translating === item.id}
+                      disabled={busy === item.id || translating === item.id || reExtracting === item.id}
                       className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-sky-300 bg-sky-50 px-4 py-2.5 text-sm font-bold text-sky-700 hover:bg-sky-100 disabled:opacity-50 dark:border-sky-700 dark:bg-sky-900/20 dark:text-sky-400 sm:w-auto"
                     >
                       <Languages className="h-3.5 w-3.5" />
@@ -324,10 +349,22 @@ export function AdminReviewTable({
                         : (isEn ? "Translate Missing" : "অনুবাদ করুন")}
                     </button>
                   )}
+                  {item.connector_key === "manual_entry" && item.raw_text && (
+                    <button
+                      onClick={() => doReExtract(item.id)}
+                      disabled={busy === item.id || translating === item.id || reExtracting === item.id}
+                      className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-violet-300 bg-violet-50 px-4 py-2.5 text-sm font-bold text-violet-700 hover:bg-violet-100 disabled:opacity-50 dark:border-violet-700 dark:bg-violet-900/20 dark:text-violet-400 sm:w-auto"
+                    >
+                      <Sparkles className="h-3.5 w-3.5" />
+                      {reExtracting === item.id
+                        ? (isEn ? "Re-extracting..." : "আবার extraction হচ্ছে...")
+                        : "Re-extract"}
+                    </button>
+                  )}
                   {item.review_status !== "needs_manual_fix" && (
                     <button
                       onClick={() => doAction(item.id, "needs-manual-fix", "needs_manual_fix")}
-                      disabled={busy === item.id || translating === item.id}
+                      disabled={busy === item.id || translating === item.id || reExtracting === item.id}
                       className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-bold text-amber-700 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-400 sm:w-auto"
                     >
                       <AlertTriangle className="h-3.5 w-3.5" />
@@ -337,7 +374,7 @@ export function AdminReviewTable({
                   {item.review_status !== "rejected" && (
                     <button
                       onClick={() => doAction(item.id, "reject", "rejected")}
-                      disabled={busy === item.id || translating === item.id}
+                      disabled={busy === item.id || translating === item.id || reExtracting === item.id}
                       className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-rose-300 bg-rose-50 px-4 py-2.5 text-sm font-bold text-rose-700 hover:bg-rose-100 disabled:opacity-50 dark:border-rose-700 dark:bg-rose-900/20 dark:text-rose-400 sm:w-auto"
                     >
                       <XCircle className="h-3.5 w-3.5" />

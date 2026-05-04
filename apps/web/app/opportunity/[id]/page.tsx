@@ -215,6 +215,18 @@ export default async function OpportunityDetailPage({
                 content={requirementItems}
                 defaultOpen
               />
+              {opportunity.journey_steps.length > 0 && (
+                <Card>
+                  <h2 className="section-underline text-xl font-bold text-foreground">
+                    {isEn ? "How to Apply" : "কীভাবে আবেদন করবেন"}
+                  </h2>
+                  <ol className="mt-4 space-y-2 text-muted-foreground">
+                    {opportunity.journey_steps.map((step, index) => (
+                      <li key={`${step}-${index}`}>{index + 1}. {step}</li>
+                    ))}
+                  </ol>
+                </Card>
+              )}
               <DetailAccordion
                 title={isEn ? "Salary and Support" : "বেতন ও সহায়তা"}
                 content={[

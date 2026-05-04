@@ -34,7 +34,7 @@ from app.ingestion.cleaner import clean_page
 from app.ingestion.compliance_guard import ComplianceError, check_before_crawl
 from app.ingestion.eligibility_engine import tag_eligibility
 from app.ingestion.errors import ConnectorNotImplementedError, SourceConfigError
-from app.ingestion.extractor import extract_jobs_structured, extract_structured
+from app.ingestion.extractor import extract_jobs_structured, extract_structured, summarize_linkout_job
 from app.ingestion.parsers.registry import get_parser
 from app.ingestion.pdf_extractor import download_pdf, extract_text as pdf_extract_text
 from app.ingestion.source_router import get_connector
@@ -118,8 +118,6 @@ def _source_item_key(
         application_url or "",
     ])
     return hashlib.sha256(combined.encode()).hexdigest()[:64]
-
-
 def _trust_badge_for_source(source: Source) -> str | None:
     trust = source.trust_level or ""
     if trust == "government_official":
@@ -356,7 +354,7 @@ def _process_page(
         logs.append(f"Pre-filter rejected news article: '{(cleaned.get('title') or '')[:80]}'")
         return
 
-    extractions = _extract_records_for_page(db, source, cleaned)
+    extractions = _extract_records_for_page(db, source, page, cleaned)
     if not extractions:
         if source.connector_key != "search_html_jobs":
             result.failed += 1
@@ -383,8 +381,12 @@ def _process_page(
         result.failed += 1
 
 
-def _extract_records_for_page(db: Session, source: Source, cleaned: dict) -> list:
+def _extract_records_for_page(db: Session, source: Source, page, cleaned: dict) -> list:
     if source.connector_key == "search_html_jobs":
+        if page.content_type == "linkout_only":
+            title = page.title or cleaned.get("title") or page.url
+            snippet = (page.metadata or {}).get("search_snippet")
+            return [summarize_linkout_job(db, title=title, snippet=snippet, url=page.url)]
         max_jobs = max(1, source.max_jobs_per_page or 10)
         return extract_jobs_structured(db, cleaned, max_jobs=max_jobs)
 
@@ -428,6 +430,9 @@ def _process_extraction(
         deadline=extraction.deadline_text,
         application_url=application_url,
     )
+    forced_item_key = (page.metadata or {}).get("source_item_key")
+    if isinstance(forced_item_key, str) and forced_item_key.strip():
+        item_key = forced_item_key.strip()
 
     existing = find_existing_opportunity(
         db,
@@ -443,6 +448,7 @@ def _process_extraction(
         country=extraction.country or source.country,
         eligibility_text=extraction.eligibility_text,
         requirements_json={"items": extraction.requirements},
+        extracted_json=extraction.model_dump(mode="json"),
         title=extraction.title,
         summary=extraction.summary,
         employer=extraction.employer,
@@ -499,6 +505,9 @@ def _process_extraction(
         application_url=application_url,
         eligibility_text=extraction.eligibility_text,
         visa_support=extraction.visa_support,
+        journey_steps=extraction.journey_steps,
+        documents_needed=extraction.documents_needed,
+        typical_salary_bdt=extraction.typical_salary_bdt,
         language_requirements_json={"items": extraction.language_requirements},
         requirements_json={"items": extraction.requirements},
         benefits_json={"items": extraction.benefits},
@@ -535,14 +544,6 @@ def _process_extraction(
 
     db.add(draft)
     db.flush()
-
-    if source.auto_publish:
-        draft.status = "published"
-        draft.published_at = now
-        draft.is_active = True
-        draft.review_status = "approved"
-        draft.slug = _build_slug(draft.title or "opportunity", draft.id)
-        logs.append(f"Auto-published: id={draft.id} source={source.name}")
 
     result.draft_created += 1
     if force_review:
@@ -592,6 +593,9 @@ def _apply_extraction_to_draft(
     draft.application_url = application_url
     draft.eligibility_text = extraction.eligibility_text
     draft.visa_support = extraction.visa_support
+    draft.journey_steps = extraction.journey_steps
+    draft.documents_needed = extraction.documents_needed
+    draft.typical_salary_bdt = extraction.typical_salary_bdt
     draft.language_requirements_json = {"items": extraction.language_requirements}
     draft.requirements_json = {"items": extraction.requirements}
     draft.benefits_json = {"items": extraction.benefits}
@@ -621,12 +625,6 @@ def _apply_extraction_to_draft(
     )
     draft.overall_rank_score = 0.25 * draft.trust_score + 0.2 * draft.freshness_score + 0.1 * draft.actionability_score
     draft.updated_at = now
-    if source.auto_publish and draft.status != "published":
-        draft.status = "published"
-        draft.published_at = draft.published_at or now
-        draft.is_active = True
-        draft.review_status = "approved"
-        draft.slug = draft.slug or _build_slug(draft.title or "opportunity", draft.id)
     _refresh_search_tsv(db, draft.id)
 
 

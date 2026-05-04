@@ -158,6 +158,18 @@ class ReviewStatusUpdate(BaseModel):
     note: str | None = None
 
 
+class ManualJobEntryRequest(BaseModel):
+    title: str
+    source_url: str
+    raw_description: str
+    source_name: str | None = None
+    country: str | None = None
+    employer: str | None = None
+    deadline: str | None = None
+    opportunity_type: str = "overseas_job"
+    run_ai_extraction: bool = True
+
+
 # ── Published opportunity (minimal, for admin list) ───────────────────────────
 
 class PublishedOpportunityOut(BaseModel):
@@ -274,6 +286,8 @@ class SourceProbeResult(BaseModel):
     detected_language: str | None = None
     suggested_isc_sector: str | None = None
     estimated_opportunities_per_crawl: int | None = None
+    is_scrapable: bool = True
+    scrape_warning: str | None = None
     error: str | None = None
 
 

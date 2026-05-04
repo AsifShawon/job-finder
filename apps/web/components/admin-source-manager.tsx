@@ -87,6 +87,23 @@ async function getResponseMessage(response: Response, fallback: string): Promise
   return fallback;
 }
 
+function isBlockedProbe(result: SourceProbeResult): boolean {
+  return Boolean(result.scrape_warning?.toLowerCase().startsWith("blocked:"));
+}
+
+function probeTone(result: SourceProbeResult): string {
+  if (result.error) {
+    return "border-rose-200 bg-rose-50 text-rose-700 dark:bg-rose-950/20 dark:border-rose-700/30";
+  }
+  if (result.is_scrapable) {
+    return "border-emerald-200 bg-emerald-50 text-emerald-800 dark:bg-emerald-950/20 dark:border-emerald-700/30 dark:text-emerald-300";
+  }
+  if (isBlockedProbe(result)) {
+    return "border-rose-200 bg-rose-50 text-rose-700 dark:bg-rose-950/20 dark:border-rose-700/30";
+  }
+  return "border-amber-200 bg-amber-50 text-amber-800 dark:bg-amber-950/20 dark:border-amber-700/30 dark:text-amber-300";
+}
+
 const defaultForm: SourceFormState = {
   name: "", base_url: "",
   feed_type: "html",
@@ -435,7 +452,7 @@ export function AdminSourceManager({ initialSources }: { initialSources: AdminSo
               : <SearchCode className="mr-2 size-4" />}
             {isEn ? "Analyze" : "বিশ্লেষণ"}
           </Button>
-          {quickProbeResult && !quickProbeResult.error && (
+          {quickProbeResult && !quickProbeResult.error && !isBlockedProbe(quickProbeResult) && (
             <Button
               onClick={quickAdd}
               disabled={busyKey === "quick-add"}
@@ -450,18 +467,21 @@ export function AdminSourceManager({ initialSources }: { initialSources: AdminSo
         </div>
 
         {quickProbeResult && (
-          <div className={`mt-3 rounded-md border px-4 py-3 text-sm ${
-            quickProbeResult.error
-              ? "border-rose-200 bg-rose-50 text-rose-700 dark:bg-rose-950/20 dark:border-rose-700/30"
-              : "border-emerald-200 bg-emerald-50 text-emerald-800 dark:bg-emerald-950/20 dark:border-emerald-700/30 dark:text-emerald-300"
-          }`}>
+          <div className={`mt-3 rounded-md border px-4 py-3 text-sm ${probeTone(quickProbeResult)}`}>
             {quickProbeResult.error ? (
               <p className="font-medium">{quickProbeResult.error}</p>
             ) : (
               <div className="space-y-1.5">
                 <div className="flex flex-wrap gap-3 text-xs font-semibold">
-                  <span className="rounded bg-white/60 px-2 py-0.5 border border-emerald-200 dark:bg-white/10">
+                  <span className="rounded border border-white/40 bg-white/60 px-2 py-0.5 dark:bg-white/10">
                     {quickProbeResult.feed_type.toUpperCase()}
+                  </span>
+                  <span>
+                    {quickProbeResult.is_scrapable
+                      ? (isEn ? "Scrapable" : "স্ক্র্যাপ করা যাবে")
+                      : isBlockedProbe(quickProbeResult)
+                      ? (isEn ? "Blocked" : "ব্লকড")
+                      : (isEn ? "Linkout only" : "শুধু লিংকআউট")}
                   </span>
                   {quickProbeResult.suggested_name && (
                     <span>{isEn ? "Name:" : "নাম:"} {quickProbeResult.suggested_name}</span>
@@ -478,6 +498,9 @@ export function AdminSourceManager({ initialSources }: { initialSources: AdminSo
                     <span>~{quickProbeResult.estimated_opportunities_per_crawl} {isEn ? "per crawl" : "প্রতি ক্রল"}</span>
                   )}
                 </div>
+                {quickProbeResult.scrape_warning && (
+                  <p className="text-xs font-medium">{quickProbeResult.scrape_warning}</p>
+                )}
                 {quickProbeResult.sample_titles.length > 0 && (
                   <ul className="text-xs text-slate-600 dark:text-slate-400 space-y-0.5">
                     {quickProbeResult.sample_titles.slice(0, 3).map((t, i) => (
@@ -545,13 +568,15 @@ export function AdminSourceManager({ initialSources }: { initialSources: AdminSo
             </div>
             {/* Probe result inline */}
             {probeResult && (
-              <div className={`mt-1.5 rounded-md border px-3 py-2 text-xs ${probeResult.error ? "border-rose-200 bg-rose-50 text-rose-700 dark:bg-rose-950/20" : "border-green-200 bg-green-50 text-green-800 dark:bg-green-950/20 dark:text-green-300"}`}>
+              <div className={`mt-1.5 rounded-md border px-3 py-2 text-xs ${probeTone(probeResult)}`}>
                 {probeResult.error
                   ? probeResult.error
                   : <>
                       <span className="font-semibold">{probeResult.feed_type.toUpperCase()}</span>
+                      <> · {probeResult.is_scrapable ? (isEn ? "Scrapable" : "স্ক্র্যাপেবল") : isBlockedProbe(probeResult) ? (isEn ? "Blocked" : "ব্লকড") : (isEn ? "Linkout only" : "শুধু লিংকআউট")}</>
                       {probeResult.suggested_name && <> · {probeResult.suggested_name}</>}
                       {probeResult.detected_language && <> · {probeResult.detected_language}</>}
+                      {probeResult.scrape_warning && <div className="mt-1 font-medium">{probeResult.scrape_warning}</div>}
                       {probeResult.sample_titles.length > 0 && (
                         <ul className="mt-1 space-y-0.5 text-slate-600 dark:text-slate-400">
                           {probeResult.sample_titles.slice(0, 3).map((t, i) => <li key={i} className="truncate">• {t}</li>)}

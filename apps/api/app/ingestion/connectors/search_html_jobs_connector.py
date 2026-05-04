@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
+import hashlib
 from typing import Iterable
 from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
@@ -13,6 +14,7 @@ from app.ingestion.connectors.base import BaseSourceConnector
 from app.ingestion.connectors.utils import extract_pdf_links
 from app.ingestion.content_detector import detect as detect_content_type
 from app.ingestion.robots import is_allowed
+from app.ingestion.scrapeability import check_scrapeability
 from app.ingestion.schemas import FetchedPage
 from app.ingestion.search_provider import SearchResult, get_search_provider
 from app.models.entities import Source
@@ -129,6 +131,10 @@ def _looks_like_listing_page(url: str, title: str | None, links: list[tuple[str,
     return listing_score >= 18 and len(links) >= 3
 
 
+def _url_item_key(url: str) -> str:
+    return hashlib.sha256(url.encode()).hexdigest()[:64]
+
+
 class SearchHTMLJobsConnector(BaseSourceConnector):
     connector_key = "search_html_jobs"
 
@@ -138,6 +144,8 @@ class SearchHTMLJobsConnector(BaseSourceConnector):
             "search_results_found": 0,
             "child_pages_followed": 0,
             "pages_selected_for_ai": 0,
+            "blocked_urls": [],
+            "linkout_only_urls": [],
         }
         if not is_allowed(source.base_url, settings.crawler_user_agent):
             return []
@@ -199,6 +207,37 @@ class SearchHTMLJobsConnector(BaseSourceConnector):
                 if candidate.url in seen_urls or not is_allowed(candidate.url, settings.crawler_user_agent):
                     continue
                 seen_urls.add(candidate.url)
+                scrapeability = check_scrapeability(candidate.url)
+                if scrapeability.suggested_mode == "blocked":
+                    self.last_discovery_diagnostics["blocked_urls"].append(
+                        {"url": candidate.url, "reason": scrapeability.reason}
+                    )
+                    continue
+                if not scrapeability.is_scrapable:
+                    pages.append(
+                        FetchedPage(
+                            url=candidate.url,
+                            canonical_url=candidate.url,
+                            title=candidate.title,
+                            raw_text="\n".join(filter(None, [candidate.title, candidate.snippet, candidate.url])),
+                            content_type="linkout_only",
+                            original_apply_url=candidate.url,
+                            source_page_url=candidate.url,
+                            metadata={
+                                "discovery_source": candidate.discovery_source,
+                                "discovery_score": candidate.score,
+                                "depth": candidate.depth,
+                                "search_snippet": candidate.snippet,
+                                "parent_url": candidate.parent_url,
+                                "scrapeability_reason": scrapeability.reason,
+                                "source_item_key": _url_item_key(candidate.url),
+                            },
+                        )
+                    )
+                    self.last_discovery_diagnostics["linkout_only_urls"].append(
+                        {"url": candidate.url, "reason": scrapeability.reason}
+                    )
+                    continue
                 try:
                     response = client.get(candidate.url)
                     response.raise_for_status()

@@ -19,7 +19,7 @@ export type ConnectorKey =
   | "generic_scholarship" | "generic_training"
   | "boesl_brms" | "boesl_reports_pdf" | "bmet_connector" | "oep_connector"
   | "eures_connector" | "usa_jobs_api" | "reliefweb_api"
-  | "jobbank_linkout" | "linkout_only";
+  | "jobbank_linkout" | "linkout_only" | "manual_entry";
 
 export type TrustLevel =
   | "government_official" | "official_partner" | "verified_source"
@@ -41,7 +41,7 @@ export type OpportunityType =
   | "migration_policy" | "visa_update" | "circular" | "warning" | "news";
 
 export type ContentType =
-  | "html" | "pdf" | "html_with_pdf" | "image_pdf" | "api" | "rss" | "manual" | "unknown";
+  | "html" | "pdf" | "html_with_pdf" | "image_pdf" | "api" | "rss" | "manual" | "linkout_only" | "unknown";
 
 export type LMIAStatus = "none" | "requested" | "approved" | "unknown";
 
@@ -128,6 +128,9 @@ export interface PublishedOpportunityDetail extends PublishedOpportunityCard {
   age_requirement: string | null;
   gender_requirement: string | null;
   visa_or_work_permit_info: string | null;
+  journey_steps: string[];
+  documents_needed: string[];
+  typical_salary_bdt: number | null;
   extraction_confidence: number;
   connector_key: string | null;
   created_at: string | null;
@@ -269,6 +272,8 @@ export interface SourceProbeResult {
   detected_language: string | null;
   suggested_isc_sector: string | null;
   estimated_opportunities_per_crawl: number | null;
+  is_scrapable: boolean;
+  scrape_warning: string | null;
   error: string | null;
 }
 

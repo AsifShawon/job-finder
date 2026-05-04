@@ -5,17 +5,19 @@ import {
   Database,
   Activity,
   ClipboardCheck,
+  PenLine,
   Shield,
 } from "lucide-react";
 
 import { getLocale } from "@/lib/i18n";
 import { requireAdminUser } from "@/lib/server-auth-fetch";
 
-const ADMIN_LINKS: Array<{ label: string; labelEn: string; href: Route; icon: React.ElementType }> = [
+const ADMIN_LINKS: Array<{ label: string; labelEn: string; href: string; icon: React.ElementType }> = [
   { label: "ওভারভিউ", labelEn: "Overview", href: "/admin", icon: LayoutDashboard },
   { label: "উৎস", labelEn: "Sources", href: "/admin/sources", icon: Database },
   { label: "ক্রল", labelEn: "Crawls", href: "/admin/crawls", icon: Activity },
   { label: "পর্যালোচনা", labelEn: "Review", href: "/admin/review", icon: ClipboardCheck },
+  { label: "ম্যানুয়াল এন্ট্রি", labelEn: "Manual Entry", href: "/admin/manual-entry", icon: PenLine },
 ];
 
 export default async function AdminLayout({
@@ -55,7 +57,7 @@ export default async function AdminLayout({
               {ADMIN_LINKS.map(({ label, labelEn, href, icon: Icon }) => (
                 <Link
                   key={href}
-                  href={href}
+                  href={href as Route}
                   className="flex items-center gap-1.5 rounded-md border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:border-white/40 hover:bg-white/20 transition-colors"
                 >
                   <Icon className="h-3.5 w-3.5" />

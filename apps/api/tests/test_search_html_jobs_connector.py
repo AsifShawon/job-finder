@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from app.ingestion.connectors.search_html_jobs_connector import SearchHTMLJobsConnector
 from app.ingestion.search_provider import SearchResult
 from app.models.entities import Source
@@ -91,6 +93,10 @@ def test_search_html_jobs_connector_discovers_child_pages(monkeypatch) -> None:
     monkeypatch.setattr("app.ingestion.connectors.search_html_jobs_connector.is_allowed", lambda *_args, **_kwargs: True)
     monkeypatch.setattr("app.ingestion.connectors.search_html_jobs_connector.get_search_provider", lambda: _FakeProvider())
     monkeypatch.setattr("app.ingestion.connectors.search_html_jobs_connector.httpx.Client", lambda **_kwargs: _FakeHTTPClient())
+    monkeypatch.setattr(
+        "app.ingestion.connectors.search_html_jobs_connector.check_scrapeability",
+        lambda *_args, **_kwargs: SimpleNamespace(is_scrapable=True, reason="ok", suggested_mode="scrape"),
+    )
 
     pages = connector.discover_items(source, crawl_mode="preview_only")
     urls = {page.url for page in pages}
