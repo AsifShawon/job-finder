@@ -32,6 +32,18 @@ const COUNTRY_OPTIONS = [
   { bn: "জার্মানি", en: "Germany", value: "Germany" },
 ] as const;
 
+const FILTER_LABELS = {
+  q: { bn: "খোঁজ", en: "Search" },
+  opportunity_type: { bn: "ধরন", en: "Type" },
+  country: { bn: "দেশ", en: "Country" },
+  isc_sector: { bn: "ক্যাটাগরি", en: "Category" },
+  official_sources_only: { bn: "সরকারি উৎস", en: "Official only" },
+  can_apply_from_bd: { bn: "বাংলাদেশ থেকে আবেদন", en: "Apply from BD" },
+  deadline_within: { bn: "শেষ সময়", en: "Deadline" },
+  salary_min: { bn: "বেতন", en: "Salary" },
+  requires_existing_work_permit: { bn: "ওয়ার্ক পারমিট", en: "Work permit" },
+} as const;
+
 type FilterValues = {
   q: string;
   opportunity_type: string;
@@ -54,6 +66,7 @@ function FilterFields({
   setShowMore,
   categoriesOpen,
   setCategoriesOpen,
+  typeCounts,
 }: {
   values: FilterValues;
   setValues: React.Dispatch<React.SetStateAction<FilterValues>>;
@@ -62,6 +75,7 @@ function FilterFields({
   setShowMore: React.Dispatch<React.SetStateAction<boolean>>;
   categoriesOpen: boolean;
   setCategoriesOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  typeCounts?: Record<string, number>;
 }) {
   return (
     <div className="space-y-5">
@@ -83,6 +97,9 @@ function FilterFields({
         <div className="grid gap-2">
           {TYPE_OPTIONS.map(({ value, icon: Icon, bn, en }) => {
             const active = values.opportunity_type === value;
+            const countKey = value || "all";
+            const count = typeof typeCounts?.[countKey] === "number" ? typeCounts?.[countKey] : undefined;
+            const labelText = `${isEn ? en : bn}${typeof count === "number" ? ` (${count})` : ""}`;
 
             return (
               <button
@@ -97,7 +114,7 @@ function FilterFields({
                 )}
               >
                 <Icon className="h-4 w-4" />
-                <span>{isEn ? en : bn}</span>
+                <span>{labelText}</span>
               </button>
             );
           })}
@@ -268,9 +285,11 @@ function FilterFields({
 export function SearchFilters({
   isEn,
   initialValues,
+  typeCounts,
 }: {
   isEn: boolean;
   initialValues: FilterValues;
+  typeCounts?: Record<string, number>;
 }) {
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -279,6 +298,94 @@ export function SearchFilters({
     Boolean(initialValues.deadline_within || initialValues.salary_min || initialValues.lmia_status),
   );
   const [values, setValues] = useState(initialValues);
+
+  const activeFilters = () => {
+    const items: { key: keyof FilterValues; label: string; value?: string }[] = [];
+
+    if (values.q) {
+      items.push({
+        key: "q",
+        label: isEn ? FILTER_LABELS.q.en : FILTER_LABELS.q.bn,
+        value: values.q,
+      });
+    }
+
+    if (values.opportunity_type) {
+      const type = TYPE_OPTIONS.find((option) => option.value === values.opportunity_type);
+      items.push({
+        key: "opportunity_type",
+        label: isEn ? FILTER_LABELS.opportunity_type.en : FILTER_LABELS.opportunity_type.bn,
+        value: type ? (isEn ? type.en : type.bn) : values.opportunity_type,
+      });
+    }
+
+    if (values.country) {
+      items.push({
+        key: "country",
+        label: isEn ? FILTER_LABELS.country.en : FILTER_LABELS.country.bn,
+        value: values.country,
+      });
+    }
+
+    if (values.isc_sector) {
+      const sector = ISC_SECTORS.find((entry) => entry.key === values.isc_sector);
+      items.push({
+        key: "isc_sector",
+        label: isEn ? FILTER_LABELS.isc_sector.en : FILTER_LABELS.isc_sector.bn,
+        value: sector ? (isEn ? sector.en : sector.bn) : values.isc_sector,
+      });
+    }
+
+    if (values.official_sources_only) {
+      items.push({
+        key: "official_sources_only",
+        label: isEn ? FILTER_LABELS.official_sources_only.en : FILTER_LABELS.official_sources_only.bn,
+      });
+    }
+
+    if (values.can_apply_from_bd) {
+      items.push({
+        key: "can_apply_from_bd",
+        label: isEn ? FILTER_LABELS.can_apply_from_bd.en : FILTER_LABELS.can_apply_from_bd.bn,
+      });
+    }
+
+    if (values.deadline_within) {
+      const deadlineLabel =
+        values.deadline_within === "7"
+          ? isEn
+            ? "Within 7 days"
+            : "৭ দিনের মধ্যে"
+          : isEn
+            ? "Within 30 days"
+            : "৩০ দিনের মধ্যে";
+      items.push({
+        key: "deadline_within",
+        label: isEn ? FILTER_LABELS.deadline_within.en : FILTER_LABELS.deadline_within.bn,
+        value: deadlineLabel,
+      });
+    }
+
+    if (values.salary_min) {
+      items.push({
+        key: "salary_min",
+        label: isEn ? FILTER_LABELS.salary_min.en : FILTER_LABELS.salary_min.bn,
+        value: values.salary_min,
+      });
+    }
+
+    if (values.requires_existing_work_permit) {
+      items.push({
+        key: "requires_existing_work_permit",
+        label: isEn ? FILTER_LABELS.requires_existing_work_permit.en : FILTER_LABELS.requires_existing_work_permit.bn,
+      });
+    }
+
+    return items;
+  };
+
+  const activeFilterItems = activeFilters();
+  const activeFilterCount = activeFilterItems.length;
 
   const applyFilters = () => {
     const params = new URLSearchParams();
@@ -320,6 +427,24 @@ export function SearchFilters({
     setMobileOpen(false);
   };
 
+  const clearSingleFilter = (key: keyof FilterValues) => {
+    setValues((current) => {
+      const next = { ...current };
+
+      if (
+        key === "official_sources_only"
+        || key === "can_apply_from_bd"
+        || key === "requires_existing_work_permit"
+      ) {
+        next[key] = false;
+      } else {
+        next[key] = "" as FilterValues[typeof key];
+      }
+
+      return next;
+    });
+  };
+
   return (
     <>
       <div className="lg:hidden">
@@ -349,6 +474,7 @@ export function SearchFilters({
             setShowMore={setShowMore}
             categoriesOpen={categoriesOpen}
             setCategoriesOpen={setCategoriesOpen}
+            typeCounts={typeCounts}
           />
           <div className="mt-5 flex flex-col gap-2">
             <button
@@ -371,50 +497,77 @@ export function SearchFilters({
 
       {mobileOpen && (
         <div className="fixed inset-0 z-[70] bg-[#07152f]/70 lg:hidden">
-          <div className="absolute inset-x-0 bottom-0 max-h-[92vh] overflow-y-auto rounded-t-[2rem] bg-card px-4 pb-6 pt-5">
-            <div className="mb-4 flex items-center justify-between">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
-                  {isEn ? "Filters" : "ফিল্টার"}
-                </p>
-                <h2 className="text-lg font-bold text-foreground">
-                  {isEn ? "Find the right opportunity" : "সঠিক সুযোগ খুঁজুন"}
-                </h2>
+          <div className="absolute inset-x-0 bottom-0 flex max-h-[92vh] flex-col rounded-t-[2rem] bg-card">
+            <div className="px-4 pt-5">
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+                    {isEn ? "Filters" : "ফিল্টার"}
+                  </p>
+                  <h2 className="text-lg font-bold text-foreground">
+                    {isEn ? "Find the right opportunity" : "সঠিক সুযোগ খুঁজুন"}
+                  </h2>
+                </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setMobileOpen(false)}
-                className="inline-flex items-center gap-1 rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-foreground"
-              >
-                <X className="h-3.5 w-3.5" />
-                <span>{isEn ? "Close" : "বন্ধ"}</span>
-              </button>
             </div>
 
-            <FilterFields
-              values={values}
-              setValues={setValues}
-              isEn={isEn}
-              showMore={showMore}
-              setShowMore={setShowMore}
-              categoriesOpen={categoriesOpen}
-              setCategoriesOpen={setCategoriesOpen}
-            />
+            <div className="flex-1 overflow-y-auto px-4 pb-6">
+              {activeFilterItems.length > 0 && (
+                <div className="mb-4 flex flex-wrap gap-2">
+                  {activeFilterItems.map((item) => (
+                    <button
+                      key={`${item.key}-${item.value ?? "on"}`}
+                      type="button"
+                      onClick={() => clearSingleFilter(item.key)}
+                      className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary"
+                      aria-label={isEn ? "Remove filter" : "ফিল্টার সরান"}
+                    >
+                      <span>
+                        {item.label}{item.value ? `: ${item.value}` : ""}
+                      </span>
+                      <X className="h-3 w-3" />
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={clearFilters}
+                    className="inline-flex items-center gap-1 rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground"
+                    aria-label={isEn ? "Clear all filters" : "সব ফিল্টার সরান"}
+                  >
+                    <X className="h-3 w-3" />
+                    <span>{isEn ? "Clear all" : "সব মুছুন"}</span>
+                  </button>
+                </div>
+              )}
 
-            <div className="mt-5 grid gap-2">
+              <FilterFields
+                values={values}
+                setValues={setValues}
+                isEn={isEn}
+                showMore={showMore}
+                setShowMore={setShowMore}
+                categoriesOpen={categoriesOpen}
+                setCategoriesOpen={setCategoriesOpen}
+                typeCounts={typeCounts}
+              />
+            </div>
+
+            <div className="border-t border-border px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-4">
               <button
                 type="button"
                 onClick={applyFilters}
-                className="rounded-xl bg-primary px-4 py-3 text-sm font-bold text-white"
+                className="mb-3 flex min-h-[52px] w-full items-center justify-center rounded-xl bg-primary px-4 text-sm font-bold text-white"
+                aria-label={isEn ? "Apply filters" : "ফিল্টার প্রয়োগ করুন"}
               >
-                {isEn ? "Apply Filters" : "প্রয়োগ করুন"}
+                {isEn ? `Apply (${activeFilterCount})` : `প্রয়োগ করুন (${activeFilterCount})`}
               </button>
               <button
                 type="button"
-                onClick={clearFilters}
-                className="rounded-xl border border-border px-4 py-3 text-sm font-semibold text-foreground"
+                onClick={() => setMobileOpen(false)}
+                className="min-h-[52px] w-full rounded-xl border border-border px-4 text-sm font-semibold text-foreground"
+                aria-label={isEn ? "Close filters" : "ফিল্টার বন্ধ করুন"}
               >
-                {isEn ? "Clear All" : "সব মুছুন"}
+                {isEn ? "Close" : "বন্ধ"}
               </button>
             </div>
           </div>

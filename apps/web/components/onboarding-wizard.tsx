@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
-import { CheckCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ISC_SECTORS } from "@/lib/isc-sectors";
@@ -78,15 +78,18 @@ function ISCSectorGrid({
   selected,
   onChange,
   shakeKey,
+  onLimitReached,
 }: {
   selected: string[];
   onChange: (next: string[]) => void;
   shakeKey: string | null;
+  onLimitReached?: (key: string) => void;
 }) {
   const toggle = (key: string) => {
     if (selected.includes(key)) {
       onChange(selected.filter((s) => s !== key));
     } else if (selected.length >= 3) {
+      onLimitReached?.(key);
       return;
     } else {
       onChange([...selected, key]);
@@ -170,6 +173,7 @@ export function OnboardingWizard() {
   const [saving, setSaving] = useState(false);
   const [iscError, setIscError] = useState(false);
   const [shakeKey, setShakeKey] = useState<string | null>(null);
+  const [iscLimitAlert, setIscLimitAlert] = useState(false);
 
   const totalSteps = 4;
 
@@ -184,8 +188,7 @@ export function OnboardingWizard() {
     if (next.length > 3) {
       const attempted = next.find((key) => !state.isc_sectors.includes(key));
       if (attempted) {
-        setShakeKey(attempted);
-        setTimeout(() => setShakeKey(null), 600);
+        handleIscLimit(attempted);
       }
       return;
     }
@@ -194,6 +197,13 @@ export function OnboardingWizard() {
     if (next.length >= 2) {
       setIscError(false);
     }
+  };
+
+  const handleIscLimit = (attempted: string) => {
+    setIscLimitAlert(true);
+    setShakeKey(attempted);
+    setTimeout(() => setShakeKey(null), 600);
+    setTimeout(() => setIscLimitAlert(false), 2200);
   };
 
   const handleNext = () => {
@@ -265,10 +275,28 @@ export function OnboardingWizard() {
 
         {step === 1 && (
           <>
+            {iscLimitAlert && (
+              <div className="mb-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                <AlertTriangle className="mt-0.5 h-4 w-4" />
+                <div>
+                  <p className="font-semibold">
+                    {locale === "bn"
+                      ? "সর্বোচ্চ ৩টি ক্যাটাগরি বেছে নিতে পারবেন"
+                      : "You can choose up to 3 categories"}
+                  </p>
+                  <p className="text-xs">
+                    {locale === "bn"
+                      ? "আরও যোগ করতে হলে একটি বাদ দিন"
+                      : "Remove one to add another"}
+                  </p>
+                </div>
+              </div>
+            )}
             <ISCSectorGrid
               selected={state.isc_sectors}
               onChange={handleIscChange}
               shakeKey={shakeKey}
+              onLimitReached={handleIscLimit}
             />
             {iscError && (
               <p className="mt-3 text-sm font-medium text-red-600">

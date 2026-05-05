@@ -7,8 +7,6 @@ import { useLocale } from "next-intl";
 import {
   Bell,
   Bookmark,
-  ChevronDown,
-  ChevronUp,
   Home,
   LayoutDashboard,
   Menu,
@@ -58,13 +56,15 @@ export function MobileBottomNav() {
               <Link
                 key={href}
                 href={href}
+                aria-label={isEn ? labelEn : label}
                 className={cn(
-                  "flex flex-col items-center gap-0.5 px-1 py-2 text-[10px] font-semibold transition-colors",
+                  "flex flex-col items-center gap-1 px-1 py-2 text-[11px] font-semibold transition active:scale-95",
                   active ? "text-primary" : "text-muted-foreground",
                 )}
               >
-                <Icon className="h-4 w-4" />
-                <span>{isEn ? labelEn : label}</span>
+                <Icon className="h-5 w-5" />
+                <span className={cn(active ? "text-[12px]" : "text-[11px]")}>{isEn ? labelEn : label}</span>
+                <span className={cn("h-1 w-1 rounded-full", active ? "bg-primary" : "bg-transparent")} />
               </Link>
             );
           })}
@@ -72,11 +72,12 @@ export function MobileBottomNav() {
           <button
             type="button"
             onClick={() => setOpen(true)}
-            className="flex flex-col items-center gap-0.5 px-1 py-2 text-[10px] font-semibold text-muted-foreground transition-colors hover:text-primary"
+            className="flex flex-col items-center gap-1 px-1 py-2 text-[11px] font-semibold text-muted-foreground transition hover:text-primary active:scale-95"
             aria-label={isEn ? "Open menu" : "মেনু খুলুন"}
           >
-            <Menu className="h-4 w-4" />
-            <span>{isEn ? "Menu" : "মেনু"}</span>
+            <Menu className="h-5 w-5" />
+            <span className="text-[11px]">{isEn ? "Menu" : "মেনু"}</span>
+            <span className="h-1 w-1 rounded-full bg-transparent" />
           </button>
         </div>
       </nav>
@@ -143,42 +144,53 @@ export function MobileBottomNav() {
               <div className="h-px bg-border" />
 
               <div className="space-y-3">
-                <button
-                  type="button"
-                  onClick={() => setCategoriesOpen((current) => !current)}
-                  className="flex w-full items-center justify-between rounded-2xl border border-border bg-background px-4 py-3 text-left text-sm font-semibold text-foreground transition-colors hover:border-primary hover:text-primary"
-                >
-                  <span className="flex items-center gap-3">
-                    <Search className="h-4 w-4 shrink-0" />
-                    <span>{isEn ? "Categories" : "ক্যাটাগরি"}</span>
-                  </span>
-                  {categoriesOpen ? (
-                    <ChevronUp className="h-4 w-4 text-muted-foreground" />
-                  ) : (
-                    <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                  )}
-                </button>
+                {!categoriesOpen ? (
+                  <button
+                    type="button"
+                    onClick={() => setCategoriesOpen(true)}
+                    className="flex w-full items-center justify-between rounded-2xl border border-border bg-background px-4 py-3 text-left text-sm font-semibold text-foreground transition-colors hover:border-primary hover:text-primary"
+                    aria-label={isEn ? "Show more categories" : "আরও ক্যাটাগরি দেখুন"}
+                  >
+                    <span className="flex items-center gap-3">
+                      <Search className="h-4 w-4 shrink-0" />
+                      <span>{isEn ? "More categories →" : "আরও ক্যাটাগরি →"}</span>
+                    </span>
+                  </button>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                        {isEn ? "Categories" : "ক্যাটাগরি"}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setCategoriesOpen(false)}
+                        className="text-xs font-semibold text-primary"
+                        aria-label={isEn ? "Hide categories" : "ক্যাটাগরি লুকান"}
+                      >
+                        {isEn ? "Show less" : "কম দেখুন"}
+                      </button>
+                    </div>
+                    <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
+                      {ISC_SECTORS.map((sector) => {
+                        const href = `/search?sector=${encodeURIComponent(getISCSectorSearchParam(sector.key))}` as Route;
 
-                {categoriesOpen && (
-                  <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
-                    {ISC_SECTORS.map((sector) => {
-                      const href = `/search?sector=${encodeURIComponent(getISCSectorSearchParam(sector.key))}` as Route;
-
-                      return (
-                        <Link
-                          key={sector.key}
-                          href={href}
-                          onClick={() => setOpen(false)}
-                          className="flex items-center gap-3 rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground transition-colors hover:border-primary hover:text-primary"
-                        >
-                          <Search className="h-4 w-4 shrink-0" />
-                          <span>
-                            <span className="block font-semibold">{sector.bn}</span>
-                            <span className="block text-xs text-muted-foreground">{sector.en}</span>
-                          </span>
-                        </Link>
-                      );
-                    })}
+                        return (
+                          <Link
+                            key={sector.key}
+                            href={href}
+                            onClick={() => setOpen(false)}
+                            className="flex items-center gap-3 rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground transition-colors hover:border-primary hover:text-primary"
+                          >
+                            <Search className="h-4 w-4 shrink-0" />
+                            <span>
+                              <span className="block font-semibold">{sector.bn}</span>
+                              <span className="block text-xs text-muted-foreground">{sector.en}</span>
+                            </span>
+                          </Link>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
               </div>

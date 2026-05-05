@@ -86,8 +86,10 @@ export function AdminReviewTable({
   const [busy, setBusy] = useState<number | null>(null);
   const [translating, setTranslating] = useState<number | null>(null);
   const [reExtracting, setReExtracting] = useState<number | null>(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
   const toggleExpand = (id: number) =>
     setExpanded((prev) => {
@@ -123,9 +125,78 @@ export function AdminReviewTable({
           ? `#${id} marked as ${label.en}.`
           : `#${id}: ${label.bn} হিসেবে চিহ্নিত।`,
       );
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
     } finally {
       setBusy(null);
     }
+  };
+
+  const toggleSelect = (id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    setSelectedIds((prev) => {
+      if (prev.size === items.length) {
+        return new Set();
+      }
+      return new Set(items.map((item) => item.id));
+    });
+  };
+
+  const doBulkAction = async (
+    action: "approve" | "reject" | "needs-manual-fix",
+    status: ReviewStatus,
+  ) => {
+    if (selectedIds.size === 0) {
+      return;
+    }
+
+    setBulkBusy(true);
+    setMessage("");
+    const ids = Array.from(selectedIds);
+    const results = await Promise.all(
+      ids.map(async (id) => {
+        try {
+          const res = await fetch(`/api/admin/review/${id}/${action}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status }),
+          });
+          return { id, ok: res.ok };
+        } catch {
+          return { id, ok: false };
+        }
+      }),
+    );
+
+    const successIds = results.filter((item) => item.ok).map((item) => item.id);
+    const failedIds = results.filter((item) => !item.ok).map((item) => item.id);
+    const label = STATUS_LABELS[status];
+
+    if (successIds.length > 0) {
+      setItems((prev) =>
+        prev.map((item) =>
+          successIds.includes(item.id) ? { ...item, review_status: status } : item,
+        ),
+      );
+    }
+
+    setSelectedIds(new Set());
+    setMessage(
+      isEn
+        ? `Updated ${successIds.length} item(s) as ${label.en}.${failedIds.length ? ` Failed: ${failedIds.length}.` : ""}`
+        : `${successIds.length}টি আইটেম ${label.bn} করা হয়েছে।${failedIds.length ? ` ব্যর্থ: ${failedIds.length}টি।` : ""}`,
+    );
+    setBulkBusy(false);
   };
 
   const doTranslate = async (id: number) => {
@@ -172,6 +243,48 @@ export function AdminReviewTable({
         </p>
       )}
 
+      {items.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3">
+          <div className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              checked={selectedIds.size === items.length}
+              onChange={toggleSelectAll}
+              disabled={bulkBusy}
+              className="h-4 w-4 accent-primary"
+              aria-label={isEn ? "Select all items" : "সব আইটেম নির্বাচন করুন"}
+            />
+            <span className="text-sm font-semibold text-foreground">
+              {isEn
+                ? `${selectedIds.size} selected`
+                : `${selectedIds.size}টি নির্বাচন করা হয়েছে`}
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => doBulkAction("approve", "approved")}
+              disabled={bulkBusy || selectedIds.size === 0}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-emerald-700 disabled:opacity-50"
+              aria-label={isEn ? "Approve and publish selected" : "নির্বাচিত অনুমোদন ও প্রকাশ করুন"}
+            >
+              <CheckCircle className="h-3.5 w-3.5" />
+              {isEn ? "Approve & publish" : "অনুমোদন ও প্রকাশ"}
+            </button>
+            <button
+              type="button"
+              onClick={() => doBulkAction("reject", "rejected")}
+              disabled={bulkBusy || selectedIds.size === 0}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700 hover:bg-rose-100 disabled:opacity-50 dark:border-rose-700 dark:bg-rose-900/20 dark:text-rose-400"
+              aria-label={isEn ? "Reject selected" : "নির্বাচিত প্রত্যাখ্যান"}
+            >
+              <XCircle className="h-3.5 w-3.5" />
+              {isEn ? "Reject selected" : "নির্বাচিত প্রত্যাখ্যান"}
+            </button>
+          </div>
+        </div>
+      )}
+
       {items.length === 0 ? (
         <Card className="p-8 text-center">
           <CheckCircle className="mx-auto mb-3 h-10 w-10 text-emerald-500/50" />
@@ -199,6 +312,14 @@ export function AdminReviewTable({
                 <div className="min-w-0 flex-1">
                   {/* Badges row */}
                   <div className="flex flex-wrap items-center gap-1.5 mb-1.5">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(item.id)}
+                      onChange={() => toggleSelect(item.id)}
+                      disabled={bulkBusy}
+                      className="h-4 w-4 accent-primary"
+                      aria-label={isEn ? `Select item ${item.id}` : `${item.id} নম্বর নির্বাচন করুন`}
+                    />
                     <span className="text-xs font-semibold text-muted-foreground">#{item.id}</span>
 
                     <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${statusInfo?.cls ?? ""}`}>
@@ -330,7 +451,7 @@ export function AdminReviewTable({
                   {item.review_status !== "approved" && (
                     <button
                       onClick={() => doAction(item.id, "approve", "approved")}
-                      disabled={busy === item.id || translating === item.id || reExtracting === item.id}
+                      disabled={bulkBusy || busy === item.id || translating === item.id || reExtracting === item.id}
                       className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-emerald-700 disabled:opacity-50 sm:w-auto"
                     >
                       <CheckCircle className="h-3.5 w-3.5" />
@@ -340,7 +461,7 @@ export function AdminReviewTable({
                   {(!item.title_bn || !item.summary_bn || !item.summary_en) && (
                     <button
                       onClick={() => doTranslate(item.id)}
-                      disabled={busy === item.id || translating === item.id || reExtracting === item.id}
+                      disabled={bulkBusy || busy === item.id || translating === item.id || reExtracting === item.id}
                       className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-sky-300 bg-sky-50 px-4 py-2.5 text-sm font-bold text-sky-700 hover:bg-sky-100 disabled:opacity-50 dark:border-sky-700 dark:bg-sky-900/20 dark:text-sky-400 sm:w-auto"
                     >
                       <Languages className="h-3.5 w-3.5" />
@@ -352,7 +473,7 @@ export function AdminReviewTable({
                   {item.connector_key === "manual_entry" && item.raw_text && (
                     <button
                       onClick={() => doReExtract(item.id)}
-                      disabled={busy === item.id || translating === item.id || reExtracting === item.id}
+                      disabled={bulkBusy || busy === item.id || translating === item.id || reExtracting === item.id}
                       className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-violet-300 bg-violet-50 px-4 py-2.5 text-sm font-bold text-violet-700 hover:bg-violet-100 disabled:opacity-50 dark:border-violet-700 dark:bg-violet-900/20 dark:text-violet-400 sm:w-auto"
                     >
                       <Sparkles className="h-3.5 w-3.5" />
@@ -364,7 +485,7 @@ export function AdminReviewTable({
                   {item.review_status !== "needs_manual_fix" && (
                     <button
                       onClick={() => doAction(item.id, "needs-manual-fix", "needs_manual_fix")}
-                      disabled={busy === item.id || translating === item.id || reExtracting === item.id}
+                      disabled={bulkBusy || busy === item.id || translating === item.id || reExtracting === item.id}
                       className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-bold text-amber-700 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-400 sm:w-auto"
                     >
                       <AlertTriangle className="h-3.5 w-3.5" />
@@ -374,7 +495,7 @@ export function AdminReviewTable({
                   {item.review_status !== "rejected" && (
                     <button
                       onClick={() => doAction(item.id, "reject", "rejected")}
-                      disabled={busy === item.id || translating === item.id || reExtracting === item.id}
+                      disabled={bulkBusy || busy === item.id || translating === item.id || reExtracting === item.id}
                       className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-rose-300 bg-rose-50 px-4 py-2.5 text-sm font-bold text-rose-700 hover:bg-rose-100 disabled:opacity-50 dark:border-rose-700 dark:bg-rose-900/20 dark:text-rose-400 sm:w-auto"
                     >
                       <XCircle className="h-3.5 w-3.5" />

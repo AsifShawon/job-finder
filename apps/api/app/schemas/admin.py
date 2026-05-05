@@ -168,6 +168,24 @@ class ManualJobEntryRequest(BaseModel):
     deadline: str | None = None
     opportunity_type: str = "overseas_job"
     run_ai_extraction: bool = True
+    title_bn: str | None = None
+    summary_bn: str | None = None
+    summary_en: str | None = None
+    sector: str | None = None
+    degree_level: str | None = None
+    salary_min: float | None = None
+    salary_max: float | None = None
+    salary_currency: str | None = None
+    application_url: str | None = None
+    eligibility_text: str | None = None
+    visa_support: bool | None = None
+    can_apply_from_bd: bool | None = None
+    requirements: list[str] | None = None
+    benefits: list[str] | None = None
+    language_requirements: list[str] | None = None
+    journey_steps: list[str] | None = None
+    documents_needed: list[str] | None = None
+    typical_salary_bdt: int | None = None
 
 
 # ── Published opportunity (minimal, for admin list) ───────────────────────────
@@ -234,6 +252,14 @@ class BulkImportResult(BaseModel):
     created: int
     skipped: int
     errors: list[BulkImportError]
+
+
+class ManualEntryBulkImportResult(BaseModel):
+    created: int
+    updated: int
+    skipped: int
+    errors: list[BulkImportError]
+    draft_ids: list[int] = []
 
 
 # ── Trigger all ───────────────────────────────────────────────────────────────

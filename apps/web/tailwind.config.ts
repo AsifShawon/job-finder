@@ -65,6 +65,13 @@ const config: Config = {
       },
     },
   },
+  safelist: [
+    "bg-emerald-500",
+    "bg-blue-500",
+    "bg-amber-500",
+    "bg-slate-300",
+    "dark:bg-slate-700",
+  ],
   plugins: [],
 };
 

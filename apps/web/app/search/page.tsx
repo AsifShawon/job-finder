@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Search, X } from "lucide-react";
+import { X } from "lucide-react";
 
 import { OpportunityCard } from "@/components/opportunity-card";
 import { SearchFilters } from "@/components/search-filters";
@@ -69,6 +69,22 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
 
   const filterEntries = Array.from(query.entries()).filter(([key]) => !["page", "page_size"].includes(key));
   const selectedSector = getISCSectorFromSearchParam(query.get("sector")) ?? getISCSectorFromSearchParam(query.get("isc_sector"));
+  const typeCounts = data.items.reduce(
+    (acc, item) => {
+      const type = item.opportunity_type ?? "";
+      if (type) {
+        acc[type] = (acc[type] ?? 0) + 1;
+      }
+      return acc;
+    },
+    {
+      all: data.total,
+      overseas_job: 0,
+      scholarship: 0,
+      migration_policy: 0,
+    } as Record<string, number>,
+  );
+  const hasFilters = filterEntries.length > 0;
 
   return (
     <main className="bg-background">
@@ -90,7 +106,9 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
 
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-lg font-semibold text-foreground">
-              {isEn ? `${data.total} opportunities found` : `${data.total}টি সুযোগ পাওয়া গেছে`}
+              {isEn
+                ? `🎯 We found ${data.total} opportunities for your search`
+                : `🎯 আপনার অনুসন্ধানে ${data.total}টি সুযোগ পাওয়া গেছে`}
             </p>
 
             <form action="/search" className="flex items-center gap-2">
@@ -121,7 +139,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
             </form>
           </div>
 
-          {filterEntries.length > 0 && (
+          {hasFilters && (
             <div className="flex flex-wrap gap-2">
               {filterEntries.map(([key, value]) => {
                 const nextParams = new URLSearchParams(query);
@@ -157,6 +175,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
         <div className="grid gap-6 lg:grid-cols-[300px_1fr]">
           <SearchFilters
             isEn={isEn}
+            typeCounts={typeCounts}
             initialValues={{
               q: query.get("q") ?? "",
               opportunity_type: query.get("opportunity_type") ?? "",
@@ -175,22 +194,21 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
           <section className="space-y-4" aria-label={isEn ? "Search results" : "অনুসন্ধান ফলাফল"}>
             {data.items.length === 0 ? (
               <Card className="text-center">
-                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-muted">
-                  <Search className="h-7 w-7 text-muted-foreground" />
+                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-muted text-4xl">
+                  🔍
                 </div>
                 <h2 className="mt-4 text-xl font-bold text-foreground">
-                  {isEn ? "No matching opportunities found" : "মিলে এমন কোনো সুযোগ পাওয়া যায়নি"}
+                  {isEn ? "No opportunities in this filter" : "এই ফিল্টারে কোনো সুযোগ নেই"}
                 </h2>
                 <p className="mt-2 text-muted-foreground">
-                  {isEn
-                    ? "Try broader keywords, remove a filter, or start from the most trusted listings."
-                    : "আরও সাধারণ শব্দ ব্যবহার করুন, একটি ফিল্টার সরান, অথবা বিশ্বস্ত তালিকা দিয়ে শুরু করুন।"}
+                  {isEn ? "Try another country or category." : "অন্য দেশ বা ক্যাটাগরি চেষ্টা করুন"}
                 </p>
                 <Link
                   href="/search"
                   className="mt-4 inline-flex items-center gap-2 rounded-full bg-primary px-5 py-3 text-sm font-bold text-white"
+                  aria-label={isEn ? "Clear all filters" : "সব ফিল্টার সরান"}
                 >
-                  <span>{isEn ? "See all opportunities" : "সব সুযোগ দেখুন"}</span>
+                  <span>{isEn ? "Clear all filters" : "সব ফিল্টার সরান"}</span>
                 </Link>
               </Card>
             ) : (

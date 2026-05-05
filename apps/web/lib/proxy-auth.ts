@@ -18,7 +18,7 @@ interface ProxyOptions {
   request?: NextRequest;
 }
 
-function toResponse(payloadText: string, status: number): NextResponse {
+function toResponse(payloadText: string, status: number, backendHeaders?: Headers): NextResponse {
   if (!payloadText) {
     return NextResponse.json({}, { status });
   }
@@ -26,7 +26,16 @@ function toResponse(payloadText: string, status: number): NextResponse {
     const parsed = JSON.parse(payloadText);
     return NextResponse.json(parsed, { status });
   } catch {
-    return new NextResponse(payloadText, { status });
+    const headers = new Headers();
+    const contentType = backendHeaders?.get("Content-Type");
+    const contentDisposition = backendHeaders?.get("Content-Disposition");
+    if (contentType) {
+      headers.set("Content-Type", contentType);
+    }
+    if (contentDisposition) {
+      headers.set("Content-Disposition", contentDisposition);
+    }
+    return new NextResponse(payloadText, { status, headers });
   }
 }
 
@@ -35,14 +44,15 @@ async function callBackend(path: string, method: ProxyMethod, token: string | un
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
   }
-  if (body !== undefined) {
+  const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
+  if (body !== undefined && !isFormData) {
     headers.set("Content-Type", "application/json");
   }
 
   return fetch(`${API_BASE}${path}`, {
     method,
     headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    body: body === undefined ? undefined : isFormData ? body : JSON.stringify(body),
     cache: "no-store",
   });
 }
@@ -56,7 +66,7 @@ export async function proxyWithSession(options: ProxyOptions): Promise<NextRespo
 
   if (backend.status !== 401 || !refreshToken) {
     const text = await backend.text();
-    return toResponse(text, backend.status);
+    return toResponse(text, backend.status, backend.headers);
   }
 
   const refreshResponse = await fetch(`${API_BASE}/api/v1/auth/refresh`, {
@@ -78,7 +88,7 @@ export async function proxyWithSession(options: ProxyOptions): Promise<NextRespo
 
   backend = await callBackend(options.path, options.method, newAccessToken, options.body);
   const text = await backend.text();
-  const response = toResponse(text, backend.status);
+  const response = toResponse(text, backend.status, backend.headers);
   setSessionCookies(response, newAccessToken, newRefreshToken);
   return response;
 }

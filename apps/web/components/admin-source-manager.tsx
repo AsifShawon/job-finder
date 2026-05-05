@@ -15,13 +15,6 @@ import { formatDateTime, humanizeSlug } from "@/lib/utils";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const FEED_TYPES = [
-  { value: "html", label: "HTML (ওয়েবপেজ)" },
-  { value: "rss", label: "RSS ফিড" },
-  { value: "api", label: "API" },
-  { value: "pdf", label: "PDF নোটিশ" },
-];
-
 const CONNECTOR_OPTIONS = [
   { value: "", label: "Default connector" },
   { value: "search_html_jobs", label: "Search HTML Jobs" },
@@ -118,6 +111,10 @@ const defaultForm: SourceFormState = {
   enabled: true,
 };
 
+function isSearchConnectorKey(value: string): boolean {
+  return value === "search_html_jobs";
+}
+
 function formFromSource(s: AdminSource): SourceFormState {
   return {
     name: s.name,
@@ -181,6 +178,7 @@ export function AdminSourceManager({ initialSources }: { initialSources: AdminSo
   const [quickUrl, setQuickUrl] = useState("");
   const [quickName, setQuickName] = useState("");
   const [quickProbeResult, setQuickProbeResult] = useState<SourceProbeResult | null>(null);
+  const isSearchConnector = isSearchConnectorKey(form.connector_key);
 
   const refreshSources = async () => {
     const res = await fetch("/api/admin/sources", { cache: "no-store" });
@@ -227,9 +225,9 @@ export function AdminSourceManager({ initialSources }: { initialSources: AdminSo
         child_page_limit: form.child_page_limit,
         page_ai_limit: form.page_ai_limit,
         max_jobs_per_page: form.max_jobs_per_page,
-        auto_publish: form.auto_publish,
+        auto_publish: false,
         enabled: form.enabled,
-        requires_admin_review: !form.auto_publish,
+        requires_admin_review: true,
         is_active: form.enabled,
       };
       const res = await fetch(editingId ? `/api/admin/sources/${editingId}` : "/api/admin/sources", {
@@ -524,6 +522,11 @@ export function AdminSourceManager({ initialSources }: { initialSources: AdminSo
             <h2 className="font-display text-2xl font-bold">
               {editingId ? (isEn ? `Update source #${editingId}` : `উৎস #${editingId} আপডেট`) : (isEn ? "Register a new source" : "নতুন উৎস নিবন্ধন")}
             </h2>
+            <p className="max-w-2xl text-sm text-slate-600 dark:text-slate-300">
+              {isEn
+                ? "Keep setup simple: choose the site, pick the connector, and every new item will still go to the admin review queue before publishing."
+                : "সেটআপ সহজ রাখুন: সাইট, connector আর trust level বেছে দিন। নতুন সব আইটেম প্রকাশের আগে admin review queue-তে যাবে।"}
+            </p>
           </div>
           {statusMessage && (
             <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200">
@@ -586,19 +589,12 @@ export function AdminSourceManager({ initialSources }: { initialSources: AdminSo
                 }
               </div>
             )}
+            <p className="text-xs text-slate-500">
+              {isEn
+                ? `Detected type: ${(probeResult?.feed_type ?? form.feed_type).toUpperCase()}.`
+                : `সনাক্ত উৎস ধরন: ${(probeResult?.feed_type ?? form.feed_type).toUpperCase()}.`}
+            </p>
           </div>
-
-          {/* Feed type */}
-          <label className="space-y-1">
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{isEn ? "Feed Type" : "ফিড ধরন"}</span>
-            <select
-              value={form.feed_type}
-              onChange={(e) => setField("feed_type", e.target.value)}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-            >
-              {FEED_TYPES.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
-            </select>
-          </label>
 
           <label className="space-y-1">
             <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{isEn ? "Connector" : "Connector"}</span>
@@ -609,6 +605,11 @@ export function AdminSourceManager({ initialSources }: { initialSources: AdminSo
             >
               {CONNECTOR_OPTIONS.map(({ value, label }) => <option key={value || "default"} value={value}>{label}</option>)}
             </select>
+            <p className="text-xs text-slate-500">
+              {isEn
+                ? "Pick a site-specific connector when possible. Use Search HTML Jobs only for broad search-driven discovery."
+                : "সম্ভব হলে site-specific connector বেছে নিন। বড় পরিসরের search-driven discovery-এর জন্য শুধু Search HTML Jobs ব্যবহার করুন।"}
+            </p>
           </label>
 
           {/* Trust level */}
@@ -616,11 +617,7 @@ export function AdminSourceManager({ initialSources }: { initialSources: AdminSo
             <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{isEn ? "Trust Level" : "বিশ্বাসযোগ্যতা"}</span>
             <select
               value={form.trust_level}
-              onChange={(e) => {
-                const v = e.target.value;
-                setField("trust_level", v);
-                if (v === "government_official") setField("auto_publish", true);
-              }}
+              onChange={(e) => setField("trust_level", e.target.value)}
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
             >
               <option value="">— {isEn ? "select" : "বেছে নিন"} —</option>
@@ -630,67 +627,82 @@ export function AdminSourceManager({ initialSources }: { initialSources: AdminSo
             </select>
           </label>
 
-          <label className="space-y-1 lg:col-span-2">
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{isEn ? "Search Queries" : "Search Queries"}</span>
-            <Input
-              placeholder="welder jobs, recruitment notice, apply now"
-              value={form.search_queries}
-              onChange={(e) => setField("search_queries", e.target.value)}
-            />
-          </label>
+          {isSearchConnector && (
+            <div className="space-y-4 lg:col-span-2">
+              <div className="rounded-lg border border-amber-200 bg-amber-50/80 p-4 dark:border-amber-900/40 dark:bg-amber-950/20">
+                <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+                  {isEn ? "Search-driven mode" : "Search-driven mode"}
+                </p>
+                <p className="mt-1 text-xs text-amber-800 dark:text-amber-300">
+                  {isEn
+                    ? "Use this mode only when you want search results to discover opportunities across multiple sites."
+                    : "একাধিক সাইটে search result ব্যবহার করে সুযোগ খুঁজতে চাইলে শুধু এই mode ব্যবহার করুন।"}
+                </p>
+              </div>
 
-          <label className="space-y-1">
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{isEn ? "Search Results Limit" : "Search Results Limit"}</span>
-            <Input
-              type="number"
-              min={1}
-              value={form.search_results_limit}
-              onChange={(e) => setField("search_results_limit", Number(e.target.value) || 1)}
-            />
-          </label>
+              <label className="space-y-1">
+                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{isEn ? "Search Queries" : "Search Queries"}</span>
+                <Input
+                  placeholder="welder jobs, recruitment notice, apply now"
+                  value={form.search_queries}
+                  onChange={(e) => setField("search_queries", e.target.value)}
+                />
+                <p className="text-xs text-slate-500">
+                  {isEn ? "Separate multiple queries with commas." : "একাধিক query comma দিয়ে আলাদা করুন।"}
+                </p>
+              </label>
 
-          <label className="space-y-1">
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{isEn ? "Child Page Limit" : "Child Page Limit"}</span>
-            <Input
-              type="number"
-              min={0}
-              value={form.child_page_limit}
-              onChange={(e) => setField("child_page_limit", Number(e.target.value) || 0)}
-            />
-          </label>
+              <details className="rounded-lg border border-slate-200 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-950/40">
+                <summary className="cursor-pointer text-sm font-semibold text-slate-700 dark:text-slate-200">
+                  {isEn ? "Advanced crawl settings" : "Advanced crawl settings"}
+                </summary>
+                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  <label className="space-y-1">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{isEn ? "Search Results Limit" : "Search Results Limit"}</span>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={form.search_results_limit}
+                      onChange={(e) => setField("search_results_limit", Number(e.target.value) || 1)}
+                    />
+                  </label>
 
-          <label className="space-y-1">
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{isEn ? "AI Page Limit" : "AI Page Limit"}</span>
-            <Input
-              type="number"
-              min={1}
-              value={form.page_ai_limit}
-              onChange={(e) => setField("page_ai_limit", Number(e.target.value) || 1)}
-            />
-          </label>
+                  <label className="space-y-1">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{isEn ? "Child Page Limit" : "Child Page Limit"}</span>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={form.child_page_limit}
+                      onChange={(e) => setField("child_page_limit", Number(e.target.value) || 0)}
+                    />
+                  </label>
 
-          <label className="space-y-1">
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{isEn ? "Max Jobs Per Page" : "Max Jobs Per Page"}</span>
-            <Input
-              type="number"
-              min={1}
-              value={form.max_jobs_per_page}
-              onChange={(e) => setField("max_jobs_per_page", Number(e.target.value) || 1)}
-            />
-          </label>
+                  <label className="space-y-1">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{isEn ? "AI Page Limit" : "AI Page Limit"}</span>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={form.page_ai_limit}
+                      onChange={(e) => setField("page_ai_limit", Number(e.target.value) || 1)}
+                    />
+                  </label>
+
+                  <label className="space-y-1">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{isEn ? "Max Jobs Per Page" : "Max Jobs Per Page"}</span>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={form.max_jobs_per_page}
+                      onChange={(e) => setField("max_jobs_per_page", Number(e.target.value) || 1)}
+                    />
+                  </label>
+                </div>
+              </details>
+            </div>
+          )}
 
           {/* Toggles */}
           <div className="flex flex-wrap gap-5 lg:col-span-2">
-            <label className="flex cursor-pointer items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={form.auto_publish}
-                onChange={(e) => setField("auto_publish", e.target.checked)}
-                className="h-4 w-4 rounded accent-primary"
-              />
-              <span className="font-medium">{isEn ? "Auto-publish" : "স্বয়ংক্রিয় প্রকাশ"}</span>
-              <span className="text-xs text-muted-foreground">{isEn ? "Trusted sources publish immediately" : "বিশ্বস্ত উৎস রিভিউ ছাড়া প্রকাশ পাবে"}</span>
-            </label>
             <label className="flex cursor-pointer items-center gap-2 text-sm">
               <input
                 type="checkbox"
@@ -700,6 +712,11 @@ export function AdminSourceManager({ initialSources }: { initialSources: AdminSo
               />
               <span className="font-medium">{isEn ? "Enabled" : "সক্রিয়"}</span>
             </label>
+            <p className="text-xs text-slate-500">
+              {isEn
+                ? "Auto-publish is disabled. All new opportunities from this source will go to review first."
+                : "Auto-publish বন্ধ। এই উৎসের নতুন সব opportunity আগে review-তে যাবে।"}
+            </p>
           </div>
 
           {/* Actions */}
@@ -814,17 +831,12 @@ export function AdminSourceManager({ initialSources }: { initialSources: AdminSo
                       <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase ${(source.enabled ?? source.is_active) ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" : "bg-slate-200 text-slate-600 dark:bg-slate-800"}`}>
                         {(source.enabled ?? source.is_active) ? (isEn ? "Enabled" : "সক্রিয়") : (isEn ? "Disabled" : "স্থগিত")}
                       </span>
-                      {source.auto_publish && (
-                        <span className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-700 dark:bg-green-900/20 dark:text-green-400">
-                          {isEn ? "Auto-publish" : "অটো-পাব্লিশ"}
-                        </span>
-                      )}
                       {source.last_crawl_status && (
                         <span className="rounded-full border border-slate-200 px-2 py-0.5 text-[11px] font-semibold text-slate-500 dark:border-slate-700">
                           {humanizeSlug(source.last_crawl_status, locale)}
                         </span>
                       )}
-                      {source.requires_admin_review && !source.auto_publish && (
+                      {source.requires_admin_review && (
                         <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-semibold text-violet-700 dark:bg-violet-900/20 dark:text-violet-400">
                           {isEn ? "Needs review" : "পর্যালোচনা দরকার"}
                         </span>

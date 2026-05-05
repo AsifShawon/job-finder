@@ -79,6 +79,44 @@ function DetailAccordion({
   );
 }
 
+function formatEligibilityValue(
+  value: boolean | null | undefined,
+  locale: "bn" | "en",
+  yesLabel: { bn: string; en: string },
+  noLabel: { bn: string; en: string },
+) {
+  if (value === true) {
+    return locale === "en" ? `✅ ${yesLabel.en}` : `✅ ${yesLabel.bn}`;
+  }
+
+  if (value === false) {
+    return locale === "en" ? `❌ ${noLabel.en}` : `❌ ${noLabel.bn}`;
+  }
+
+  return locale === "en" ? "❓ Unknown" : "❓ জানা নেই";
+}
+
+function deadlinePill(deadline: string | null, locale: "bn" | "en") {
+  if (!deadline) {
+    return null;
+  }
+
+  const days = Math.ceil(
+    (new Date(`${deadline}T00:00:00Z`).getTime() - Date.now()) / 86400000,
+  );
+  if (days >= 0 && days <= 7) {
+    return {
+      text: locale === "en" ? `⚡ ${days} days left` : `⚡ মাত্র ${days} দিন বাকি`,
+      className: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-200",
+    };
+  }
+
+  return {
+    text: formatDate(deadline, locale),
+    className: "bg-muted text-foreground",
+  };
+}
+
 export default async function OpportunityDetailPage({
   params,
 }: OpportunityDetailProps) {
@@ -98,14 +136,38 @@ export default async function OpportunityDetailPage({
     opportunity.language_requirement,
     opportunity.education_requirement,
   ].filter(Boolean) as string[];
+  const documentsNeeded = opportunity.documents_needed ?? [];
   const processDetails = [
     opportunity.application_process,
     opportunity.visa_or_work_permit_info,
     opportunity.experience_requirement,
   ].filter(Boolean) as string[];
+  const salaryBdt = opportunity.typical_salary_bdt
+    ? new Intl.NumberFormat(locale === "bn" ? "bn-BD" : "en-US").format(opportunity.typical_salary_bdt)
+    : null;
+  const deadlineBadge = deadlinePill(opportunity.deadline, locale);
 
   return (
     <main className="bg-background">
+      <div className="sticky top-0 z-40 border-b border-border bg-card/95 px-4 py-3 backdrop-blur md:hidden">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
+          {deadlineBadge && (
+            <span className={"inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold " + deadlineBadge.className}>
+              {deadlineBadge.text}
+            </span>
+          )}
+          <a
+            href={applyHref}
+            target="_blank"
+            rel="noreferrer"
+            className="touch-target inline-flex items-center justify-center rounded-xl bg-primary px-4 py-3 text-sm font-bold text-white"
+            aria-label={isEn ? "Apply now" : "আবেদন করুন"}
+          >
+            {isEn ? "Apply" : "আবেদন করুন"} ↗
+          </a>
+        </div>
+      </div>
+
       <div className="mx-auto max-w-7xl space-y-8 px-4 py-6">
         <nav className="flex items-center gap-2 text-sm text-muted-foreground">
           <Link href="/" className="transition-colors hover:text-primary">
@@ -209,6 +271,55 @@ export default async function OpportunityDetailPage({
               </Card>
             )}
 
+            <div className="rounded-2xl bg-blue-50 p-4 text-sm text-foreground dark:bg-blue-900/20">
+              <h2 className="text-lg font-bold text-foreground">
+                {isEn ? "Can you apply for this?" : "এই চাকরিতে আবেদন করতে পারবেন কি?"}
+              </h2>
+              <div className="mt-4 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <span>{isEn ? "Apply from Bangladesh" : "বাংলাদেশ থেকে আবেদন"}</span>
+                  <span className="font-semibold">
+                    {formatEligibilityValue(
+                      opportunity.can_apply_from_bd,
+                      locale,
+                      { bn: "হ্যাঁ", en: "Yes" },
+                      { bn: "না", en: "No" },
+                    )}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span>{isEn ? "Work permit required" : "ওয়ার্ক পারমিট লাগবে"}</span>
+                  <span className="font-semibold">
+                    {formatEligibilityValue(
+                      opportunity.requires_existing_work_permit,
+                      locale,
+                      { bn: "হ্যাঁ", en: "Yes" },
+                      { bn: "না", en: "No" },
+                    )}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span>{isEn ? "International applicants" : "আন্তর্জাতিক প্রার্থী"}</span>
+                  <span className="font-semibold">
+                    {formatEligibilityValue(
+                      opportunity.open_to_international_candidates,
+                      locale,
+                      { bn: "স্বাগতম", en: "Welcome" },
+                      { bn: "না", en: "Not accepted" },
+                    )}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {salaryBdt && (
+              <div className="rounded-xl bg-green-50 p-3 text-center text-lg font-bold text-foreground dark:bg-green-900/20">
+                {isEn
+                  ? `💰 Estimated monthly income: ৳${salaryBdt}`
+                  : `💰 আনুমানিক মাসিক আয়: ৳${salaryBdt} টাকা`}
+              </div>
+            )}
+
             <section className="space-y-3" aria-label={isEn ? "Opportunity details" : "সুযোগের বিস্তারিত"}>
               <DetailAccordion
                 title={isEn ? "Requirements" : "যা যা লাগবে"}
@@ -218,13 +329,44 @@ export default async function OpportunityDetailPage({
               {opportunity.journey_steps.length > 0 && (
                 <Card>
                   <h2 className="section-underline text-xl font-bold text-foreground">
-                    {isEn ? "How to Apply" : "কীভাবে আবেদন করবেন"}
+                    {isEn ? "📋 Application steps" : "📋 আবেদনের ধাপগুলো"}
                   </h2>
-                  <ol className="mt-4 space-y-2 text-muted-foreground">
+                  <div className="mt-4 space-y-4">
                     {opportunity.journey_steps.map((step, index) => (
-                      <li key={`${step}-${index}`}>{index + 1}. {step}</li>
+                      <div key={`${step}-${index}`} className="relative flex gap-3">
+                        <div className="flex flex-col items-center">
+                          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-xs font-bold text-white">
+                            {index + 1}
+                          </span>
+                          {index < opportunity.journey_steps.length - 1 && (
+                            <span className="mt-1 h-full w-0.5 bg-primary/30" />
+                          )}
+                        </div>
+                        <p className="pt-1 text-muted-foreground">{step}</p>
+                      </div>
                     ))}
-                  </ol>
+                  </div>
+                </Card>
+              )}
+
+              {documentsNeeded.length > 0 && (
+                <Card>
+                  <h2 className="section-underline text-xl font-bold text-foreground">
+                    {isEn ? "📄 Documents needed" : "📄 যা যা লাগবে"}
+                  </h2>
+                  <ul className="mt-4 space-y-2 text-muted-foreground">
+                    {documentsNeeded.map((doc, index) => (
+                      <li key={`${doc}-${index}`} className="flex items-start gap-2">
+                        <span className="text-base">□</span>
+                        <span>{doc}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-3 text-sm text-muted-foreground">
+                    {isEn
+                      ? "Keep your documents ready before applying."
+                      : "নথি প্রস্তুত রাখুন আবেদনের আগে"}
+                  </p>
                 </Card>
               )}
               <DetailAccordion
@@ -306,7 +448,8 @@ export default async function OpportunityDetailPage({
                 href={applyHref}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-bold text-white transition-opacity hover:opacity-90"
+                className="touch-target inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-bold text-white transition-opacity hover:opacity-90"
+                aria-label={isEn ? "Apply now" : "আবেদন করুন"}
               >
                 <ExternalLink className="h-4 w-4" />
                 <span>{isEn ? "Apply Now" : "এখনই আবেদন করুন"}</span>
@@ -356,17 +499,6 @@ export default async function OpportunityDetailPage({
             )}
           </aside>
         </div>
-      </div>
-
-      <div className="fixed bottom-16 left-0 right-0 z-40 border-t border-border bg-card p-3 md:hidden">
-        <a
-          href={applyHref}
-          target="_blank"
-          rel="noreferrer"
-          className="block w-full rounded-xl bg-primary py-3 text-center text-sm font-bold text-white"
-        >
-          {isEn ? "Apply Now" : "এখনই আবেদন করুন"} ↗
-        </a>
       </div>
     </main>
   );

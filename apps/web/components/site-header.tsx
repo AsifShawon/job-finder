@@ -7,6 +7,7 @@ import { HeaderNavLinks } from "@/components/header-nav-links";
 import { HeaderUserMenu } from "@/components/header-user-menu";
 import { LanguageToggle } from "@/components/language-toggle";
 import { LogoutButton } from "@/components/logout-button";
+import { SearchAutocomplete } from "@/components/search-autocomplete";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { getCurrentUser } from "@/lib/server-auth-fetch";
 import { getLocale } from "@/lib/i18n";
@@ -94,21 +95,7 @@ export async function SiteHeader() {
             />
           </Link>
 
-          <form action="/search" className="flex flex-1">
-            <label className="flex w-full items-center gap-2 rounded-full border border-border bg-background px-4 py-3 text-sm transition-colors focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/30">
-              <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
-              <input
-                name="q"
-                placeholder={
-                  isEn
-                    ? "Search jobs, scholarships, countries, or visa updates"
-                    : "চাকরি, স্কলারশিপ, দেশ বা ভিসা আপডেট খুঁজুন"
-                }
-                className="flex-1 bg-transparent text-base text-foreground outline-none placeholder:text-muted-foreground/80"
-                autoComplete="off"
-              />
-            </label>
-          </form>
+          <SearchAutocomplete isEn={isEn} />
 
           <div className="ml-auto">
             {user ? (

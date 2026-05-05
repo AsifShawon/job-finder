@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from urllib.parse import urlparse
 
 import logging
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import case, delete, func, select, text
 from sqlalchemy.exc import IntegrityError
@@ -45,6 +45,7 @@ from app.schemas.admin import (
     FailedExtractionOut,
     FailedExtractionPage,
     ManualJobEntryRequest,
+    ManualEntryBulkImportResult,
     ReviewQueueOut,
     ReviewQueuePage,
     ReviewStatusUpdate,
@@ -169,11 +170,77 @@ def _apply_manual_extraction(
     draft.opportunity_type = requested_opportunity_type or draft.opportunity_type
 
 
+def _clean_manual_text(value: str | None) -> str | None:
+    cleaned = (value or "").strip()
+    return cleaned or None
+
+
+def _clean_manual_list(values: list[str] | None) -> list[str] | None:
+    if values is None:
+        return None
+    cleaned = [item.strip() for item in values if item and item.strip()]
+    return cleaned
+
+
+def _apply_manual_optional_fields(draft: Opportunity, payload: ManualJobEntryRequest) -> None:
+    title_bn = _clean_manual_text(payload.title_bn)
+    summary_bn = _clean_manual_text(payload.summary_bn)
+    summary_en = _clean_manual_text(payload.summary_en)
+    sector = _clean_manual_text(payload.sector)
+    degree_level = _clean_manual_text(payload.degree_level)
+    salary_currency = _clean_manual_text(payload.salary_currency)
+    application_url = _clean_manual_text(payload.application_url)
+    eligibility_text = _clean_manual_text(payload.eligibility_text)
+    requirements = _clean_manual_list(payload.requirements)
+    benefits = _clean_manual_list(payload.benefits)
+    language_requirements = _clean_manual_list(payload.language_requirements)
+    journey_steps = _clean_manual_list(payload.journey_steps)
+    documents_needed = _clean_manual_list(payload.documents_needed)
+
+    if title_bn is not None:
+        draft.title_bn = title_bn
+    if summary_bn is not None:
+        draft.summary_bn = summary_bn
+    if summary_en is not None:
+        draft.summary_en = summary_en
+    if sector is not None:
+        draft.sector = sector
+    if degree_level is not None:
+        draft.degree_level = degree_level
+    if payload.salary_min is not None:
+        draft.salary_min = payload.salary_min
+    if payload.salary_max is not None:
+        draft.salary_max = payload.salary_max
+    if salary_currency is not None:
+        draft.salary_currency = salary_currency.upper()
+    if application_url is not None:
+        draft.application_url = application_url
+    if eligibility_text is not None:
+        draft.eligibility_text = eligibility_text
+    if payload.visa_support is not None:
+        draft.visa_support = payload.visa_support
+    if requirements is not None:
+        draft.requirements_json = {"items": requirements}
+    if benefits is not None:
+        draft.benefits_json = {"items": benefits}
+    if language_requirements is not None:
+        draft.language_requirements_json = {"items": language_requirements}
+    if journey_steps is not None:
+        draft.journey_steps = journey_steps
+    if documents_needed is not None:
+        draft.documents_needed = documents_needed
+    if payload.typical_salary_bdt is not None:
+        draft.typical_salary_bdt = payload.typical_salary_bdt
+    if payload.can_apply_from_bd is not None:
+        draft.can_apply_from_bd = payload.can_apply_from_bd
+
+
 def _apply_manual_eligibility(
     draft: Opportunity,
     *,
     requested_opportunity_type: str,
     extracted_json: dict | None,
+    manual_can_apply_from_bd: bool | None = None,
 ) -> None:
     eligibility = tag_eligibility(
         source_connector_key="manual_entry",
@@ -196,6 +263,14 @@ def _apply_manual_eligibility(
     draft.target_audience_tags = eligibility.target_audience_tags
     draft.risk_flags = eligibility.risk_flags
     draft.source_trust_badge = eligibility.source_trust_badge
+    if manual_can_apply_from_bd is not None:
+        draft.can_apply_from_bd = manual_can_apply_from_bd
+        if manual_can_apply_from_bd:
+            draft.eligibility_status = "eligible"
+        elif draft.open_to_authorized_workers_only:
+            draft.eligibility_status = "authorized_workers_only"
+        else:
+            draft.eligibility_status = "not_relevant"
     if not draft.opportunity_type:
         draft.opportunity_type = eligibility.opportunity_type or requested_opportunity_type
 
@@ -208,6 +283,237 @@ def _run_manual_extraction(db: Session, draft: Opportunity, requested_opportunit
         requested_opportunity_type=requested_opportunity_type,
         extracted_json=extraction.model_dump(mode="json"),
     )
+
+
+def _manual_bulk_bool(value: str | None) -> bool | None:
+    cleaned = (value or "").strip().lower()
+    if cleaned in {"", "null", "none"}:
+        return None
+    if cleaned in {"true", "1", "yes", "y"}:
+        return True
+    if cleaned in {"false", "0", "no", "n"}:
+        return False
+    raise ValueError(f"Invalid boolean value: {value}")
+
+
+def _manual_bulk_number(value: str | None) -> float | None:
+    cleaned = _clean_manual_text(value)
+    if cleaned is None:
+        return None
+    return float(cleaned)
+
+
+def _manual_bulk_int(value: str | None) -> int | None:
+    cleaned = _clean_manual_text(value)
+    if cleaned is None:
+        return None
+    return int(float(cleaned))
+
+
+def _manual_bulk_list(value: str | None) -> list[str] | None:
+    cleaned = _clean_manual_text(value)
+    if cleaned is None:
+        return None
+    if "\n" in cleaned:
+        items = [item.strip() for item in cleaned.splitlines() if item.strip()]
+    else:
+        items = [item.strip() for item in cleaned.split(",") if item.strip()]
+    return items or None
+
+
+def _load_bulk_upload_rows(file: UploadFile, content: bytes) -> list[dict[str, str]]:
+    filename = (file.filename or "").lower()
+    if filename.endswith(".xlsx"):
+        try:
+            import openpyxl
+        except ImportError as exc:
+            raise HTTPException(status_code=500, detail="openpyxl not installed") from exc
+        wb = openpyxl.load_workbook(io.BytesIO(content))
+        ws = wb.active
+        rows_iter = ws.iter_rows(values_only=True)
+        headers = [str(h).strip() if h is not None else "" for h in next(rows_iter, [])]
+        return [
+            {header: ("" if value is None else str(value).strip()) for header, value in zip(headers, row)}
+            for row in rows_iter
+        ]
+    return [
+        {str(key).strip(): ("" if value is None else str(value).strip()) for key, value in row.items()}
+        for row in csv.DictReader(io.StringIO(content.decode("utf-8-sig")))
+    ]
+
+
+def _manual_entry_template_headers() -> list[str]:
+    return [
+        "title",
+        "source_url",
+        "raw_description",
+        "source_name",
+        "country",
+        "employer",
+        "deadline",
+        "opportunity_type",
+        "title_bn",
+        "summary_bn",
+        "summary_en",
+        "sector",
+        "degree_level",
+        "salary_min",
+        "salary_max",
+        "salary_currency",
+        "application_url",
+        "eligibility_text",
+        "visa_support",
+        "can_apply_from_bd",
+        "requirements",
+        "benefits",
+        "language_requirements",
+        "journey_steps",
+        "documents_needed",
+        "typical_salary_bdt",
+    ]
+
+
+def _normalize_manual_bulk_row(row: dict[str, str], *, run_ai_extraction: bool) -> ManualJobEntryRequest:
+    title = _clean_manual_text(row.get("title"))
+    source_url = _clean_manual_text(row.get("source_url"))
+    raw_description = _clean_manual_text(row.get("raw_description"))
+    if not title or not source_url or not raw_description:
+        raise ValueError("Missing required columns: title, source_url, raw_description")
+
+    return ManualJobEntryRequest(
+        title=title,
+        source_url=source_url,
+        raw_description=raw_description,
+        source_name=_clean_manual_text(row.get("source_name")),
+        country=_clean_manual_text(row.get("country")),
+        employer=_clean_manual_text(row.get("employer")),
+        deadline=_clean_manual_text(row.get("deadline")),
+        opportunity_type=_clean_manual_text(row.get("opportunity_type")) or "overseas_job",
+        run_ai_extraction=run_ai_extraction,
+        title_bn=_clean_manual_text(row.get("title_bn")),
+        summary_bn=_clean_manual_text(row.get("summary_bn")),
+        summary_en=_clean_manual_text(row.get("summary_en")),
+        sector=_clean_manual_text(row.get("sector")),
+        degree_level=_clean_manual_text(row.get("degree_level")),
+        salary_min=_manual_bulk_number(row.get("salary_min")),
+        salary_max=_manual_bulk_number(row.get("salary_max")),
+        salary_currency=_clean_manual_text(row.get("salary_currency")),
+        application_url=_clean_manual_text(row.get("application_url")),
+        eligibility_text=_clean_manual_text(row.get("eligibility_text")),
+        visa_support=_manual_bulk_bool(row.get("visa_support")),
+        can_apply_from_bd=_manual_bulk_bool(row.get("can_apply_from_bd")),
+        requirements=_manual_bulk_list(row.get("requirements")),
+        benefits=_manual_bulk_list(row.get("benefits")),
+        language_requirements=_manual_bulk_list(row.get("language_requirements")),
+        journey_steps=_manual_bulk_list(row.get("journey_steps")),
+        documents_needed=_manual_bulk_list(row.get("documents_needed")),
+        typical_salary_bdt=_manual_bulk_int(row.get("typical_salary_bdt")),
+    )
+
+
+def _save_manual_entry(
+    db: Session,
+    payload: ManualJobEntryRequest,
+) -> tuple[Opportunity, bool]:
+    manual_source = _get_or_create_manual_source(db)
+    item_key = _manual_source_item_key(payload.source_url)
+    source_name = _resolve_manual_source_name(payload.source_url, payload.source_name)
+
+    draft = db.scalar(
+        select(Opportunity).where(
+            Opportunity.source_id == manual_source.id,
+            Opportunity.source_item_key == item_key,
+        )
+    )
+    if draft and draft.status == "published":
+        raise HTTPException(status_code=409, detail="A published item already exists for this source URL")
+
+    created = draft is None
+    if draft is None:
+        draft = Opportunity(
+            source_id=manual_source.id,
+            source_item_key=item_key,
+            connector_key="manual_entry",
+            source_name=source_name,
+            source_page_url=payload.source_url,
+            source_url=payload.source_url,
+            original_apply_url=payload.source_url,
+            content_type="manual",
+            record_type="job",
+            title=payload.title,
+            summary=payload.raw_description[:400] or None,
+            summary_en=payload.raw_description[:400] or None,
+            country=payload.country,
+            employer_or_organization=payload.employer,
+            employer=payload.employer,
+            deadline=parse_deadline(payload.deadline),
+            opportunity_type=payload.opportunity_type,
+            raw_text=payload.raw_description,
+            application_url=payload.source_url,
+            needs_admin_review=True,
+            review_status="pending",
+            status="pending",
+            is_active=False,
+            extraction_confidence=0.0,
+            requirements_json={"items": []},
+            language_requirements_json={"items": []},
+            benefits_json={"items": []},
+            journey_steps=[],
+            documents_needed=[],
+            target_audience_tags=[],
+            risk_flags=[],
+        )
+        db.add(draft)
+        db.flush()
+    else:
+        draft.source_name = source_name
+        draft.source_page_url = payload.source_url
+        draft.source_url = payload.source_url
+        draft.original_apply_url = payload.source_url
+        draft.title = payload.title
+        draft.country = payload.country or draft.country
+        draft.employer_or_organization = payload.employer or draft.employer_or_organization
+        draft.employer = payload.employer or draft.employer
+        draft.deadline = parse_deadline(payload.deadline) or draft.deadline
+        draft.opportunity_type = payload.opportunity_type
+        draft.raw_text = payload.raw_description
+        draft.summary = payload.raw_description[:400] or draft.summary
+        draft.summary_en = payload.raw_description[:400] or draft.summary_en
+
+    draft.connector_key = "manual_entry"
+    draft.content_type = "manual"
+    draft.application_url = payload.source_url
+    draft.needs_admin_review = True
+    draft.review_status = "pending"
+    draft.status = "pending"
+    draft.is_active = False
+    draft.reviewed_by = None
+    draft.reviewed_at = None
+    draft.slug = None
+    draft.published_at = None
+
+    if payload.run_ai_extraction:
+        _run_manual_extraction(db, draft, payload.opportunity_type)
+        _apply_manual_optional_fields(draft, payload)
+        _apply_manual_eligibility(
+            draft,
+            requested_opportunity_type=payload.opportunity_type,
+            extracted_json=draft.extracted_json,
+            manual_can_apply_from_bd=payload.can_apply_from_bd,
+        )
+    else:
+        draft.extracted_json = None
+        draft.extraction_confidence = 0.0
+        _apply_manual_optional_fields(draft, payload)
+        _apply_manual_eligibility(
+            draft,
+            requested_opportunity_type=payload.opportunity_type,
+            extracted_json=None,
+            manual_can_apply_from_bd=payload.can_apply_from_bd,
+        )
+
+    _refresh_draft_search_tsv(db, draft.id)
+    return draft, created
 
 
 def _serialize_sources(db: Session, sources: list[Source]) -> list[AdminSourceOut]:
@@ -1096,97 +1402,71 @@ def create_manual_entry(
     db: Session = Depends(get_db),
     _: User = Depends(get_admin_user),
 ) -> ReviewQueueOut:
-    manual_source = _get_or_create_manual_source(db)
-    item_key = _manual_source_item_key(payload.source_url)
-    source_name = _resolve_manual_source_name(payload.source_url, payload.source_name)
-
-    draft = db.scalar(
-        select(Opportunity).where(
-            Opportunity.source_id == manual_source.id,
-            Opportunity.source_item_key == item_key,
-        )
-    )
-    if draft and draft.status == "published":
-        raise HTTPException(status_code=409, detail="A published item already exists for this source URL")
-
-    if draft is None:
-        draft = Opportunity(
-            source_id=manual_source.id,
-            source_item_key=item_key,
-            connector_key="manual_entry",
-            source_name=source_name,
-            source_page_url=payload.source_url,
-            source_url=payload.source_url,
-            original_apply_url=payload.source_url,
-            content_type="manual",
-            title=payload.title,
-            summary=payload.raw_description[:400] or None,
-            summary_en=payload.raw_description[:400] or None,
-            country=payload.country,
-            employer_or_organization=payload.employer,
-            employer=payload.employer,
-            deadline=parse_deadline(payload.deadline),
-            opportunity_type=payload.opportunity_type,
-            raw_text=payload.raw_description,
-            application_url=payload.source_url,
-            needs_admin_review=True,
-            review_status="pending",
-            status="pending",
-            is_active=False,
-            extraction_confidence=0.0,
-            requirements_json={"items": []},
-            language_requirements_json={"items": []},
-            benefits_json={"items": []},
-            journey_steps=[],
-            documents_needed=[],
-            target_audience_tags=[],
-            risk_flags=[],
-        )
-        db.add(draft)
-        db.flush()
-    else:
-        draft.source_name = source_name
-        draft.source_page_url = payload.source_url
-        draft.source_url = payload.source_url
-        draft.original_apply_url = payload.source_url
-        draft.title = payload.title
-        draft.country = payload.country or draft.country
-        draft.employer_or_organization = payload.employer or draft.employer_or_organization
-        draft.employer = payload.employer or draft.employer
-        draft.deadline = parse_deadline(payload.deadline) or draft.deadline
-        draft.opportunity_type = payload.opportunity_type
-        draft.raw_text = payload.raw_description
-        draft.summary = payload.raw_description[:400] or draft.summary
-        draft.summary_en = payload.raw_description[:400] or draft.summary_en
-
-    draft.connector_key = "manual_entry"
-    draft.content_type = "manual"
-    draft.application_url = payload.source_url
-    draft.needs_admin_review = True
-    draft.review_status = "pending"
-    draft.status = "pending"
-    draft.is_active = False
-    draft.reviewed_by = None
-    draft.reviewed_at = None
-    draft.slug = None
-    draft.published_at = None
-
-    if payload.run_ai_extraction:
-        _run_manual_extraction(db, draft, payload.opportunity_type)
-    else:
-        draft.extracted_json = None
-        draft.extraction_confidence = 0.0
-        _apply_manual_eligibility(
-            draft,
-            requested_opportunity_type=payload.opportunity_type,
-            extracted_json=None,
-        )
-
-    _refresh_draft_search_tsv(db, draft.id)
+    draft, _created = _save_manual_entry(db, payload)
     db.commit()
     db.refresh(draft)
     logger.info("admin_manual_entry_created", extra={"draft_id": draft.id, "source_url": payload.source_url})
     return _draft_to_review_out(draft, draft.source_name)
+
+
+@router.post("/manual-entry/bulk", response_model=ManualEntryBulkImportResult)
+def bulk_manual_entry_import(
+    file: UploadFile = File(...),
+    run_ai_extraction: bool = Form(True),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_admin_user),
+) -> ManualEntryBulkImportResult:
+    content = file.file.read()
+    filename = (file.filename or "").lower()
+    if not filename.endswith(".csv") and not filename.endswith(".xlsx"):
+        raise HTTPException(status_code=400, detail="Only CSV and XLSX files are supported")
+
+    raw_rows = _load_bulk_upload_rows(file, content)
+    created = 0
+    updated = 0
+    skipped = 0
+    draft_ids: list[int] = []
+    errors: list[BulkImportError] = []
+
+    for idx, row in enumerate(raw_rows, start=2):
+        try:
+            payload = _normalize_manual_bulk_row(row, run_ai_extraction=run_ai_extraction)
+            draft, was_created = _save_manual_entry(db, payload)
+            db.commit()
+            db.refresh(draft)
+            draft_ids.append(draft.id)
+            if was_created:
+                created += 1
+            else:
+                updated += 1
+        except HTTPException as exc:
+            db.rollback()
+            skipped += 1
+            errors.append(BulkImportError(row=idx, detail=str(exc.detail)))
+        except Exception as exc:
+            db.rollback()
+            skipped += 1
+            errors.append(BulkImportError(row=idx, detail=str(exc)))
+
+    return ManualEntryBulkImportResult(
+        created=created,
+        updated=updated,
+        skipped=skipped,
+        errors=errors,
+        draft_ids=draft_ids,
+    )
+
+
+@router.get("/manual-entry/bulk-template")
+def manual_entry_bulk_template(_: User = Depends(get_admin_user)) -> Response:
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(_manual_entry_template_headers())
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="manual-entry-template.csv"'},
+    )
 
 
 @router.post("/manual-entry/{draft_id}/re-extract", response_model=ReviewQueueOut)

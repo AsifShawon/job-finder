@@ -64,6 +64,17 @@ body {
   color: hsl(var(--foreground));
 }
 
+.touch-target {
+  min-height: 52px;
+  min-width: 52px;
+}
+
+@media (max-width: 768px) {
+  body {
+    font-size: 16px;
+  }
+}
+
 @keyframes ticker-scroll {
   from {
     transform: translateX(0);
