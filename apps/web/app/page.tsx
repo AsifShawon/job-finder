@@ -12,7 +12,7 @@ import {
   Sparkles,
 } from "lucide-react";
 
-import { HeroSlider } from "@/components/hero-slider";
+import { Hero } from "@/components/hero";
 import { NewsTicker } from "@/components/news-ticker";
 import { OpportunityCard } from "@/components/opportunity-card";
 import { Card } from "@/components/ui/card";
@@ -70,75 +70,75 @@ type CategoryItem = {
 const CATEGORIES: CategoryItem[] = [
   {
     icon: Briefcase,
-    label: "প্রবাস চাকরি",
+    label: "বিদেশি চাকরি",
     labelEn: "Overseas Jobs",
     href: "/search?record_type=job" as Route,
-    color: "text-blue-600",
-    bg: "bg-blue-50 dark:bg-blue-950/40",
+    color: "text-primary",
+    bg: "bg-primary/5",
   },
   {
     icon: GraduationCap,
     label: "স্কলারশিপ",
     labelEn: "Scholarships",
     href: "/search?record_type=scholarship" as Route,
-    color: "text-fuchsia-600",
-    bg: "bg-fuchsia-50 dark:bg-fuchsia-950/40",
+    color: "text-primary",
+    bg: "bg-primary/5",
   },
   {
     icon: BookOpen,
     label: "দক্ষতা প্রশিক্ষণ",
     labelEn: "Skill Training",
     href: "/search?source_class=bd_migration" as Route,
-    color: "text-emerald-600",
-    bg: "bg-emerald-50 dark:bg-emerald-950/40",
+    color: "text-primary",
+    bg: "bg-primary/5",
   },
   {
     icon: Globe,
-    label: "ভিসা নীতি",
-    labelEn: "Visa Policy",
+    label: "ভিসা ও নীতি",
+    labelEn: "Visa & Policy",
     href: "/search?record_type=policy_update" as Route,
-    color: "text-amber-600",
-    bg: "bg-amber-50 dark:bg-amber-950/40",
+    color: "text-primary",
+    bg: "bg-primary/5",
   },
   {
     icon: FileText,
     label: "সরকারি সার্কুলার",
     labelEn: "Official Circulars",
     href: "/search?trust_tier=official_gov" as Route,
-    color: "text-rose-600",
-    bg: "bg-rose-50 dark:bg-rose-950/40",
+    color: "text-primary",
+    bg: "bg-primary/5",
   },
   {
     icon: AlertCircle,
     label: "সতর্কতা",
     labelEn: "Alerts",
     href: "/alerts" as Route,
-    color: "text-orange-600",
-    bg: "bg-orange-50 dark:bg-orange-950/40",
+    color: "text-primary",
+    bg: "bg-primary/5",
   },
 ];
 
 const TRUST_FEATURES = [
   {
     icon: ShieldCheck,
-    title: "সরকারি উৎস অগ্রাধিকার",
-    titleEn: "Official Sources First",
-    body: "প্রতিটি সুযোগে উৎসের ধরন, ট্রাস্ট ব্যাজ, এবং যাচাইয়ের দিকনির্দেশ একসাথে দেখুন।",
-    bodyEn: "See source type, trust badges, and verification guidance together on every listing.",
-  },
-  {
-    icon: Sparkles,
-    title: "বাংলাদেশি আবেদনকারীদের জন্য সহজ ফিল্টার",
-    titleEn: "Simple Filters for BD Applicants",
-    body: "বাংলাদেশ থেকে আবেদনযোগ্য কিনা, কোন দেশে সুযোগ আছে, আর কখন শেষ তারিখ - দ্রুত বুঝে নিন।",
-    bodyEn: "Quickly understand whether you can apply from Bangladesh, where the opportunity is, and when it closes.",
+    title: "যাচাই করা সরকারি উৎস",
+    titleEn: "Verified Official Sources",
+    body: "আমরা সরাসরি সরকারি এবং বিশ্বস্ত সাইট থেকে তথ্য সংগ্রহ করি, যাতে আপনার কাছে সঠিক তথ্য পৌঁছায়।",
+    bodyEn: "We aggregate opportunities directly from official and high-trust sources for your safety.",
   },
   {
     icon: AlertCircle,
-    title: "নিরাপদ সিদ্ধান্তের জন্য পরিষ্কার তথ্য",
-    titleEn: "Clear Information for Safer Decisions",
-    body: "জটিল তথ্যকে সহজ ভাষায় সাজানো হয়েছে, যাতে নথি, বেতন, আর প্রক্রিয়া বুঝতে সুবিধা হয়।",
-    bodyEn: "Complex details are simplified so documents, salary, and process are easier to understand.",
+    title: "পরিষ্কার শেষ তারিখ",
+    titleEn: "Clear Deadlines",
+    body: "আবেদনের শেষ তারিখ এবং সময়সীমা স্পষ্টভাবে দেওয়া থাকে যাতে আপনার সুযোগ মিস না হয়।",
+    bodyEn: "Application deadlines are clearly highlighted so you never miss an opportunity.",
+  },
+  {
+    icon: Sparkles,
+    title: "নিরাপদ আবেদন নির্দেশিকা",
+    titleEn: "Safe Application Guidance",
+    body: "জটিল প্রক্রিয়াকে সহজ করে তোলা হয়েছে, যাতে আপনি নিজে থেকেই সঠিক উপায়ে আবেদন করতে পারেন।",
+    bodyEn: "Complex processes are simplified so you can apply safely through official channels.",
   },
 ];
 
@@ -153,32 +153,34 @@ export default async function HomePage() {
 
   return (
     <main className="space-y-8 bg-background pb-8">
-      <HeroSlider />
-      <NewsTicker items={tickerItems} />
+      <Hero isEn={isEn} />
+      <div className="bg-card py-4 border-y border-border">
+        <NewsTicker items={tickerItems} />
+      </div>
 
-      <section className="mx-auto max-w-7xl space-y-8 px-4" aria-labelledby="home-categories">
-        <div className="space-y-2">
-          <h2 id="home-categories" className="section-underline text-xl font-bold text-foreground">
-            {isEn ? "Browse by Category" : "বিভাগ অনুযায়ী খুঁজুন"}
+      <section className="mx-auto max-w-7xl space-y-8 px-4 py-8" aria-labelledby="home-categories">
+        <div className="text-center space-y-3">
+          <h2 id="home-categories" className="text-2xl font-bold text-foreground">
+            {isEn ? "What are you looking for?" : "আপনি কী খুঁজছেন?"}
           </h2>
           <p className="text-muted-foreground">
             {isEn
-              ? "Start from the type of opportunity you need most."
-              : "আপনার প্রয়োজনের ধরন অনুযায়ী সুযোগ বেছে নিন।"}
+              ? "Select a service to explore verified opportunities."
+              : "যাচাই করা সুযোগগুলো দেখতে একটি সেবা বেছে নিন।"}
           </p>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
           {CATEGORIES.map(({ icon: Icon, label, labelEn, href, color, bg }) => (
             <Link
               key={href}
               href={href}
-              className="group rounded-2xl border border-border bg-card p-4 text-center shadow-card transition-all hover:border-primary hover:shadow-card-hover sm:p-5"
+              className="group flex flex-col items-center gap-4 rounded-3xl border border-border bg-card p-6 text-center shadow-sm transition-all hover:border-primary hover:shadow-md active:scale-95"
             >
-              <div className={`mx-auto flex h-12 w-12 items-center justify-center rounded-2xl ${bg}`}>
-                <Icon className={`h-6 w-6 ${color}`} />
+              <div className={`flex h-16 w-16 items-center justify-center rounded-2xl ${bg} transition-colors group-hover:bg-primary/10`}>
+                <Icon className={`h-8 w-8 ${color}`} />
               </div>
-              <p className="mt-3 text-sm font-semibold text-foreground group-hover:text-primary">
+              <p className="text-sm font-bold text-foreground group-hover:text-primary">
                 {isEn ? labelEn : label}
               </p>
             </Link>
@@ -290,32 +292,34 @@ export default async function HomePage() {
         </div>
       </section>
 
-      <section className="bg-muted/40 py-12" aria-labelledby="trust-features">
-        <div className="mx-auto max-w-7xl space-y-8 px-4">
-          <div className="space-y-2 text-center">
-            <h2 id="trust-features" className="text-3xl font-bold text-foreground">
-              {isEn ? "Built for Clarity and Trust" : "বিশ্বাস ও স্পষ্টতার জন্য তৈরি"}
+      <section className="bg-primary/5 py-16 border-y border-primary/10" aria-labelledby="trust-features">
+        <div className="mx-auto max-w-7xl space-y-12 px-4">
+          <div className="space-y-4 text-center max-w-3xl mx-auto">
+            <h2 id="trust-features" className="text-3xl font-bold text-foreground sm:text-4xl">
+              {isEn ? "Why use our platform?" : "কেন আমাদের প্ল্যাটফর্ম ব্যবহার করবেন?"}
             </h2>
-            <p className="mx-auto max-w-2xl text-muted-foreground">
+            <p className="text-lg text-muted-foreground">
               {isEn
-                ? "The platform is designed so non-technical users can understand opportunities faster and more safely."
-                : "প্ল্যাটফর্মটি এমনভাবে সাজানো হয়েছে যাতে সাধারণ ব্যবহারকারীরা দ্রুত এবং নিরাপদভাবে সুযোগ বুঝতে পারেন।"}
+                ? "We focus on transparency and trust to help you find the right opportunities safely."
+                : "আমরা স্বচ্ছতা এবং বিশ্বাসের উপর গুরুত্ব দেই যাতে আপনি নিরাপদভাবে সঠিক সুযোগ খুঁজে পান।"}
             </p>
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-3">
+          <div className="grid gap-8 lg:grid-cols-3">
             {TRUST_FEATURES.map(({ icon: Icon, title, titleEn, body, bodyEn }) => (
-              <Card key={title}>
-                <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10">
-                  <Icon className="h-6 w-6 text-primary" />
+              <div key={title} className="flex flex-col items-center text-center space-y-4">
+                <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-white shadow-sm border border-primary/10">
+                  <Icon className="h-8 w-8 text-primary" />
                 </div>
-                <h3 className="text-base font-semibold text-foreground">
-                  {isEn ? titleEn : title}
-                </h3>
-                <p className="mt-2 text-muted-foreground">
-                  {isEn ? bodyEn : body}
-                </p>
-              </Card>
+                <div className="space-y-2">
+                  <h3 className="text-xl font-bold text-foreground">
+                    {isEn ? titleEn : title}
+                  </h3>
+                  <p className="text-muted-foreground leading-relaxed">
+                    {isEn ? bodyEn : body}
+                  </p>
+                </div>
+              </div>
             ))}
           </div>
         </div>

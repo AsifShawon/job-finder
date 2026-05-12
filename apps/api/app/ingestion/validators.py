@@ -112,3 +112,84 @@ def find_existing_opportunity(
             Opportunity.content_hash == content_hash,
         )
     )
+
+
+# ── Semantic dedup (cross-source merge) ───────────────────────────────────────
+
+# Cosine similarity threshold above which two opportunities are considered the
+# same listing republished on different sources. Tuned conservatively — false
+# positives merge unrelated jobs together.
+_SEMANTIC_DEDUP_THRESHOLD = 0.92
+
+
+def find_semantic_duplicate(
+    db: Session,
+    *,
+    title: str,
+    summary: str | None,
+    employer: str | None,
+    country: str | None,
+    embedding: list[float] | None,
+    exclude_ids: tuple[int, ...] = (),
+) -> Opportunity | None:
+    """Find an existing Opportunity whose embedding is cosine-similar to the
+    provided one. Used to detect the same job listed on multiple source sites.
+
+    Returns the canonical (oldest) match if any, else None. Caller decides
+    whether to merge `mirror_urls`.
+    """
+    if not embedding:
+        return None
+
+    from app.models.entities import OpportunityEmbedding
+    # pgvector cosine distance: 0 = identical, 2 = opposite. Convert to
+    # similarity = 1 - distance.
+    distance_expr = OpportunityEmbedding.embedding.cosine_distance(embedding)
+    stmt = (
+        select(Opportunity, distance_expr.label("distance"))
+        .join(OpportunityEmbedding, OpportunityEmbedding.opportunity_id == Opportunity.id)
+        .where(distance_expr < (1.0 - _SEMANTIC_DEDUP_THRESHOLD))
+        .order_by(distance_expr)
+        .limit(5)
+    )
+    if exclude_ids:
+        stmt = stmt.where(~Opportunity.id.in_(exclude_ids))
+
+    candidates = db.execute(stmt).all()
+    if not candidates:
+        return None
+
+    # Among the close matches, prefer one that also shares country/employer if
+    # we have those — guards against merging two different jobs that happen to
+    # have similar Bengali summaries.
+    target_country = (country or "").strip().lower() or None
+    target_employer = (employer or "").strip().lower() or None
+    for opp, _distance in candidates:
+        opp_country = (opp.country or opp.destination_country or "").strip().lower()
+        opp_employer = (opp.employer_or_organization or opp.employer or "").strip().lower()
+        if target_country and opp_country and target_country != opp_country:
+            continue
+        if target_employer and opp_employer and target_employer not in opp_employer and opp_employer not in target_employer:
+            continue
+        return opp
+
+    # No country/employer-aware match — fall back to the closest candidate
+    # only if we have no country/employer signal at all.
+    if not target_country and not target_employer:
+        return candidates[0][0]
+    return None
+
+
+def merge_mirror_url(opp: Opportunity, source_url: str) -> bool:
+    """Append a source_url to opp.mirror_urls if not already present.
+    Returns True when the list was changed."""
+    if not source_url:
+        return False
+    existing = list(opp.mirror_urls or [])
+    if source_url == opp.source_page_url or source_url == opp.source_url:
+        return False
+    if source_url in existing:
+        return False
+    existing.append(source_url)
+    opp.mirror_urls = existing
+    return True

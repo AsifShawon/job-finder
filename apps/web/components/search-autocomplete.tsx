@@ -1,5 +1,6 @@
 "use client";
 
+import type { Route } from "next";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Search } from "lucide-react";
@@ -44,7 +45,7 @@ type Suggestion = {
   key: string;
   label: string;
   sublabel?: string;
-  href: string;
+  href: Route;
   kind: SuggestionKind;
 };
 
@@ -52,12 +53,12 @@ function normalizeText(value: string) {
   return value.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
-function buildSearchHref(query: string) {
+function buildSearchHref(query: string): Route {
   const params = new URLSearchParams();
   if (query) {
     params.set("q", query);
   }
-  return `/search${params.toString() ? `?${params.toString()}` : ""}`;
+  return `/search${params.toString() ? `?${params.toString()}` : ""}` as Route;
 }
 
 export function SearchAutocomplete({ isEn }: { isEn: boolean }) {
@@ -101,7 +102,7 @@ export function SearchAutocomplete({ isEn }: { isEn: boolean }) {
           key: `country-${country.en}`,
           label,
           sublabel: isEn ? "Country" : "দেশ",
-          href: `/search?country=${encodeURIComponent(country.en)}`,
+          href: `/search?country=${encodeURIComponent(country.en)}` as Route,
           kind: "country",
         });
       }
@@ -113,7 +114,7 @@ export function SearchAutocomplete({ isEn }: { isEn: boolean }) {
           key: `sector-${sector.key}`,
           label: isEn ? sector.en : sector.bn,
           sublabel: isEn ? "Category" : "ক্যাটাগরি",
-          href: `/search?sector=${encodeURIComponent(getISCSectorSearchParam(sector.key))}`,
+          href: `/search?sector=${encodeURIComponent(getISCSectorSearchParam(sector.key))}` as Route,
           kind: "sector",
         });
       }
@@ -126,7 +127,7 @@ export function SearchAutocomplete({ isEn }: { isEn: boolean }) {
           key: `type-${option.value}`,
           label,
           sublabel: isEn ? "Type" : "ধরন",
-          href: `/search?opportunity_type=${option.value}`,
+          href: `/search?opportunity_type=${option.value}` as Route,
           kind: "type",
         });
       }
@@ -185,7 +186,7 @@ export function SearchAutocomplete({ isEn }: { isEn: boolean }) {
             key: `result-${item.id}`,
             label: title,
             sublabel: location ? location : (isEn ? "Opportunity" : "সুযোগ"),
-            href: `/opportunity/${item.id}`,
+            href: `/opportunity/${item.id}` as Route,
             kind: "result" as const,
           };
         });

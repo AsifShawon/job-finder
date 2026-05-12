@@ -10,6 +10,7 @@ import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { ThemeProvider } from "@/components/theme-provider";
 import { getLocale, getMessages } from "@/lib/i18n";
+import Script from "next/script";
 
 const hindSiliguri = Hind_Siliguri({
   subsets: ["bengali", "latin"],
@@ -25,7 +26,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "সুযোগ বিডি — বিশ্বস্ত বিদেশি সুযোগের প্ল্যাটফর্ম",
+  title: "সুদক্ষ বিডি — বিশ্বস্ত বিদেশি সুযোগের প্ল্যাটফর্ম",
   description:
     "বাংলাদেশিদের জন্য যাচাই করা বিদেশি চাকরি, বৃত্তি, ভিসা নীতি এবং দক্ষতা প্রশিক্ষণের তথ্য এক জায়গায়।",
 };
@@ -48,8 +49,11 @@ export default async function RootLayout({
       className={`${hindSiliguri.variable} ${inter.variable} ${defaultTheme === "dark" ? "dark" : ""}`}
       suppressHydrationWarning
     >
+      <head />
       <body className="min-h-screen bg-background font-bengali text-foreground antialiased">
-        <script
+        <Script
+          id="theme-init"
+          strategy="beforeInteractive"
           dangerouslySetInnerHTML={{
             __html: `(() => {
   try {

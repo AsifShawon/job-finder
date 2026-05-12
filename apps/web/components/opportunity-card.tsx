@@ -7,15 +7,19 @@ import {
   Banknote,
   Bookmark,
   BookmarkCheck,
+  Briefcase,
   Calendar,
   ExternalLink,
   MapPin,
 } from "lucide-react";
 
+import { MiniVoiceButton } from "@/components/mini-voice-button";
+
 import type {
   OpportunityCard as OpportunityCardType,
   RecommendationCard,
 } from "@/lib/types";
+import { pickLang } from "@/lib/i18n-shared";
 import { ISC_SECTORS } from "@/lib/isc-sectors";
 import { cn, formatDate } from "@/lib/utils";
 
@@ -188,8 +192,9 @@ function buildDeadlinePill(
 }
 
 function buildSalaryText(item: AnyCard, locale: "bn" | "en") {
-  if (item.salary_text) {
-    return item.salary_text;
+  const salary = pickLang(item, "salary_text", locale);
+  if (salary) {
+    return salary;
   }
 
   if (item.salary_min == null) {
@@ -251,11 +256,14 @@ export function OpportunityCard({
   const [saving, setSaving] = useState(false);
 
   const deadlineDays = item.deadline ? daysUntil(item.deadline) : null;
+  const deadlineInfo = buildDeadlineText(item.deadline ?? null, deadlineDays, locale);
   const trust = trustLabel(item.source_trust_badge, locale);
-  const summary = locale === "en" ? item.summary ?? item.summary_bn : item.summary_bn ?? item.summary;
+  const titleText = pickLang(item, "title", locale) ?? item.title;
+  const summary = pickLang(item, "summary", locale);
   const applyHref = item.original_apply_url ?? item.source_url;
   const accent = accentClass(item.opportunity_type);
   const matchBannerText = showMatchBanner ? matchReason(item, locale) : null;
+  const isStrongMatch = showMatchBanner && "match_score" in item && (item as RecommendationCard).match_score != null && (item as RecommendationCard).match_score! >= 0.75;
   const matchStripText = item.why_this_matches?.trim();
   const showMatchStrip = Boolean(matchStripText) && (!matchBannerText || matchStripText !== matchBannerText);
 
@@ -295,7 +303,7 @@ export function OpportunityCard({
             {typeLabel(item.opportunity_type, locale)}
           </span>
           <p className="line-clamp-2 text-sm font-semibold text-foreground">
-            {locale === "en" ? item.title : item.title_bn || item.title}
+            {titleText}
           </p>
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             {compactDeadline && (
@@ -316,103 +324,96 @@ export function OpportunityCard({
   }
 
   return (
-    <article className="relative overflow-hidden rounded-2xl border border-border bg-card shadow-card transition-all hover:border-primary/40 hover:shadow-card-hover">
-      <span aria-hidden="true" className={cn("absolute left-0 top-0 h-full w-1", accent)} />
-      <div className="p-4 sm:p-5">
-        {matchBannerText && (
-          <div className="mb-3 rounded-xl bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-200">
-            {matchBannerText}
-          </div>
-        )}
-
-        {item.can_apply_from_bd && (
-          <div className="mb-3">
-            <span className="inline-flex items-center gap-2 rounded-full bg-emerald-100 px-3 py-1 text-sm font-semibold text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300">
-              ✅ {isEn ? "Apply from Bangladesh" : "বাংলাদেশ থেকে আবেদন করুন"}
-            </span>
-          </div>
-        )}
-
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+    <article className="group relative overflow-hidden rounded-3xl border border-border bg-card shadow-sm transition-all hover:border-primary hover:shadow-md">
+      <div className="p-5 sm:p-6">
+        <div className="flex items-start justify-between gap-4 mb-4">
+          <div className="flex flex-wrap gap-2">
+            <span className="rounded-full bg-primary/10 px-3 py-1 text-[11px] font-bold text-primary uppercase tracking-wider">
               {typeLabel(item.opportunity_type, locale)}
             </span>
+            {trust && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700">
+                🛡️ {trust}
+              </span>
+            )}
           </div>
-
-          {trust && (
-            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 dark:border-emerald-700/30 dark:bg-emerald-900/20 dark:text-emerald-300">
-              🛡️ {trust}
-            </span>
-          )}
-
+          
           <button
             type="button"
             onClick={toggleSave}
             disabled={saving}
-            className="touch-target inline-flex items-center gap-1 rounded-full border border-border px-3 py-2 text-xs font-semibold text-foreground transition-colors hover:border-primary hover:text-primary disabled:opacity-50 md:py-1.5"
+            className={cn(
+              "p-2 rounded-full border border-border transition-all hover:bg-primary/5 hover:border-primary/30",
+              saved ? "bg-primary/5 border-primary text-primary" : "text-muted-foreground"
+            )}
             aria-label={saved ? (isEn ? "Remove from saved" : "সংরক্ষণ বাতিল করুন") : (isEn ? "Save this opportunity" : "সুযোগটি সংরক্ষণ করুন")}
           >
-            {saved ? <BookmarkCheck className="h-3.5 w-3.5" /> : <Bookmark className="h-3.5 w-3.5" />}
-            <span className="hidden md:inline">{saved ? (isEn ? "Saved" : "সংরক্ষিত") : (isEn ? "Save" : "সংরক্ষণ")}</span>
+            {saved ? <BookmarkCheck className="h-5 w-5" /> : <Bookmark className="h-5 w-5" />}
           </button>
         </div>
 
-        <div className="mt-4 space-y-2">
+        <div className="space-y-3">
           <Link
             href={`/opportunity/${item.id}`}
-            className="line-clamp-2 text-lg font-semibold text-foreground transition-colors hover:text-primary sm:text-xl"
+            className="block text-xl font-bold text-foreground leading-tight transition-colors group-hover:text-primary"
           >
-            {locale === "en" ? item.title : item.title_bn || item.title}
+            {titleText}
           </Link>
 
-          {(item.employer_or_organization || item.destination_country || item.country) && (
-            <p className="text-muted-foreground">
-              {[item.employer_or_organization, item.destination_country || item.country]
-                .filter(Boolean)
-                .join(" • ")}
-            </p>
-          )}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-muted-foreground">
+            {(item.destination_country || item.country) && (
+              <div className="flex items-center gap-1.5 font-medium">
+                <MapPin className="h-4 w-4 text-primary/60" />
+                <span>{[item.destination_country, item.country].filter(Boolean).join(", ")}</span>
+              </div>
+            )}
+            {(item.employer_or_organization) && (
+              <div className="flex items-center gap-1.5">
+                <Briefcase className="h-4 w-4 text-primary/60" />
+                <span>{item.employer_or_organization}</span>
+              </div>
+            )}
+          </div>
+
+          <div className="pt-2 flex flex-wrap items-center gap-4">
+            {deadlineInfo && (
+              <div className={cn("inline-flex items-center gap-2 rounded-xl px-3 py-1.5 text-sm font-bold", deadlineInfo.className.includes("red") ? "bg-red-50 text-red-600" : "bg-muted text-muted-foreground")}>
+                <Calendar className="h-4 w-4" />
+                {deadlineInfo.text}
+              </div>
+            )}
+            {(item.salary_min != null || item.salary_text) && (
+              <div className="inline-flex items-center gap-2 rounded-xl bg-emerald-50 px-3 py-1.5 text-sm font-bold text-emerald-700">
+                <Banknote className="h-4 w-4" />
+                {buildSalaryText(item, locale)}
+              </div>
+            )}
+          </div>
         </div>
 
-        {summary && (
-          <p className="mt-4 line-clamp-2 text-base text-muted-foreground">
-            {summary}
-          </p>
-        )}
-
-        {item.content_type === "linkout_only" && (
-          <span className="mt-3 inline-flex text-xs font-medium text-amber-600 dark:text-amber-400">
-            ⚠ সরাসরি লিংক — বিস্তারিত মূল সাইটে
-          </span>
-        )}
-
-        <CompactMeta item={item} locale={locale} />
-      </div>
-
-      {showMatchStrip && (
-        <div className="border-t border-emerald-100 bg-emerald-50 px-4 py-2 text-xs font-medium text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-900/20 dark:text-emerald-200 sm:px-5">
-          ✓ {matchStripText}
-        </div>
-      )}
-
-      <div className="border-t border-border px-4 py-4 sm:px-5">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <Link
-            href={`/opportunity/${item.id}`}
-            className="text-sm font-semibold text-primary hover:underline"
-          >
-            {isEn ? "View details" : "বিস্তারিত"} →
-          </Link>
+        <div className="mt-6 pt-5 border-t border-border flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            {(summary || titleText) && (
+              <MiniVoiceButton
+                text={`${titleText}. ${summary ?? ""}`.trim()}
+                locale={locale}
+              />
+            )}
+            <Link
+              href={`/opportunity/${item.id}`}
+              className="text-sm font-bold text-muted-foreground hover:text-primary transition-colors"
+            >
+              {isEn ? "View Details" : "বিস্তারিত দেখুন"}
+            </Link>
+          </div>
 
           <a
             href={applyHref}
             target="_blank"
             rel="noopener noreferrer"
-            className="touch-target inline-flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-bold text-white transition-opacity hover:opacity-90 md:w-auto"
-            aria-label={isEn ? "Apply now" : "আবেদন করুন"}
+            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-primary px-6 py-3.5 text-sm font-bold text-white transition-all hover:shadow-lg hover:translate-y-[-2px] active:translate-y-0"
           >
-            <span>{isEn ? "Apply Now" : "আবেদন করুন"}</span>
+            <span>{isEn ? "Apply" : "আবেদন"}</span>
             <ExternalLink className="h-4 w-4" />
           </a>
         </div>

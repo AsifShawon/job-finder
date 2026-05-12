@@ -87,87 +87,76 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
   const hasFilters = filterEntries.length > 0;
 
   return (
-    <main className="bg-background">
-      <section className="border-b border-border bg-card">
-        <div className="mx-auto max-w-7xl space-y-4 px-4 py-6">
-          <div className="space-y-2">
-            <p className="text-sm font-semibold text-primary">
-              {isEn ? "Opportunity Search" : "সুযোগ অনুসন্ধান"}
-            </p>
-            <h1 className="text-3xl font-bold text-foreground">
-              {isEn ? "Find Verified Opportunities" : "যাচাইকৃত সুযোগ খুঁজুন"}
+    <main className="bg-background min-h-screen">
+      <section className="bg-white border-b border-border">
+        <div className="mx-auto max-w-7xl px-4 py-12">
+          <div className="max-w-3xl space-y-4">
+            <h1 className="text-3xl font-extrabold text-foreground sm:text-4xl lg:text-5xl">
+              {isEn ? "Explore Opportunities" : "সুযোগগুলো দেখুন"}
             </h1>
-            <p className="text-muted-foreground">
+            <p className="text-lg text-muted-foreground">
               {isEn
-                ? "Use simple filters to compare overseas jobs, scholarships, and visa updates."
-                : "সহজ ফিল্টার ব্যবহার করে প্রবাস চাকরি, স্কলারশিপ, আর ভিসা আপডেট তুলনা করুন।"}
+                ? "Compare verified overseas jobs, scholarships, and official visa updates in one place."
+                : "প্রবাস চাকরি, স্কলারশিপ এবং সরকারি ভিসা আপডেটগুলো এক জায়গায় সহজে তুলনা করুন।"}
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-lg font-semibold text-foreground">
-              {isEn
-                ? `🎯 We found ${data.total} opportunities for your search`
-                : `🎯 আপনার অনুসন্ধানে ${data.total}টি সুযোগ পাওয়া গেছে`}
-            </p>
+          <div className="mt-8 flex flex-wrap items-center justify-between gap-6">
+            <div className="flex flex-wrap items-center gap-2">
+              {hasFilters && (
+                <>
+                  {filterEntries.map(([key, value]) => {
+                    const nextParams = new URLSearchParams(query);
+                    nextParams.delete(key);
+                    const label = FILTER_LABELS[key as keyof typeof FILTER_LABELS];
 
-            <form action="/search" className="flex items-center gap-2">
-              {filterEntries
-                .filter(([key]) => key !== "sort")
-                .map(([key, value]) => (
-                  <input key={`${key}-${value}`} type="hidden" name={key} value={value} />
-                ))}
-              <label className="text-sm font-semibold text-muted-foreground">
-                {isEn ? "Sort" : "সাজানো"}
-              </label>
-              <select
-                name="sort"
-                defaultValue={query.get("sort") ?? "relevance"}
-                className="h-11 rounded-xl border border-border bg-background px-3 text-sm font-medium text-foreground"
-              >
-                <option value="relevance">{isEn ? "Most relevant" : "সবচেয়ে প্রাসঙ্গিক"}</option>
-                <option value="newest">{isEn ? "Newest first" : "নতুন আগে"}</option>
-                <option value="deadline">{isEn ? "Deadline first" : "শেষ তারিখ আগে"}</option>
-                <option value="trust">{isEn ? "Most trusted" : "সবচেয়ে বিশ্বস্ত"}</option>
-              </select>
-              <button
-                type="submit"
-                className="rounded-xl bg-primary px-4 py-3 text-sm font-bold text-white"
-              >
-                {isEn ? "Update" : "প্রয়োগ"}
-              </button>
-            </form>
-          </div>
-
-          {hasFilters && (
-            <div className="flex flex-wrap gap-2">
-              {filterEntries.map(([key, value]) => {
-                const nextParams = new URLSearchParams(query);
-                nextParams.delete(key);
-                const label = FILTER_LABELS[key as keyof typeof FILTER_LABELS];
-
-                return (
-                  <a
-                    key={`${key}-${value}`}
-                    href={`/search${nextParams.toString() ? `?${nextParams.toString()}` : ""}`}
-                    className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary"
+                    return (
+                      <a
+                        key={`${key}-${value}`}
+                        href={`/search${nextParams.toString() ? `?${nextParams.toString()}` : ""}`}
+                        className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/5 px-3 py-1.5 text-xs font-bold text-primary"
+                      >
+                        <span>
+                          {label ? (isEn ? label.en : label.bn) : key}: {getFilterValueLabel(key, value, isEn)}
+                        </span>
+                        <X className="h-3 w-3" />
+                      </a>
+                    );
+                  })}
+                  <Link
+                    href="/search"
+                    className="text-xs font-bold text-muted-foreground hover:text-primary transition-colors"
                   >
-                    <span>
-                      {label ? (isEn ? label.en : label.bn) : key}: {getFilterValueLabel(key, value, isEn)}
-                    </span>
-                    <X className="h-3 w-3" />
-                  </a>
-                );
-              })}
-              <Link
-                href="/search"
-                className="inline-flex items-center gap-1 rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground"
-              >
-                <X className="h-3 w-3" />
-                <span>{isEn ? "Clear all" : "সব মুছুন"}</span>
-              </Link>
+                    {isEn ? "Clear all" : "সব মুছুন"}
+                  </Link>
+                </>
+              )}
             </div>
-          )}
+
+            <div className="flex items-center gap-4 bg-muted/30 p-1.5 rounded-2xl border border-border">
+              <span className="hidden sm:inline text-sm font-bold text-muted-foreground px-2">
+                {isEn ? "Sort by:" : "সাজানো:"}
+              </span>
+              <form action="/search" className="flex items-center gap-2">
+                {filterEntries
+                  .filter(([key]) => key !== "sort")
+                  .map(([key, value]) => (
+                    <input key={`${key}-${value}`} type="hidden" name={key} value={value} />
+                  ))}
+                <select
+                  name="sort"
+                  defaultValue={query.get("sort") ?? "relevance"}
+                  className="bg-transparent border-none focus:ring-0 text-sm font-bold text-foreground cursor-pointer"
+                  onChange={(e) => e.target.form?.submit()}
+                >
+                  <option value="relevance">{isEn ? "Most relevant" : "সবচেয়ে প্রাসঙ্গিক"}</option>
+                  <option value="newest">{isEn ? "Newest first" : "নতুন আগে"}</option>
+                  <option value="deadline">{isEn ? "Deadline first" : "শেষ তারিখ আগে"}</option>
+                  <option value="trust">{isEn ? "Most trusted" : "সবচেয়ে বিশ্বস্ত"}</option>
+                </select>
+              </form>
+            </div>
+          </div>
         </div>
       </section>
 

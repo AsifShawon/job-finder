@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 
 import logging
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import case, delete, func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -44,6 +44,8 @@ from app.schemas.admin import (
     DataResetResult,
     FailedExtractionOut,
     FailedExtractionPage,
+    ManualEntryPrefillRequest,
+    ManualEntryPrefillResponse,
     ManualJobEntryRequest,
     ManualEntryBulkImportResult,
     ReviewQueueOut,
@@ -191,11 +193,16 @@ def _apply_manual_optional_fields(draft: Opportunity, payload: ManualJobEntryReq
     salary_currency = _clean_manual_text(payload.salary_currency)
     application_url = _clean_manual_text(payload.application_url)
     eligibility_text = _clean_manual_text(payload.eligibility_text)
+    eligibility_text_bn = _clean_manual_text(payload.eligibility_text_bn)
+    application_process = _clean_manual_text(payload.application_process)
+    application_process_bn = _clean_manual_text(payload.application_process_bn)
     requirements = _clean_manual_list(payload.requirements)
     benefits = _clean_manual_list(payload.benefits)
     language_requirements = _clean_manual_list(payload.language_requirements)
     journey_steps = _clean_manual_list(payload.journey_steps)
+    journey_steps_bn = _clean_manual_list(payload.journey_steps_bn)
     documents_needed = _clean_manual_list(payload.documents_needed)
+    documents_needed_bn = _clean_manual_list(payload.documents_needed_bn)
 
     if title_bn is not None:
         draft.title_bn = title_bn
@@ -217,6 +224,12 @@ def _apply_manual_optional_fields(draft: Opportunity, payload: ManualJobEntryReq
         draft.application_url = application_url
     if eligibility_text is not None:
         draft.eligibility_text = eligibility_text
+    if eligibility_text_bn is not None:
+        draft.eligibility_text_bn = eligibility_text_bn
+    if application_process is not None:
+        draft.application_process = application_process
+    if application_process_bn is not None:
+        draft.application_process_bn = application_process_bn
     if payload.visa_support is not None:
         draft.visa_support = payload.visa_support
     if requirements is not None:
@@ -227,8 +240,12 @@ def _apply_manual_optional_fields(draft: Opportunity, payload: ManualJobEntryReq
         draft.language_requirements_json = {"items": language_requirements}
     if journey_steps is not None:
         draft.journey_steps = journey_steps
+    if journey_steps_bn is not None:
+        draft.journey_steps_bn = journey_steps_bn
     if documents_needed is not None:
         draft.documents_needed = documents_needed
+    if documents_needed_bn is not None:
+        draft.documents_needed_bn = documents_needed_bn
     if payload.typical_salary_bdt is not None:
         draft.typical_salary_bdt = payload.typical_salary_bdt
     if payload.can_apply_from_bd is not None:
@@ -362,13 +379,18 @@ def _manual_entry_template_headers() -> list[str]:
         "salary_currency",
         "application_url",
         "eligibility_text",
+        "eligibility_text_bn",
+        "application_process",
+        "application_process_bn",
         "visa_support",
         "can_apply_from_bd",
         "requirements",
         "benefits",
         "language_requirements",
         "journey_steps",
+        "journey_steps_bn",
         "documents_needed",
+        "documents_needed_bn",
         "typical_salary_bdt",
     ]
 
@@ -400,13 +422,18 @@ def _normalize_manual_bulk_row(row: dict[str, str], *, run_ai_extraction: bool) 
         salary_currency=_clean_manual_text(row.get("salary_currency")),
         application_url=_clean_manual_text(row.get("application_url")),
         eligibility_text=_clean_manual_text(row.get("eligibility_text")),
+        eligibility_text_bn=_clean_manual_text(row.get("eligibility_text_bn")),
+        application_process=_clean_manual_text(row.get("application_process")),
+        application_process_bn=_clean_manual_text(row.get("application_process_bn")),
         visa_support=_manual_bulk_bool(row.get("visa_support")),
         can_apply_from_bd=_manual_bulk_bool(row.get("can_apply_from_bd")),
         requirements=_manual_bulk_list(row.get("requirements")),
         benefits=_manual_bulk_list(row.get("benefits")),
         language_requirements=_manual_bulk_list(row.get("language_requirements")),
         journey_steps=_manual_bulk_list(row.get("journey_steps")),
+        journey_steps_bn=_manual_bulk_list(row.get("journey_steps_bn")),
         documents_needed=_manual_bulk_list(row.get("documents_needed")),
+        documents_needed_bn=_manual_bulk_list(row.get("documents_needed_bn")),
         typical_salary_bdt=_manual_bulk_int(row.get("typical_salary_bdt")),
     )
 
@@ -701,6 +728,7 @@ def _draft_to_review_out(draft: Opportunity, source_name: str | None) -> ReviewQ
         connector_key=draft.connector_key,
         raw_text=(draft.raw_text or draft.extracted_text or "")[:2000] or None,
         created_at=draft.created_at,
+        field_confidences=(draft.extracted_json or {}).get("field_confidences") if isinstance(draft.extracted_json, dict) else None,
         record_type=draft.record_type.value if draft.record_type else None,
         source_url=draft.source_url,
     )
@@ -1347,6 +1375,23 @@ def translate_draft(
     return _draft_to_review_out(draft, source_name)
 
 
+@router.delete("/review/{draft_id}", response_model=MessageResponse)
+def delete_review_draft(
+    draft_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_admin_user),
+) -> MessageResponse:
+    """Remove a draft opportunity from the review queue."""
+    draft = db.scalar(select(Opportunity).where(Opportunity.id == draft_id))
+    if not draft:
+        raise HTTPException(status_code=404, detail="Draft not found")
+
+    db.delete(draft)
+    db.commit()
+    logger.info("admin_draft_deleted", extra={"draft_id": draft_id})
+    return MessageResponse(message=f"Draft {draft_id} deleted")
+
+
 @router.patch("/opportunities/{opportunity_id}/review-status", response_model=ReviewQueueOut)
 def set_review_status(
     opportunity_id: int,
@@ -1394,6 +1439,425 @@ def edit_draft(
     db.commit()
     source_name = db.scalar(select(Source.name).where(Source.id == draft.source_id))
     return _draft_to_review_out(draft, source_name)
+
+
+class ReviewDraftPatch(BaseModel):
+    """Partial update of a draft from the inline editor in the review queue.
+
+    All fields optional — the reviewer typically only changes a few. Only the
+    listed fields are accepted; admin-only metadata (status, review_status,
+    reviewed_by) is set via the existing approve/reject/needs-fix endpoints.
+    """
+    title: str | None = None
+    title_bn: str | None = None
+    title_en: str | None = None
+    summary: str | None = None
+    summary_bn: str | None = None
+    summary_en: str | None = None
+    job_title: str | None = None
+    job_title_bn: str | None = None
+    job_title_en: str | None = None
+    country: str | None = None
+    destination_country: str | None = None
+    employer_or_organization: str | None = None
+    employer: str | None = None
+    organization: str | None = None
+    sector: str | None = None
+    deadline: str | None = None
+    opportunity_type: str | None = None
+    salary_min: float | None = None
+    salary_max: float | None = None
+    salary_currency: str | None = None
+    salary_text: str | None = None
+    salary_text_bn: str | None = None
+    salary_text_en: str | None = None
+    location_text: str | None = None
+    application_url: str | None = None
+    eligibility_text: str | None = None
+    eligibility_text_bn: str | None = None
+    eligibility_text_en: str | None = None
+    visa_or_work_permit_info: str | None = None
+    visa_or_work_permit_info_bn: str | None = None
+    visa_or_work_permit_info_en: str | None = None
+    education_requirement: str | None = None
+    experience_requirement: str | None = None
+    language_requirement: str | None = None
+    application_process: str | None = None
+    visa_support: bool | None = None
+    can_apply_from_bd: bool | None = None
+    journey_steps: list[str] | None = None
+    journey_steps_bn: list[str] | None = None
+    journey_steps_en: list[str] | None = None
+    documents_needed: list[str] | None = None
+    documents_needed_bn: list[str] | None = None
+    documents_needed_en: list[str] | None = None
+    typical_salary_bdt: int | None = None
+
+
+_REVIEW_PATCH_DEADLINE_FIELD = "deadline"
+
+
+@router.patch("/review/{draft_id}", response_model=ReviewQueueOut)
+def patch_review_draft(
+    draft_id: int,
+    payload: ReviewDraftPatch,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_admin_user),
+) -> ReviewQueueOut:
+    """Inline edit of a pending draft from the review queue. Reviewer fixes
+    fields in place and approves without going back to the manual-entry form."""
+    draft = db.scalar(select(Opportunity).where(Opportunity.id == draft_id))
+    if not draft:
+        raise HTTPException(status_code=404, detail="Draft not found")
+
+    # Apply only fields the reviewer explicitly set. Pydantic exclude_unset
+    # gives us exactly those (None vs not-provided are different here).
+    changes = payload.model_dump(exclude_unset=True)
+    for field, value in changes.items():
+        if field == _REVIEW_PATCH_DEADLINE_FIELD and isinstance(value, str):
+            draft.deadline = parse_deadline(value)
+        else:
+            setattr(draft, field, value)
+
+    draft.reviewed_by = admin.id
+    draft.reviewed_at = datetime.now(UTC)
+    db.commit()
+    db.refresh(draft)
+    source_name = db.scalar(select(Source.name).where(Source.id == draft.source_id))
+    logger.info("admin_draft_patched", extra={"draft_id": draft_id, "fields": list(changes.keys())})
+    return _draft_to_review_out(draft, source_name)
+
+
+class TranslateFieldRequest(BaseModel):
+    text: str
+    source_lang: str = "en"  # 'bn' or 'en'
+    target_lang: str = "bn"
+    field_name: str | None = None  # optional, helps the LLM pick the right register
+
+
+class TranslateFieldResponse(BaseModel):
+    translation: str
+
+
+@router.post("/translate-field", response_model=TranslateFieldResponse)
+def translate_field(
+    payload: TranslateFieldRequest,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_admin_user),
+) -> TranslateFieldResponse:
+    """Translate a single text field (used by per-field translate buttons in
+    the manual entry form and the review queue inline editor)."""
+    if payload.source_lang not in ("bn", "en") or payload.target_lang not in ("bn", "en"):
+        raise HTTPException(status_code=422, detail="source_lang and target_lang must be 'bn' or 'en'")
+    if payload.source_lang == payload.target_lang:
+        return TranslateFieldResponse(translation=payload.text)
+
+    from app.services.translation_service import translate_text as _translate_text
+    try:
+        translated = _translate_text(
+            db,
+            text=payload.text,
+            source_lang=payload.source_lang,
+            target_lang=payload.target_lang,
+            field_hint=payload.field_name,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.warning("translate_field_failed", extra={"error": str(exc)})
+        raise HTTPException(status_code=502, detail=f"Translation failed: {exc}") from exc
+    return TranslateFieldResponse(translation=translated)
+
+
+class DuplicateCheckResponse(BaseModel):
+    found: bool
+    draft_id: int | None = None
+    status: str | None = None  # 'pending' | 'published' | 'rejected' | 'expired'
+    title: str | None = None
+    created_at: datetime | None = None
+
+
+@router.get("/check-duplicate", response_model=DuplicateCheckResponse)
+def check_duplicate_url(
+    url: str,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_admin_user),
+) -> DuplicateCheckResponse:
+    """Look up an existing draft or published opportunity by source URL.
+    Used by the manual entry form to warn the reviewer before they submit a
+    duplicate."""
+    url_clean = (url or "").strip()
+    if not url_clean:
+        return DuplicateCheckResponse(found=False)
+    existing = db.scalar(
+        select(Opportunity)
+        .where(
+            (Opportunity.source_page_url == url_clean)
+            | (Opportunity.source_url == url_clean)
+            | (Opportunity.application_url == url_clean)
+        )
+        .order_by(Opportunity.id.desc())
+        .limit(1)
+    )
+    if not existing:
+        return DuplicateCheckResponse(found=False)
+    return DuplicateCheckResponse(
+        found=True,
+        draft_id=existing.id,
+        status=existing.status,
+        title=existing.title,
+        created_at=existing.created_at,
+    )
+
+
+class DiscoveryRunRequest(BaseModel):
+    query: str = Field(min_length=2, max_length=500)
+    target_country: str | None = None
+    max_results: int = Field(default=12, ge=1, le=30)
+
+
+class DiscoveryRunDraft(BaseModel):
+    draft_id: int
+    title: str
+    url: str
+    confidence: float
+    is_new: bool
+
+
+class DiscoveryRunResponse(BaseModel):
+    query: str
+    variants: list[str]
+    urls_considered: int
+    drafts_created: int
+    drafts_updated: int
+    duplicates: int
+    failed: int
+    drafts: list[DiscoveryRunDraft]
+    warnings: list[str]
+
+
+@router.post("/discover", response_model=DiscoveryRunResponse)
+def run_discovery_endpoint(
+    payload: DiscoveryRunRequest,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_admin_user),
+) -> DiscoveryRunResponse:
+    """Agentic discovery: plan → search → score → ingest. Drafts land in the
+    review queue under the synthetic 'Agentic Discovery' source."""
+    from app.ingestion.discovery_agent import run_discovery as _run
+
+    report = _run(
+        db,
+        query=payload.query,
+        target_country=payload.target_country,
+        max_results=payload.max_results,
+    )
+    return DiscoveryRunResponse(
+        query=report.query,
+        variants=report.variants,
+        urls_considered=report.urls_considered,
+        drafts_created=report.drafts_created,
+        drafts_updated=report.drafts_updated,
+        duplicates=report.duplicates,
+        failed=report.failed,
+        drafts=[DiscoveryRunDraft(
+            draft_id=d.draft_id,
+            title=d.title,
+            url=d.url,
+            confidence=d.confidence,
+            is_new=d.is_new,
+        ) for d in report.drafts],
+        warnings=report.warnings,
+    )
+
+
+@router.post("/manual-entry/extract-from-file", response_model=ManualEntryPrefillResponse)
+def extract_from_file(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_admin_user),
+) -> ManualEntryPrefillResponse:
+    """Upload a job-poster image or PDF, run OCR + extraction, return form-ready
+    data. Returns the same shape as `/manual-entry/prefill` so the frontend can
+    reuse the same merge logic."""
+    from app.ingestion.cleaner import clean_page as _clean_page
+    from app.ingestion.pdf_extractor import extract_text as _pdf_extract
+    from app.ingestion.schemas import FetchedPage as _FetchedPage
+
+    raw = file.file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Empty file")
+    if len(raw) > 20 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File exceeds 20 MB limit")
+
+    filename = file.filename or "upload"
+    ctype = (file.content_type or "").lower()
+    warnings: list[str] = []
+    extracted_text = ""
+
+    if "pdf" in ctype or filename.lower().endswith(".pdf"):
+        try:
+            result = _pdf_extract(raw)
+            extracted_text = result.text
+            if result.used_ocr:
+                warnings.append("PDF was OCR-scanned (no text layer); double-check extracted text.")
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=f"PDF parse failed: {exc}") from exc
+    elif ctype.startswith("image/") or filename.lower().endswith((".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff")):
+        try:
+            import io as _io
+            from PIL import Image as _Image
+            import pytesseract as _ocr
+            image = _Image.open(_io.BytesIO(raw))
+            extracted_text = _ocr.image_to_string(image, lang="ben+eng").strip()
+            warnings.append("Image OCR used — verify all extracted fields.")
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=f"Image OCR failed: {exc}") from exc
+    else:
+        raise HTTPException(status_code=415, detail="Unsupported file type — use PDF or image")
+
+    if not extracted_text.strip():
+        raise HTTPException(status_code=422, detail="No text extracted from file")
+
+    # Run the structured extractor over the OCR/PDF text.
+    page = _FetchedPage(
+        url=f"upload://{filename}",
+        title=filename[:200],
+        raw_text=extracted_text,
+        content_type="manual",
+    )
+    cleaned = _clean_page(page)
+    extraction = extract_structured(db, cleaned)
+    if extraction.record_type == "unknown":
+        warnings.append("Extractor could not classify this file as an opportunity. Review carefully.")
+
+    data = extraction.model_dump()
+    return ManualEntryPrefillResponse(
+        title=data.get("title") or filename,
+        title_bn=data.get("title_bn"),
+        summary_en=data.get("summary_en") or data.get("summary"),
+        summary_bn=data.get("summary_bn"),
+        raw_description=extracted_text[:6000].strip() or None,
+        country=data.get("country"),
+        employer=data.get("employer") or data.get("organization"),
+        deadline=data.get("deadline_text"),
+        opportunity_type=_infer_opportunity_type(extraction.record_type),
+        sector=data.get("sector"),
+        degree_level=data.get("degree_level"),
+        salary_min=data.get("salary_min"),
+        salary_max=data.get("salary_max"),
+        salary_currency=data.get("salary_currency"),
+        application_url=data.get("application_url"),
+        eligibility_text=data.get("eligibility_text"),
+        visa_support=data.get("visa_support"),
+        can_apply_from_bd=data.get("can_apply_from_bd"),
+        requirements=[str(r) for r in (data.get("requirements") or []) if r],
+        benefits=[str(b) for b in (data.get("benefits") or []) if b],
+        language_requirements=[str(l) for l in (data.get("language_requirements") or []) if l],
+        journey_steps=[str(s) for s in (data.get("journey_steps") or []) if s],
+        documents_needed=[str(d) for d in (data.get("documents_needed") or []) if d],
+        typical_salary_bdt=data.get("typical_salary_bdt"),
+        extraction_confidence=float(data.get("extraction_confidence") or 0.0),
+        fetched_url=f"upload://{filename}",
+        warnings=warnings,
+    )
+
+
+@router.post("/manual-entry/prefill", response_model=ManualEntryPrefillResponse)
+def prefill_manual_entry(
+    payload: ManualEntryPrefillRequest,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_admin_user),
+) -> ManualEntryPrefillResponse:
+    """Fetch a URL, run the AI extractor, return form-shaped data.
+
+    Reused infrastructure: httpx + clean_page + extract_structured. Does NOT
+    write to the DB — the reviewer must still submit the form. Designed for the
+    'paste URL → auto-fill' flow on the manual entry page.
+    """
+    import httpx as _httpx
+
+    from app.ingestion.cleaner import clean_page as _clean_page
+    from app.ingestion.schemas import FetchedPage as _FetchedPage
+
+    url = payload.url.strip()
+    warnings: list[str] = []
+    raw_html = ""
+    page_title: str | None = None
+    try:
+        resp = _httpx.get(
+            url,
+            timeout=30,
+            follow_redirects=True,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; JobFinder-Prefill/1.0)"},
+        )
+        resp.raise_for_status()
+        raw_html = resp.text
+        # Best-effort title extraction (full HTML parsing happens in cleaner).
+        title_match = re.search(r"<title[^>]*>(.*?)</title>", raw_html, re.IGNORECASE | re.DOTALL)
+        if title_match:
+            page_title = title_match.group(1).strip()[:500] or None
+    except _httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=502, detail=f"Source returned HTTP {exc.response.status_code}") from exc
+    except _httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch URL: {exc}") from exc
+
+    page = _FetchedPage(url=url, raw_html=raw_html, title=page_title, content_type="html")
+    cleaned = _clean_page(page)
+
+    if not (cleaned.get("body_text") or "").strip():
+        warnings.append("Page contained no extractable body text — fill fields manually.")
+
+    extraction = extract_structured(db, cleaned)
+    if extraction.record_type == "unknown":
+        warnings.append("Extractor could not classify this page as an opportunity. Review carefully.")
+
+    data = extraction.model_dump()
+    requirements = data.get("requirements") or []
+    benefits = data.get("benefits") or []
+    language_requirements = data.get("language_requirements") or []
+    journey_steps = data.get("journey_steps") or []
+    documents_needed = data.get("documents_needed") or []
+    body_excerpt = (cleaned.get("body_text") or "")[:6000].strip() or None
+
+    return ManualEntryPrefillResponse(
+        title=data.get("title") or page_title,
+        title_bn=data.get("title_bn"),
+        summary_en=data.get("summary_en") or data.get("summary"),
+        summary_bn=data.get("summary_bn"),
+        raw_description=body_excerpt,
+        country=data.get("country"),
+        employer=data.get("employer") or data.get("organization"),
+        deadline=data.get("deadline_text"),
+        opportunity_type=_infer_opportunity_type(extraction.record_type),
+        sector=data.get("sector"),
+        degree_level=data.get("degree_level"),
+        salary_min=data.get("salary_min"),
+        salary_max=data.get("salary_max"),
+        salary_currency=data.get("salary_currency"),
+        application_url=data.get("application_url") or url,
+        eligibility_text=data.get("eligibility_text"),
+        visa_support=data.get("visa_support"),
+        can_apply_from_bd=data.get("can_apply_from_bd"),
+        requirements=[str(r) for r in requirements if r],
+        benefits=[str(b) for b in benefits if b],
+        language_requirements=[str(l) for l in language_requirements if l],
+        journey_steps=[str(s) for s in journey_steps if s],
+        documents_needed=[str(d) for d in documents_needed if d],
+        typical_salary_bdt=data.get("typical_salary_bdt"),
+        extraction_confidence=float(data.get("extraction_confidence") or 0.0),
+        fetched_url=url,
+        warnings=warnings,
+    )
+
+
+def _infer_opportunity_type(record_type: str | None) -> str:
+    """Map extractor's record_type to the form's opportunity_type select values."""
+    if record_type == "scholarship":
+        return "scholarship"
+    if record_type == "policy_update":
+        return "overseas_job"  # policy updates aren't a form option; default sensibly
+    return "overseas_job"
 
 
 @router.post("/manual-entry", response_model=ReviewQueueOut)
@@ -1610,6 +2074,36 @@ def reindex_all(db: Session = Depends(get_db), _: User = Depends(get_admin_user)
     for oid in ids:
         reindex_opportunity.delay(oid)
     return {"queued": len(ids)}
+
+
+@router.post("/translate-batch")
+def translate_batch(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_admin_user),
+    only_missing: bool = True,
+    limit: int | None = None,
+) -> dict:
+    """Backfill missing _bn/_en translations on existing opportunities.
+
+    only_missing=True (default): skip rows that already have title_bn AND title_en
+    AND summary_bn AND summary_en. Pass only_missing=False to re-translate all.
+    """
+    from worker.tasks import translate_draft_async
+
+    query = select(Opportunity.id)
+    if only_missing:
+        query = query.where(
+            (Opportunity.title_bn.is_(None))
+            | (Opportunity.title_en.is_(None))
+            | (Opportunity.summary_bn.is_(None))
+            | (Opportunity.summary_en.is_(None))
+        )
+    if limit:
+        query = query.limit(limit)
+    ids = db.scalars(query).all()
+    for oid in ids:
+        translate_draft_async.delay(oid, overwrite=not only_missing)
+    return {"queued": len(ids), "only_missing": only_missing}
 
 
 @router.post("/reset-all-data", response_model=DataResetResult)

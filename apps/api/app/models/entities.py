@@ -50,6 +50,7 @@ __all__ = [
     "Source", "AppSetting", "CrawlRun", "CrawlJob", "RawDocument",
     "Opportunity", "OpportunityEmbedding",
     "User", "UserProfile", "SavedOpportunity", "AlertRule", "AlertEvent",
+    "CopilotConversation", "CopilotMessage",
     "Feedback", "RefreshToken", "EmailAlertLog",
 ]
 
@@ -238,6 +239,7 @@ class Opportunity(Base):
 
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     title_bn: Mapped[str | None] = mapped_column(String(500))
+    title_en: Mapped[str | None] = mapped_column(String(500))
     summary_bn: Mapped[str | None] = mapped_column(Text)
     summary_en: Mapped[str | None] = mapped_column(Text)
 
@@ -245,6 +247,8 @@ class Opportunity(Base):
     destination_country: Mapped[str | None] = mapped_column(String(120))
     employer_or_organization: Mapped[str | None] = mapped_column(String(255))
     job_title: Mapped[str | None] = mapped_column(String(255))
+    job_title_bn: Mapped[str | None] = mapped_column(String(255))
+    job_title_en: Mapped[str | None] = mapped_column(String(255))
     sector: Mapped[str | None] = mapped_column(String(120))
     skill_level: Mapped[str | None] = mapped_column(String(120))
 
@@ -252,23 +256,49 @@ class Opportunity(Base):
     salary_max: Mapped[float | None] = mapped_column(Numeric(12, 2))
     salary_currency: Mapped[str | None] = mapped_column(String(10))
     salary_text: Mapped[str | None] = mapped_column(String(255))
+    salary_text_bn: Mapped[str | None] = mapped_column(String(255))
+    salary_text_en: Mapped[str | None] = mapped_column(String(255))
     location_text: Mapped[str | None] = mapped_column(String(255))
+    location_text_bn: Mapped[str | None] = mapped_column(String(255))
+    location_text_en: Mapped[str | None] = mapped_column(String(255))
 
     deadline: Mapped[Date | None] = mapped_column(Date)
     posted_date: Mapped[Date | None] = mapped_column(Date)
 
     eligibility_text: Mapped[str | None] = mapped_column(Text)
+    eligibility_text_bn: Mapped[str | None] = mapped_column(Text)
+    eligibility_text_en: Mapped[str | None] = mapped_column(Text)
     required_documents: Mapped[str | None] = mapped_column(Text)
+    required_documents_bn: Mapped[str | None] = mapped_column(Text)
+    required_documents_en: Mapped[str | None] = mapped_column(Text)
     application_process: Mapped[str | None] = mapped_column(Text)
+    application_process_bn: Mapped[str | None] = mapped_column(Text)
+    application_process_en: Mapped[str | None] = mapped_column(Text)
     education_requirement: Mapped[str | None] = mapped_column(Text)
+    education_requirement_bn: Mapped[str | None] = mapped_column(Text)
+    education_requirement_en: Mapped[str | None] = mapped_column(Text)
     experience_requirement: Mapped[str | None] = mapped_column(Text)
+    experience_requirement_bn: Mapped[str | None] = mapped_column(Text)
+    experience_requirement_en: Mapped[str | None] = mapped_column(Text)
     language_requirement: Mapped[str | None] = mapped_column(String(255))
+    language_requirement_bn: Mapped[str | None] = mapped_column(String(255))
+    language_requirement_en: Mapped[str | None] = mapped_column(String(255))
     age_requirement: Mapped[str | None] = mapped_column(String(120))
     gender_requirement: Mapped[str | None] = mapped_column(String(120))
     visa_or_work_permit_info: Mapped[str | None] = mapped_column(Text)
+    visa_or_work_permit_info_bn: Mapped[str | None] = mapped_column(Text)
+    visa_or_work_permit_info_en: Mapped[str | None] = mapped_column(Text)
     journey_steps: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False, server_default="[]")
+    journey_steps_bn: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False, server_default="[]")
+    journey_steps_en: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False, server_default="[]")
     documents_needed: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False, server_default="[]")
+    documents_needed_bn: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False, server_default="[]")
+    documents_needed_en: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False, server_default="[]")
     typical_salary_bdt: Mapped[int | None] = mapped_column(Integer)
+
+    # Cross-source dedup: when semantic dedup finds the same opportunity on
+    # multiple source URLs, the canonical row records the others here.
+    mirror_urls: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False, server_default="[]")
 
     lmia_status: Mapped[str | None] = mapped_column(String(20))
     can_apply_from_bd: Mapped[bool | None] = mapped_column(Boolean)
@@ -365,6 +395,11 @@ class User(Base):
     onboarding_complete: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
+    copilot_conversations: Mapped[list["CopilotConversation"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+
 
 class UserProfile(Base):
     __tablename__ = "user_profiles"
@@ -379,6 +414,49 @@ class UserProfile(Base):
     languages_json: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     salary_expectation: Mapped[float | None] = mapped_column(Numeric(12, 2))
     saved_search_preferences_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+
+
+class CopilotConversation(Base):
+    __tablename__ = "copilot_conversations"
+    __table_args__ = (
+        Index("ix_copilot_conversations_user_last_message", "user_id", "last_message_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    title: Mapped[str] = mapped_column(String(160), nullable=False, default="New chat")
+    locale: Mapped[str] = mapped_column(String(10), nullable=False, default="bn")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+    last_message_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    user: Mapped[User] = relationship(back_populates="copilot_conversations")
+    messages: Mapped[list["CopilotMessage"]] = relationship(
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        order_by="CopilotMessage.created_at.asc()",
+    )
+
+
+class CopilotMessage(Base):
+    __tablename__ = "copilot_messages"
+    __table_args__ = (
+        Index("ix_copilot_messages_conversation_created", "conversation_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(
+        ForeignKey("copilot_conversations.id", ondelete="CASCADE"), nullable=False
+    )
+    role: Mapped[str] = mapped_column(String(20), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    citations_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list, nullable=False)
+    suggested_follow_ups_json: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    conversation: Mapped[CopilotConversation] = relationship(back_populates="messages")
 
 
 # ── Saved / Alerts ─────────────────────────────────────────────────────────────

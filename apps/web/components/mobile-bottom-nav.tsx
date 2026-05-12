@@ -22,17 +22,19 @@ import { cn } from "@/lib/utils";
 
 const BOTTOM_NAV = [
   { icon: Home, label: "হোম", labelEn: "Home", href: "/" },
-  { icon: Search, label: "খুঁজুন", labelEn: "Search", href: "/search" },
+  { icon: Search, label: "চাকরি", labelEn: "Jobs", href: "/search?record_type=job" },
   { icon: Bookmark, label: "সংরক্ষিত", labelEn: "Saved", href: "/saved" },
   { icon: Bell, label: "সতর্কতা", labelEn: "Alerts", href: "/alerts" },
 ] as const;
 
 const NAV_LINKS = [
   { href: "/", label: "হোম", labelEn: "Home", icon: Home },
-  { href: "/search", label: "সব সুযোগ", labelEn: "All opportunities", icon: Search },
-  { href: "/dashboard", label: "ড্যাশবোর্ড", labelEn: "Dashboard", icon: LayoutDashboard },
-  { href: "/copilot", label: "AI সহকারী", labelEn: "AI Copilot", icon: Sparkles },
-  { href: "/auth/register", label: "ফ্রি অ্যাকাউন্ট", labelEn: "Free Account", icon: UserPlus },
+  { href: "/search?record_type=job", label: "চাকরি খুঁজুন", labelEn: "Find Jobs", icon: Search },
+  { href: "/search?record_type=scholarship", label: "স্কলারশিপ", labelEn: "Scholarships", icon: Sparkles },
+  { href: "/search?trust_tier=official_gov", label: "সরকারি নোটিশ", labelEn: "Official Notices", icon: LayoutDashboard },
+  { href: "/saved", label: "সংরক্ষিত", labelEn: "Saved", icon: Bookmark },
+  { href: "/alerts", label: "সতর্কতা", labelEn: "Alerts", icon: Bell },
+  { href: "/help", label: "সাহায্য", labelEn: "Help", icon: Sparkles },
 ] as const;
 
 export function MobileBottomNav() {
@@ -58,13 +60,12 @@ export function MobileBottomNav() {
                 href={href}
                 aria-label={isEn ? labelEn : label}
                 className={cn(
-                  "flex flex-col items-center gap-1 px-1 py-2 text-[11px] font-semibold transition active:scale-95",
+                  "flex flex-col items-center gap-1 px-1 py-3 text-[11px] font-bold transition-all active:scale-90",
                   active ? "text-primary" : "text-muted-foreground",
                 )}
               >
-                <Icon className="h-5 w-5" />
-                <span className={cn(active ? "text-[12px]" : "text-[11px]")}>{isEn ? labelEn : label}</span>
-                <span className={cn("h-1 w-1 rounded-full", active ? "bg-primary" : "bg-transparent")} />
+                <Icon className={cn("h-6 w-6 transition-transform", active && "scale-110")} />
+                <span className="mt-1">{isEn ? labelEn : label}</span>
               </Link>
             );
           })}
@@ -84,13 +85,13 @@ export function MobileBottomNav() {
 
       {open && (
         <div
-          className="fixed inset-0 z-[60] bg-[#07152f]/70 md:hidden"
+          className="fixed inset-0 z-[60] bg-black/50 md:hidden"
           role="dialog"
           aria-modal="true"
           onClick={() => setOpen(false)}
         >
           <div
-            className="absolute inset-y-0 left-0 flex h-full w-[75vw] flex-col border-r border-border bg-card shadow-2xl"
+            className="absolute inset-y-0 left-0 flex h-full w-[85vw] flex-col border-r border-border bg-white shadow-2xl rounded-r-[2.5rem] overflow-hidden"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-border px-4 py-4">

@@ -25,6 +25,21 @@ function toStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
 }
 
+function toNumberRecordOrNull(value: unknown): Record<string, number> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const entries = Object.entries(value).filter(
+    (entry): entry is [string, number] =>
+      typeof entry[0] === "string" &&
+      typeof entry[1] === "number" &&
+      Number.isFinite(entry[1]),
+  );
+
+  return entries.length > 0 ? Object.fromEntries(entries) : null;
+}
+
 function normalizeDraftItem(value: unknown): DraftItem | null {
   if (!value || typeof value !== "object") return null;
   const item = value as Partial<Record<keyof DraftItem, unknown>>;
@@ -67,6 +82,7 @@ function normalizeDraftItem(value: unknown): DraftItem | null {
     connector_key: toStringOrNull(item.connector_key),
     raw_text: toStringOrNull(item.raw_text),
     created_at: toStringOrEmpty(item.created_at),
+    field_confidences: toNumberRecordOrNull(item.field_confidences),
     record_type: toStringOrNull(item.record_type) as DraftItem["record_type"],
     source_url: toStringOrNull(item.source_url),
   };

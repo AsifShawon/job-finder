@@ -115,9 +115,61 @@ class SearXNGSearchProvider:
         return results
 
 
+class DuckDuckGoSearchProvider:
+    """Open-source fallback that uses the duckduckgo-search package — no API
+    key, no self-hosting. Used when SearXNG is unavailable, and as the default
+    provider for the agentic discovery flow."""
+
+    def __init__(self) -> None:
+        self.settings = get_settings()
+        self.timeout = self.settings.search_provider_timeout_seconds
+
+    def search(self, query: str, *, site_domain: str = "", limit: int = 10) -> list[SearchResult]:
+        try:
+            # Lazy import — duckduckgo-search is an optional dep at install time.
+            from duckduckgo_search import DDGS  # type: ignore[import-not-found]
+        except ImportError as exc:
+            raise RuntimeError(
+                "duckduckgo-search not installed; pip install duckduckgo-search"
+            ) from exc
+
+        scoped_query = query
+        if site_domain:
+            domain = _normalize_site_domain(site_domain)
+            scoped_query = f"site:{domain} {query}".strip()
+
+        results: list[SearchResult] = []
+        try:
+            with DDGS(timeout=int(self.timeout)) as ddgs:
+                for item in ddgs.text(scoped_query, max_results=limit) or []:
+                    url = item.get("href") or item.get("url")
+                    if not url:
+                        continue
+                    results.append(
+                        SearchResult(
+                            url=url,
+                            title=item.get("title"),
+                            snippet=item.get("body") or item.get("snippet"),
+                        )
+                    )
+        except Exception as exc:  # network failure, rate limit, etc.
+            raise RuntimeError(f"DuckDuckGo search failed: {exc}") from exc
+
+        return results
+
+
 def get_search_provider() -> SearchProvider:
+    """Return the configured SearchProvider. Defaults to SearXNG; falls back to
+    DuckDuckGo if SEARCH_PROVIDER=duckduckgo is set or if SearXNG is unreachable."""
     settings = get_settings()
     provider = (settings.search_provider or "searxng").strip().lower()
+    if provider == "duckduckgo":
+        return DuckDuckGoSearchProvider()
     if provider == "searxng":
         return SearXNGSearchProvider()
     raise RuntimeError(f"Unsupported search provider '{provider}'")
+
+
+def get_fallback_search_provider() -> SearchProvider:
+    """Used by the discovery agent when the primary provider fails."""
+    return DuckDuckGoSearchProvider()

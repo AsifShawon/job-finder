@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 
 import { DashboardNav } from "@/components/dashboard-nav";
-import { OpportunityCard } from "@/components/opportunity-card";
+import { RecommendationsFilter } from "@/components/recommendations-filter";
 import { Card } from "@/components/ui/card";
 import { fetchBackendJsonWithAuth, requireCurrentUser } from "@/lib/server-auth-fetch";
 import { getLocale } from "@/lib/i18n";
@@ -118,7 +118,7 @@ async function QuickStatsBar({
     {
       icon: Bell,
       value: activeAlerts,
-      label: isEn ? "Active alerts" : "সক্রিয় সতর্কতা",
+      label: isEn ? "Active alerts" : "সক্রিয় সতর্কতা",
     },
     {
       icon: Calendar,
@@ -235,11 +235,7 @@ async function RecommendationsSection({
           </div>
         </Card>
       ) : (
-        <div className="space-y-4">
-          {recItems.map((item) => (
-            <OpportunityCard key={item.id} item={item} showMatchBanner />
-          ))}
-        </div>
+        <RecommendationsFilter items={recItems} locale={locale} />
       )}
     </section>
   );
@@ -303,6 +299,29 @@ export default async function DashboardPage() {
           />
         </Suspense>
 
+        <section className="rounded-2xl border border-primary/20 bg-primary/5 p-5" aria-label={isEn ? "AI assistant" : "AI সহকারী"}>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-5 w-5 text-primary" />
+                <h2 className="text-base font-semibold text-foreground">AI Copilot</h2>
+              </div>
+              <p className="text-muted-foreground">
+                {isEn
+                  ? "Ask AI to explain a listing, compare countries, or suggest your next step."
+                  : "AI-কে দিয়ে সুযোগ বুঝুন, দেশ তুলনা করুন, বা পরের করণীয় জেনে নিন।"}
+              </p>
+            </div>
+            <Link
+              href="/copilot"
+              className="inline-flex items-center gap-2 rounded-full bg-primary px-5 py-3 text-sm font-bold text-white"
+            >
+              <span>{isEn ? "Open AI Copilot" : "AI Copilot খুলুন"}</span>
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </div>
+        </section>
+
         <Suspense fallback={<RecommendationsSkeleton />}>
           <RecommendationsSection
             locale={locale}
@@ -318,7 +337,7 @@ export default async function DashboardPage() {
             <p className="text-muted-foreground">
               {isEn
                 ? "Open the pages you are most likely to need next."
-                : "যে পেজগুলো আপনার সবচেয়ে বেশি দরকার হতে পারে সেগুলো দ্রুত খুলুন।"}
+                : "যে পেজগুলো আপনার সবচেয়ে বেশি দরকার হতে পারে সেগুলো দ্রুত খুলুন।"}
             </p>
           </div>
 
@@ -345,7 +364,7 @@ export default async function DashboardPage() {
                 <div>
                   <p className="text-base font-semibold text-foreground">{isEn ? "Alerts" : "সতর্কতা"}</p>
                   <p className="text-muted-foreground">
-                    {isEn ? "Alert rules" : "সতর্কতা নিয়ম"}
+                    {isEn ? "Alert rules" : "সতর্কতা নিয়ম"}
                   </p>
                 </div>
               </div>
@@ -363,29 +382,6 @@ export default async function DashboardPage() {
                   </p>
                 </div>
               </div>
-            </Link>
-          </div>
-        </section>
-
-        <section className="rounded-2xl border border-primary/20 bg-primary/5 p-5" aria-label={isEn ? "AI assistant" : "AI সহকারী"}>
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <Sparkles className="h-5 w-5 text-primary" />
-                <h2 className="text-base font-semibold text-foreground">AI Copilot</h2>
-              </div>
-              <p className="text-muted-foreground">
-                {isEn
-                  ? "Ask AI to explain a listing, compare countries, or suggest your next step."
-                  : "AI-কে দিয়ে সুযোগ বুঝুন, দেশ তুলনা করুন, বা পরের করণীয় জেনে নিন।"}
-              </p>
-            </div>
-            <Link
-              href="/copilot"
-              className="inline-flex items-center gap-2 rounded-full bg-primary px-5 py-3 text-sm font-bold text-white"
-            >
-              <span>{isEn ? "Open AI Copilot" : "AI Copilot খুলুন"}</span>
-              <ArrowRight className="h-4 w-4" />
             </Link>
           </div>
         </section>

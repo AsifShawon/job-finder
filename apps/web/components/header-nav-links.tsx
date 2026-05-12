@@ -29,10 +29,10 @@ export function HeaderNavLinks({
             key={href}
             href={href}
             className={cn(
-              "whitespace-nowrap border-b-2 px-4 py-3 text-sm font-semibold transition-colors",
+              "relative whitespace-nowrap px-4 py-4 text-sm font-semibold transition-all",
               active
-                ? "border-white text-white"
-                : "border-transparent text-slate-200 hover:border-white/80 hover:text-white",
+                ? "text-primary after:absolute after:bottom-0 after:left-0 after:h-0.5 after:w-full after:bg-primary"
+                : "text-muted-foreground hover:text-primary",
             )}
           >
             {label}

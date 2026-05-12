@@ -13,11 +13,13 @@ import {
 
 import { BilingualSummary } from "@/components/bilingual-summary";
 import { OpportunityCard } from "@/components/opportunity-card";
+import { OpportunityVoicePlayer, type VoiceSection } from "@/components/opportunity-voice-player";
 import { ShareButton } from "@/components/share-button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { getOpportunity, getSimilar } from "@/lib/api";
 import { getLocale } from "@/lib/i18n";
+import { pickLang, pickLangList } from "@/lib/i18n-shared";
 import { formatDate, formatDateTime, humanizeSlug } from "@/lib/utils";
 
 interface OpportunityDetailProps {
@@ -131,21 +133,51 @@ export default async function OpportunityDetailPage({
   const applyHref = opportunity.application_url ?? opportunity.original_apply_url ?? opportunity.source_url;
   const organization = opportunity.employer ?? opportunity.organization ?? opportunity.employer_or_organization;
   const requirementItems = opportunity.requirements_json?.items ?? [];
+  // Bilingual content — picks the locale's variant, then falls back to the
+  // other language, then to the canonical (source-language) value.
+  const titleText = pickLang(opportunity, "title", locale) ?? opportunity.title;
+  const summaryText =
+    pickLang(opportunity, "summary", locale) ??
+    (locale === "bn" ? opportunity.summary_bn : opportunity.summary_en) ??
+    opportunity.summary;
+  const eligibilityText = pickLang(opportunity, "eligibility_text", locale);
+  const requiredDocumentsText = pickLang(opportunity, "required_documents", locale);
+  const applicationProcessText = pickLang(opportunity, "application_process", locale);
+  const educationRequirementText = pickLang(opportunity, "education_requirement", locale);
+  const experienceRequirementText = pickLang(opportunity, "experience_requirement", locale);
+  const languageRequirementText = pickLang(opportunity, "language_requirement", locale);
+  const visaInfoText = pickLang(opportunity, "visa_or_work_permit_info", locale);
+  const salaryText = pickLang(opportunity, "salary_text", locale);
+  const journeySteps = pickLangList(opportunity, "journey_steps", locale);
+  const documentsNeeded = pickLangList(opportunity, "documents_needed", locale);
+
   const documentDetails = [
-    opportunity.required_documents,
-    opportunity.language_requirement,
-    opportunity.education_requirement,
+    requiredDocumentsText,
+    languageRequirementText,
+    educationRequirementText,
   ].filter(Boolean) as string[];
-  const documentsNeeded = opportunity.documents_needed ?? [];
   const processDetails = [
-    opportunity.application_process,
-    opportunity.visa_or_work_permit_info,
-    opportunity.experience_requirement,
+    applicationProcessText,
+    visaInfoText,
+    experienceRequirementText,
   ].filter(Boolean) as string[];
   const salaryBdt = opportunity.typical_salary_bdt
     ? new Intl.NumberFormat(locale === "bn" ? "bn-BD" : "en-US").format(opportunity.typical_salary_bdt)
     : null;
   const deadlineBadge = deadlinePill(opportunity.deadline, locale);
+
+  const voiceSections: VoiceSection[] = [
+    { label: isEn ? "Title" : "শিরোনাম", text: titleText },
+    { label: isEn ? "Summary" : "সংক্ষেপ", text: summaryText ?? "" },
+    { label: isEn ? "Employer" : "নিয়োগকর্তা", text: organization ?? "" },
+    { label: isEn ? "Country" : "দেশ", text: opportunity.destination_country ?? opportunity.country ?? "" },
+    { label: isEn ? "Salary" : "বেতন", text: salaryText ?? (opportunity.salary_min != null ? `${opportunity.salary_min} ${opportunity.salary_currency ?? ""}` : "") },
+    { label: isEn ? "Deadline" : "শেষ তারিখ", text: opportunity.deadline ? formatDate(opportunity.deadline, locale) : "" },
+    { label: isEn ? "Eligibility" : "যোগ্যতা", text: eligibilityText ?? "" },
+    { label: isEn ? "Requirements" : "প্রয়োজনীয়তা", text: requirementItems.join(isEn ? ". " : "। ") },
+    { label: isEn ? "Steps" : "আবেদনের ধাপ", text: journeySteps.join(isEn ? ". " : "। ") },
+    { label: isEn ? "Documents" : "প্রয়োজনীয় কাগজপত্র", text: documentsNeeded.join(isEn ? ". " : "। ") },
+  ].filter(s => s.text.trim().length > 0);
 
   return (
     <main className="bg-background">
@@ -178,97 +210,102 @@ export default async function OpportunityDetailPage({
             {isEn ? "Search" : "অনুসন্ধান"}
           </Link>
           <span>/</span>
-          <span className="line-clamp-1 text-foreground">
-            {isEn ? opportunity.title : opportunity.title_bn || opportunity.title}
-          </span>
+          <span className="line-clamp-1 text-foreground">{titleText}</span>
         </nav>
 
         <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
           <div className="space-y-5">
-            <Card>
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="secondary">
-                  {opportunity.opportunity_type ? humanizeSlug(opportunity.opportunity_type, locale) : (isEn ? "Opportunity" : "সুযোগ")}
-                </Badge>
-                <TrustTierBadge tier={opportunity.trust_tier} locale={locale} />
-                {!opportunity.is_active && (
-                  <Badge variant="danger">{isEn ? "Expired" : "মেয়াদ শেষ"}</Badge>
-                )}
+            <section className="space-y-6">
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-bold text-primary uppercase tracking-wider">
+                    {opportunity.opportunity_type ? humanizeSlug(opportunity.opportunity_type, locale) : (isEn ? "Opportunity" : "সুযোগ")}
+                  </span>
+                  <TrustTierBadge tier={opportunity.trust_tier} locale={locale} />
+                  {!opportunity.is_active && (
+                    <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-700">
+                      {isEn ? "Expired" : "মেয়াদ শেষ"}
+                    </span>
+                  )}
+                </div>
+
+                <h1 className="text-3xl font-extrabold text-foreground sm:text-4xl lg:text-5xl leading-tight">
+                  {titleText}
+                </h1>
+
+                <div className="flex flex-wrap items-center gap-x-6 gap-y-3 text-base text-muted-foreground">
+                  {(opportunity.employer || opportunity.organization || organization) && (
+                    <div className="flex items-center gap-2">
+                      <Briefcase className="h-5 w-5 text-primary/60" />
+                      <span className="font-semibold text-foreground">{opportunity.employer || opportunity.organization || organization}</span>
+                    </div>
+                  )}
+                  {(opportunity.city || opportunity.country) && (
+                    <div className="flex items-center gap-2">
+                      <MapPin className="h-5 w-5 text-primary/60" />
+                      <span>{[opportunity.city, opportunity.country].filter(Boolean).join(", ")}</span>
+                    </div>
+                  )}
+                </div>
               </div>
 
-              <h1 className="mt-4 text-3xl font-bold leading-tight text-foreground">
-                {isEn ? opportunity.title : opportunity.title_bn || opportunity.title}
-              </h1>
-              {opportunity.title_bn && opportunity.title && opportunity.title_bn !== opportunity.title && (
-                <p className="mt-2 text-muted-foreground">{isEn ? opportunity.title_bn : opportunity.title}</p>
-              )}
-
-              {organization && (
-                <p className="mt-2 font-medium text-muted-foreground">{organization}</p>
-              )}
-
-              <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 border-t border-border pt-4 text-sm text-muted-foreground">
-                {(opportunity.city || opportunity.country) && (
-                  <span className="inline-flex items-center gap-1.5">
-                    <MapPin className="h-4 w-4" />
-                    {[opportunity.city, opportunity.country].filter(Boolean).join(", ")}
-                  </span>
-                )}
-                {opportunity.deadline && (
-                  <span className="inline-flex items-center gap-1.5 font-semibold text-foreground">
-                    <Calendar className="h-4 w-4 text-primary" />
-                    {formatDate(opportunity.deadline, locale)}
-                  </span>
-                )}
-                <span className="inline-flex items-center gap-1.5">
-                  <CheckCircle className="h-4 w-4 text-success" />
-                  {opportunity.can_apply_from_bd
-                    ? (isEn ? "Apply from Bangladesh" : "বাংলাদেশ থেকে আবেদনযোগ্য")
-                    : (isEn ? "Check eligibility first" : "আবেদনযোগ্যতা দেখে নিন")}
-                </span>
-              </div>
-            </Card>
-
-            <Card>
-              <h2 className="section-underline text-xl font-bold text-foreground">
-                {isEn ? "What You Should Know First" : "আপনার জন্য কী জানা দরকার"}
-              </h2>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-2xl bg-muted/60 p-4">
-                  <p className="text-sm font-semibold text-foreground">
-                    {isEn ? "Eligibility" : "আবেদনযোগ্যতা"}
-                  </p>
-                  <p className="mt-2 text-muted-foreground">
-                    {opportunity.can_apply_from_bd
-                      ? (isEn ? "You can apply directly from Bangladesh." : "বাংলাদেশ থেকে সরাসরি আবেদন করা যাবে।")
-                      : (isEn ? "Check the official source before applying." : "আবেদনের আগে সরকারি বা মূল উৎস দেখে নিন।")}
+              {/* Quick Facts Summary */}
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="rounded-3xl border border-border bg-card p-6 shadow-sm">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="p-2 rounded-xl bg-primary/10">
+                      <Calendar className="h-5 w-5 text-primary" />
+                    </div>
+                    <span className="text-sm font-bold text-muted-foreground">{isEn ? "Deadline" : "শেষ তারিখ"}</span>
+                  </div>
+                  <p className="text-lg font-bold text-foreground">
+                    {opportunity.deadline ? formatDate(opportunity.deadline, locale) : (isEn ? "Not specified" : "উল্লেখ নেই")}
                   </p>
                 </div>
-                <div className="rounded-2xl bg-muted/60 p-4">
-                  <p className="text-sm font-semibold text-foreground">
-                    {isEn ? "Trust Level" : "বিশ্বাসযোগ্যতা"}
+
+                <div className="rounded-3xl border border-border bg-card p-6 shadow-sm">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="p-2 rounded-xl bg-emerald-100">
+                      <Banknote className="h-5 w-5 text-emerald-700" />
+                    </div>
+                    <span className="text-sm font-bold text-muted-foreground">{isEn ? "Salary/Funding" : "বেতন বা ফান্ডিং"}</span>
+                  </div>
+                  <p className="text-lg font-bold text-foreground">
+                    {salaryText ?? (opportunity.salary_min != null ? `${opportunity.salary_min} ${opportunity.salary_currency ?? ""}` : (isEn ? "Not specified" : "উল্লেখ নেই"))}
                   </p>
-                  <p className="mt-2 text-muted-foreground">
+                </div>
+
+                <div className="rounded-3xl border border-border bg-card p-6 shadow-sm sm:col-span-2 lg:col-span-1">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="p-2 rounded-xl bg-blue-100">
+                      <ShieldCheck className="h-5 w-5 text-blue-700" />
+                    </div>
+                    <span className="text-sm font-bold text-muted-foreground">{isEn ? "Trust Source" : "উৎস ও বিশ্বাস"}</span>
+                  </div>
+                  <p className="text-lg font-bold text-foreground">
                     {opportunity.trust_tier === "official_gov"
-                      ? (isEn ? "This listing comes from an official government source." : "এই তালিকাটি সরকারি উৎসভিত্তিক।")
-                      : (isEn ? "Review the source link and documents before proceeding." : "পরবর্তী ধাপে যাওয়ার আগে উৎস লিংক ও নথি দেখে নিন।")}
+                      ? (isEn ? "Official Government" : "সরাসরি সরকারি উৎস")
+                      : (isEn ? "Verified Platform" : "যাচাইকৃত তথ্য")}
                   </p>
                 </div>
               </div>
-            </Card>
+            </section>
+
+
 
             {(opportunity.summary_bn || opportunity.summary_en || opportunity.summary) && (
-              <Card>
-                <h2 className="section-underline text-xl font-bold text-foreground">
-                  {isEn ? "Summary" : "সারসংক্ষেপ"}
+              <section className="space-y-4">
+                <h2 className="text-2xl font-bold text-foreground">
+                  {isEn ? "Detailed Summary" : "বিস্তারিত সারসংক্ষেপ"}
                 </h2>
-                <div className="mt-4">
+                <div className="rounded-3xl border border-border bg-card p-6 shadow-sm">
                   <BilingualSummary
                     summaryBn={opportunity.summary_bn || opportunity.summary || null}
                     summaryEn={opportunity.summary_en || opportunity.summary || null}
+                    initialLocale={locale}
                   />
                 </div>
-              </Card>
+              </section>
             )}
 
             <div className="rounded-2xl bg-blue-50 p-4 text-sm text-foreground dark:bg-blue-900/20">
@@ -326,19 +363,19 @@ export default async function OpportunityDetailPage({
                 content={requirementItems}
                 defaultOpen
               />
-              {opportunity.journey_steps.length > 0 && (
+              {journeySteps.length > 0 && (
                 <Card>
                   <h2 className="section-underline text-xl font-bold text-foreground">
                     {isEn ? "📋 Application steps" : "📋 আবেদনের ধাপগুলো"}
                   </h2>
                   <div className="mt-4 space-y-4">
-                    {opportunity.journey_steps.map((step, index) => (
+                    {journeySteps.map((step, index) => (
                       <div key={`${step}-${index}`} className="relative flex gap-3">
                         <div className="flex flex-col items-center">
                           <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-xs font-bold text-white">
                             {index + 1}
                           </span>
-                          {index < opportunity.journey_steps.length - 1 && (
+                          {index < journeySteps.length - 1 && (
                             <span className="mt-1 h-full w-0.5 bg-primary/30" />
                           )}
                         </div>
@@ -372,7 +409,7 @@ export default async function OpportunityDetailPage({
               <DetailAccordion
                 title={isEn ? "Salary and Support" : "বেতন ও সহায়তা"}
                 content={[
-                  opportunity.salary_text,
+                  salaryText,
                   opportunity.salary_min != null
                     ? `${opportunity.salary_min}${opportunity.salary_max ? ` - ${opportunity.salary_max}` : ""} ${opportunity.salary_currency ?? ""}`.trim()
                     : null,
@@ -459,7 +496,7 @@ export default async function OpportunityDetailPage({
                 <span className="text-sm font-medium text-muted-foreground">
                   {isEn ? "Share" : "শেয়ার"}
                 </span>
-                <ShareButton url={opportunityUrl} title={opportunity.title} />
+                <ShareButton url={opportunityUrl} title={titleText} />
               </div>
 
               <div className="mt-4 space-y-3 border-t border-border pt-4 text-sm">
@@ -473,17 +510,19 @@ export default async function OpportunityDetailPage({
                   <span className="text-muted-foreground">{isEn ? "Added" : "যোগ করা হয়েছে"}</span>
                   <span className="font-semibold text-foreground">{formatDateTime(opportunity.created_at, locale)}</span>
                 </div>
-                {(opportunity.salary_min != null || opportunity.salary_text) && (
+                {(opportunity.salary_min != null || salaryText) && (
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-muted-foreground">{isEn ? "Salary" : "বেতন"}</span>
                     <span className="inline-flex items-center gap-1 font-semibold text-foreground">
                       <Banknote className="h-4 w-4 text-success" />
-                      {opportunity.salary_text ?? `${opportunity.salary_min} ${opportunity.salary_currency ?? ""}`}
+                      {salaryText ?? `${opportunity.salary_min} ${opportunity.salary_currency ?? ""}`}
                     </span>
                   </div>
                 )}
               </div>
             </Card>
+
+            <OpportunityVoicePlayer sections={voiceSections} locale={locale} />
 
             {similar.items.length > 0 && (
               <section className="space-y-3">

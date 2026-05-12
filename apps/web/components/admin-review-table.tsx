@@ -2,12 +2,14 @@
 
 import { useState } from "react";
 import {
-  AlertTriangle, CheckCircle, ExternalLink, FileText,
-  ShieldCheck, XCircle, Eye, EyeOff, Languages, PenLine, Sparkles,
+  AlertTriangle, CheckCircle, ExternalLink, FileText, Loader2, Save,
+  ShieldCheck, Trash2, XCircle, Eye, EyeOff, Languages, PenLine, Pencil, Sparkles, X,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { TranslateButton } from "@/components/translate-button";
 import type { DraftItem, ReviewStatus } from "@/lib/types";
 
 const STATUS_LABELS: Record<string, { bn: string; en: string; cls: string }> = {
@@ -24,6 +26,34 @@ const ELIGIBILITY_LABELS: Record<string, { bn: string; cls: string }> = {
   unclear_manual_review:  { bn: "অস্পষ্ট — যাচাই দরকার", cls: "bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400" },
   not_relevant:           { bn: "প্রযোজ্য নয়",           cls: "bg-slate-100 border-slate-200 text-slate-500 dark:bg-slate-800 dark:text-slate-400" },
 };
+
+// Map a per-field confidence in [0, 1] to a tailwind text-color class.
+// Used to colour-code displayed fields so the reviewer sees at a glance which
+// pieces of the extraction the AI was confident about.
+function confidenceClass(score: number | undefined): string {
+  if (score == null) return "";
+  if (score >= 0.8) return "text-emerald-600 dark:text-emerald-400";
+  if (score >= 0.5) return "text-amber-600 dark:text-amber-400";
+  return "text-rose-600 dark:text-rose-400";
+}
+
+function getErrorMessage(payload: unknown, fallback: string): string {
+  if (!payload) return fallback;
+  if (typeof payload === "string") return payload;
+  if (Array.isArray(payload)) {
+    const parts = payload
+      .map((entry) => getErrorMessage(entry, ""))
+      .filter((entry) => entry.trim().length > 0);
+    return parts.length > 0 ? parts.join(" ") : fallback;
+  }
+  if (typeof payload === "object") {
+    const detail = (payload as { detail?: unknown }).detail;
+    if (detail !== undefined) return getErrorMessage(detail, fallback);
+    const msg = (payload as { msg?: unknown }).msg;
+    if (typeof msg === "string" && msg.trim()) return msg;
+  }
+  return fallback;
+}
 
 function EligibilityPills({ item, isEn }: { item: DraftItem; isEn: boolean }) {
   const elig = item.eligibility_status ? ELIGIBILITY_LABELS[item.eligibility_status] : null;
@@ -86,10 +116,16 @@ export function AdminReviewTable({
   const [busy, setBusy] = useState<number | null>(null);
   const [translating, setTranslating] = useState<number | null>(null);
   const [reExtracting, setReExtracting] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [editingId, setEditingId] = useState<number | null>(null);
+
+  const updateItemFields = (id: number, fields: Partial<DraftItem>) => {
+    setItems((prev) => prev.map((item) => (item.id === id ? { ...item, ...fields } : item)));
+  };
 
   const toggleExpand = (id: number) =>
     setExpanded((prev) => {
@@ -113,7 +149,7 @@ export function AdminReviewTable({
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        setMessage((err as { detail?: string }).detail || (isEn ? "Could not update." : "আপডেট করা যায়নি।"));
+        setMessage(getErrorMessage(err, isEn ? "Could not update." : "আপডেট করা যায়নি।"));
         return;
       }
       const label = STATUS_LABELS[status];
@@ -132,6 +168,45 @@ export function AdminReviewTable({
       });
     } finally {
       setBusy(null);
+    }
+  };
+
+  const doDelete = async (id: number) => {
+    const confirmed = window.confirm(
+      isEn
+        ? `Delete draft #${id}? This cannot be undone.`
+        : `Draft #${id} মুছে ফেলবেন? এটা ফিরিয়ে আনা যাবে না।`,
+    );
+    if (!confirmed) return;
+
+    setDeletingId(id);
+    setMessage("");
+    try {
+      const res = await fetch(`/api/admin/review/${id}`, { method: "DELETE" });
+      const payload = (await res.json().catch(() => ({}))) as { message?: unknown; detail?: unknown };
+      if (!res.ok) {
+        setMessage(getErrorMessage(payload, isEn ? "Could not delete draft." : "ড্রাফট মুছা যায়নি।"));
+        return;
+      }
+
+      setItems((prev) => prev.filter((item) => item.id !== id));
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      setExpanded((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      if (editingId === id) {
+        setEditingId(null);
+      }
+
+      setMessage(getErrorMessage(payload.message, isEn ? `#${id} deleted.` : `#${id} মুছে ফেলা হয়েছে।`));
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -206,7 +281,7 @@ export function AdminReviewTable({
       const res = await fetch(`/api/admin/review/${id}/translate`, { method: "POST" });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        setMessage((err as { detail?: string }).detail || (isEn ? "Translation failed." : "অনুবাদ ব্যর্থ হয়েছে।"));
+        setMessage(getErrorMessage(err, isEn ? "Translation failed." : "অনুবাদ ব্যর্থ হয়েছে।"));
         return;
       }
       const updated = await res.json() as DraftItem;
@@ -224,7 +299,7 @@ export function AdminReviewTable({
       const res = await fetch(`/api/admin/manual-entry/${id}/re-extract`, { method: "POST" });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        setMessage((err as { detail?: string }).detail || (isEn ? "AI re-extraction failed." : "AI re-extraction ব্যর্থ হয়েছে।"));
+        setMessage(getErrorMessage(err, isEn ? "AI re-extraction failed." : "AI re-extraction ব্যর্থ হয়েছে।"));
         return;
       }
       const updated = await res.json() as DraftItem;
@@ -351,22 +426,38 @@ export function AdminReviewTable({
                   </div>
 
                   {/* Title */}
-                  <h3 className="text-sm font-bold text-foreground leading-snug line-clamp-2">
+                  <h3 className={`text-sm font-bold leading-snug line-clamp-2 ${confidenceClass(item.field_confidences?.title) || "text-foreground"}`}>
                     {item.title}
                   </h3>
                   {item.title_bn && (
-                    <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{item.title_bn}</p>
+                    <p className={`text-xs mt-0.5 line-clamp-1 ${confidenceClass(item.field_confidences?.title_bn) || "text-muted-foreground"}`}>
+                      {item.title_bn}
+                    </p>
                   )}
 
                   {/* Meta row */}
                   <div className="flex flex-wrap gap-3 mt-1.5 text-xs text-muted-foreground">
                     <span>{item.source_name ?? (isEn ? "Unknown source" : "অজানা উৎস")}</span>
-                    {item.country && <span>📍 {item.country}</span>}
-                    {item.deadline && <span>⏰ {item.deadline}</span>}
-                    {item.employer_or_organization && (
-                      <span>🏢 {item.employer_or_organization}</span>
+                    {item.country && (
+                      <span className={confidenceClass(item.field_confidences?.country)}>
+                        📍 {item.country}
+                      </span>
                     )}
-                    {item.salary_text && <span>💰 {item.salary_text}</span>}
+                    {item.deadline && (
+                      <span className={confidenceClass(item.field_confidences?.deadline_text)}>
+                        ⏰ {item.deadline}
+                      </span>
+                    )}
+                    {item.employer_or_organization && (
+                      <span className={confidenceClass(item.field_confidences?.employer)}>
+                        🏢 {item.employer_or_organization}
+                      </span>
+                    )}
+                    {item.salary_text && (
+                      <span className={confidenceClass(item.field_confidences?.salary)}>
+                        💰 {item.salary_text}
+                      </span>
+                    )}
                   </div>
 
                   <EligibilityPills item={item} isEn={isEn} />
@@ -448,10 +539,20 @@ export function AdminReviewTable({
 
                 {/* Action buttons */}
                 <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto sm:items-end">
+                  <button
+                    onClick={() => setEditingId(editingId === item.id ? null : item.id)}
+                    disabled={bulkBusy || busy === item.id || translating === item.id || reExtracting === item.id || deletingId === item.id}
+                    className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 sm:w-auto"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                    {editingId === item.id
+                      ? (isEn ? "Close editor" : "এডিটর বন্ধ করুন")
+                      : (isEn ? "Edit" : "সম্পাদনা")}
+                  </button>
                   {item.review_status !== "approved" && (
                     <button
                       onClick={() => doAction(item.id, "approve", "approved")}
-                      disabled={bulkBusy || busy === item.id || translating === item.id || reExtracting === item.id}
+                      disabled={bulkBusy || busy === item.id || translating === item.id || reExtracting === item.id || deletingId === item.id}
                       className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-emerald-700 disabled:opacity-50 sm:w-auto"
                     >
                       <CheckCircle className="h-3.5 w-3.5" />
@@ -461,7 +562,7 @@ export function AdminReviewTable({
                   {(!item.title_bn || !item.summary_bn || !item.summary_en) && (
                     <button
                       onClick={() => doTranslate(item.id)}
-                      disabled={bulkBusy || busy === item.id || translating === item.id || reExtracting === item.id}
+                      disabled={bulkBusy || busy === item.id || translating === item.id || reExtracting === item.id || deletingId === item.id}
                       className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-sky-300 bg-sky-50 px-4 py-2.5 text-sm font-bold text-sky-700 hover:bg-sky-100 disabled:opacity-50 dark:border-sky-700 dark:bg-sky-900/20 dark:text-sky-400 sm:w-auto"
                     >
                       <Languages className="h-3.5 w-3.5" />
@@ -473,7 +574,7 @@ export function AdminReviewTable({
                   {item.connector_key === "manual_entry" && item.raw_text && (
                     <button
                       onClick={() => doReExtract(item.id)}
-                      disabled={bulkBusy || busy === item.id || translating === item.id || reExtracting === item.id}
+                      disabled={bulkBusy || busy === item.id || translating === item.id || reExtracting === item.id || deletingId === item.id}
                       className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-violet-300 bg-violet-50 px-4 py-2.5 text-sm font-bold text-violet-700 hover:bg-violet-100 disabled:opacity-50 dark:border-violet-700 dark:bg-violet-900/20 dark:text-violet-400 sm:w-auto"
                     >
                       <Sparkles className="h-3.5 w-3.5" />
@@ -485,7 +586,7 @@ export function AdminReviewTable({
                   {item.review_status !== "needs_manual_fix" && (
                     <button
                       onClick={() => doAction(item.id, "needs-manual-fix", "needs_manual_fix")}
-                      disabled={bulkBusy || busy === item.id || translating === item.id || reExtracting === item.id}
+                      disabled={bulkBusy || busy === item.id || translating === item.id || reExtracting === item.id || deletingId === item.id}
                       className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-bold text-amber-700 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-400 sm:w-auto"
                     >
                       <AlertTriangle className="h-3.5 w-3.5" />
@@ -495,15 +596,38 @@ export function AdminReviewTable({
                   {item.review_status !== "rejected" && (
                     <button
                       onClick={() => doAction(item.id, "reject", "rejected")}
-                      disabled={bulkBusy || busy === item.id || translating === item.id || reExtracting === item.id}
+                      disabled={bulkBusy || busy === item.id || translating === item.id || reExtracting === item.id || deletingId === item.id}
                       className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-rose-300 bg-rose-50 px-4 py-2.5 text-sm font-bold text-rose-700 hover:bg-rose-100 disabled:opacity-50 dark:border-rose-700 dark:bg-rose-900/20 dark:text-rose-400 sm:w-auto"
                     >
                       <XCircle className="h-3.5 w-3.5" />
                       {isEn ? "Reject" : "প্রত্যাখ্যান"}
                     </button>
                   )}
+                  <button
+                    onClick={() => doDelete(item.id)}
+                    disabled={bulkBusy || busy === item.id || translating === item.id || reExtracting === item.id || deletingId === item.id}
+                    className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-slate-300 bg-slate-50 px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900/20 dark:text-slate-300 sm:w-auto"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    {deletingId === item.id
+                      ? (isEn ? "Deleting..." : "মুছা হচ্ছে...")
+                      : (isEn ? "Delete" : "মুছুন")}
+                  </button>
                 </div>
               </div>
+
+              {/* Inline editor */}
+              {editingId === item.id && (
+                <InlineDraftEditor
+                  item={item}
+                  isEn={isEn}
+                  onClose={() => setEditingId(null)}
+                  onSaved={(updated) => {
+                    updateItemFields(item.id, updated);
+                    setMessage(isEn ? `#${item.id} updated.` : `#${item.id}: আপডেট হয়েছে।`);
+                  }}
+                />
+              )}
 
               {/* Approved notice */}
               {item.review_status === "approved" && (
@@ -518,6 +642,186 @@ export function AdminReviewTable({
           );
         })
       )}
+    </div>
+  );
+}
+
+
+function InlineDraftEditor({
+  item,
+  isEn,
+  onClose,
+  onSaved,
+}: {
+  item: DraftItem;
+  isEn: boolean;
+  onClose: () => void;
+  onSaved: (updated: Partial<DraftItem>) => void;
+}) {
+  // Mirror the most-edited fields. The PATCH endpoint accepts more, but a
+  // focused editor avoids overwhelming the reviewer.
+  const [title, setTitle] = useState(item.title ?? "");
+  const [titleBn, setTitleBn] = useState(item.title_bn ?? "");
+  const [summaryEn, setSummaryEn] = useState(item.summary_en ?? "");
+  const [summaryBn, setSummaryBn] = useState(item.summary_bn ?? "");
+  const [country, setCountry] = useState(item.country ?? "");
+  const [employer, setEmployer] = useState(item.employer_or_organization ?? "");
+  const [deadline, setDeadline] = useState(item.deadline ?? "");
+  const [salaryText, setSalaryText] = useState(item.salary_text ?? "");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+
+  const save = async () => {
+    setSaving(true);
+    setErr("");
+    try {
+      const body = {
+        title: title.trim() || null,
+        title_bn: titleBn.trim() || null,
+        summary_en: summaryEn.trim() || null,
+        summary_bn: summaryBn.trim() || null,
+        country: country.trim() || null,
+        employer_or_organization: employer.trim() || null,
+        deadline: deadline.trim() || null,
+        salary_text: salaryText.trim() || null,
+      };
+      const res = await fetch(`/api/admin/review/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const payload = (await res.json().catch(() => ({}))) as Partial<DraftItem> & { detail?: string };
+      if (!res.ok) {
+        setErr(getErrorMessage(payload, isEn ? "Save failed." : "সংরক্ষণ ব্যর্থ।"));
+        return;
+      }
+      onSaved(payload);
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const lbl = (en: string, bn: string) => (isEn ? en : bn);
+
+  return (
+    <div className="mt-4 rounded-xl border border-border bg-muted/40 p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <h4 className="text-sm font-bold text-foreground">
+          {isEn ? `Edit draft #${item.id}` : `Draft #${item.id} সম্পাদনা`}
+        </h4>
+        <button
+          type="button"
+          onClick={onClose}
+          className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:border-primary hover:text-primary"
+        >
+          <X className="h-3 w-3" /> {lbl("Close", "বন্ধ")}
+        </button>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2">
+        <label className="space-y-1">
+          <span className="text-xs font-semibold text-foreground">{lbl("Title", "শিরোনাম")}</span>
+          <Input value={title} onChange={(e) => setTitle(e.target.value)} />
+        </label>
+        <label className="space-y-1">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-foreground">{lbl("Bangla Title", "বাংলা শিরোনাম")}</span>
+            <TranslateButton
+              sourceText={title}
+              sourceLang="en"
+              targetLang="bn"
+              fieldName="title"
+              onTranslated={setTitleBn}
+              size="xs"
+              isEn={isEn}
+            />
+          </div>
+          <Input value={titleBn} onChange={(e) => setTitleBn(e.target.value)} />
+        </label>
+
+        <label className="space-y-1">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-foreground">{lbl("English Summary", "ইংরেজি সারসংক্ষেপ")}</span>
+            <TranslateButton
+              sourceText={summaryBn}
+              sourceLang="bn"
+              targetLang="en"
+              fieldName="summary"
+              onTranslated={setSummaryEn}
+              size="xs"
+              isEn={isEn}
+            />
+          </div>
+          <textarea
+            value={summaryEn}
+            onChange={(e) => setSummaryEn(e.target.value)}
+            className="min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+        </label>
+        <label className="space-y-1">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-foreground">{lbl("Bangla Summary", "বাংলা সারসংক্ষেপ")}</span>
+            <TranslateButton
+              sourceText={summaryEn}
+              sourceLang="en"
+              targetLang="bn"
+              fieldName="summary"
+              onTranslated={setSummaryBn}
+              size="xs"
+              isEn={isEn}
+            />
+          </div>
+          <textarea
+            value={summaryBn}
+            onChange={(e) => setSummaryBn(e.target.value)}
+            className="min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+        </label>
+
+        <label className="space-y-1">
+          <span className="text-xs font-semibold text-foreground">{lbl("Country", "দেশ")}</span>
+          <Input value={country} onChange={(e) => setCountry(e.target.value)} />
+        </label>
+        <label className="space-y-1">
+          <span className="text-xs font-semibold text-foreground">{lbl("Employer / Org", "নিয়োগকর্তা")}</span>
+          <Input value={employer} onChange={(e) => setEmployer(e.target.value)} />
+        </label>
+
+        <label className="space-y-1">
+          <span className="text-xs font-semibold text-foreground">{lbl("Deadline (YYYY-MM-DD)", "শেষ তারিখ")}</span>
+          <Input value={deadline} onChange={(e) => setDeadline(e.target.value)} placeholder="2026-12-31" />
+        </label>
+        <label className="space-y-1">
+          <span className="text-xs font-semibold text-foreground">{lbl("Salary text", "বেতন")}</span>
+          <Input value={salaryText} onChange={(e) => setSalaryText(e.target.value)} />
+        </label>
+      </div>
+
+      {err && (
+        <p className="mt-3 text-xs text-rose-600 dark:text-rose-400">{err}</p>
+      )}
+
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={save}
+          disabled={saving}
+          className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+        >
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+          {saving
+            ? (isEn ? "Saving..." : "সংরক্ষণ হচ্ছে...")
+            : (isEn ? "Save changes" : "পরিবর্তন সংরক্ষণ")}
+        </button>
+        <button
+          type="button"
+          onClick={onClose}
+          className="text-sm font-medium text-muted-foreground hover:text-foreground"
+        >
+          {lbl("Cancel", "বাতিল")}
+        </button>
+      </div>
     </div>
   );
 }

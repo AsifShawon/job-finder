@@ -40,11 +40,13 @@ from app.ingestion.pdf_extractor import download_pdf, extract_text as pdf_extrac
 from app.ingestion.source_router import get_connector
 from app.ingestion.validators import (
     find_existing_opportunity,
+    find_semantic_duplicate,
     is_latest_snapshot_duplicate,
+    merge_mirror_url,
     parse_deadline,
     validate_extraction,
 )
-from app.models.entities import CrawlJob, CrawlRun, Opportunity, RawDocument, Source
+from app.models.entities import CrawlJob, CrawlRun, Opportunity, OpportunityEmbedding, RawDocument, Source
 from app.models.enums import CrawlRunStatus, CrawlStatus
 from app.services.storage_service import ObjectStorage
 
@@ -75,6 +77,12 @@ class PipelineResult:
     failed: int = 0
     manual_review: int = 0
     error: str | None = None
+    # IDs of drafts that should be auto-translated after the pipeline commits.
+    pending_translation_ids: list[int] = None  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        if self.pending_translation_ids is None:
+            self.pending_translation_ids = []
 
     @property
     def records_extracted(self) -> int:
@@ -281,6 +289,7 @@ def run_source_ingestion(db: Session, source_id: int, *, force: bool = False) ->
                 "failed": result.failed,
             },
         )
+        _enqueue_translation_tasks(result.pending_translation_ids)
         return result
     except Exception as exc:
         db.rollback()
@@ -441,6 +450,47 @@ def _process_extraction(
         content_hash=opp_hash,
     )
 
+    # Embedding for semantic cross-source dedup. Computed lazily — only when
+    # there's no exact hash match (otherwise we already know it's a dupe).
+    extraction_embedding: list[float] | None = None
+    semantic_match: Opportunity | None = None
+    if existing is None:
+        try:
+            embed_input = " ".join(filter(None, [
+                extraction.title,
+                extraction.summary or extraction.summary_en,
+                extraction.employer or extraction.organization,
+                extraction.country or source.country,
+            ]))
+            if embed_input.strip():
+                from app.services.embedding_service import embed_text as _embed_text
+                extraction_embedding = _embed_text(embed_input)
+                semantic_match = find_semantic_duplicate(
+                    db,
+                    title=extraction.title or "",
+                    summary=extraction.summary or extraction.summary_en,
+                    employer=extraction.employer or extraction.organization,
+                    country=extraction.country or source.country,
+                    embedding=extraction_embedding,
+                )
+                # Only treat as duplicate if it's from a *different* source (otherwise
+                # find_existing_opportunity would have caught it via content_hash).
+                if semantic_match and semantic_match.source_id == source.id:
+                    semantic_match = None
+        except Exception as exc:
+            logger.warning("semantic_dedup_failed", extra={"error": str(exc)})
+            semantic_match = None
+
+    if semantic_match is not None:
+        # Same job listed on a new source. Don't create a draft — just record the
+        # mirror URL on the canonical row so the public page can deep-link both.
+        if merge_mirror_url(semantic_match, source_page_url):
+            logs.append(
+                f"Semantic dedup: merged {source_page_url} into canonical opportunity #{semantic_match.id}"
+            )
+        result.duplicates += 1
+        return
+
     eligibility = tag_eligibility(
         source_connector_key=source.connector_key,
         source_trust_level=source.trust_level,
@@ -474,6 +524,7 @@ def _process_extraction(
         )
         result.draft_updated += 1
         result.duplicates += 1
+        result.pending_translation_ids.append(existing.id)
         logs.append(f"Draft updated: id={existing.id} title='{(existing.title or '')[:60]}'")
         return
 
@@ -548,6 +599,21 @@ def _process_extraction(
     result.draft_created += 1
     if force_review:
         result.manual_review += 1
+    result.pending_translation_ids.append(draft.id)
+
+    # Persist the embedding alongside the draft so semantic dedup catches
+    # future duplicates (and so the RAG copilot can retrieve over the corpus
+    # once the draft is approved).
+    if extraction_embedding is not None:
+        try:
+            from app.services.embedding_service import EMBEDDING_MODEL as _EMB_MODEL
+            db.add(OpportunityEmbedding(
+                opportunity_id=draft.id,
+                embedding=extraction_embedding,
+                embedding_model=_EMB_MODEL,
+            ))
+        except Exception as exc:
+            logger.warning("embedding_persist_failed", extra={"draft_id": draft.id, "error": str(exc)})
 
     _refresh_search_tsv(db, draft.id)
     logs.append(f"Draft created: id={draft.id} title='{draft.title[:60]}'")
@@ -690,3 +756,24 @@ def _update_source_error(db: Session, source: Source, error: str) -> None:
             db.rollback()
         except Exception:
             pass
+
+
+def _enqueue_translation_tasks(opp_ids: list[int]) -> None:
+    """Best-effort enqueue of background translation. Never raises — translation
+    is non-critical, and the pipeline must succeed even if Celery isn't reachable
+    or the worker module isn't importable (e.g. in unit tests without Celery)."""
+    if not opp_ids:
+        return
+    try:
+        from worker.tasks import translate_draft_async  # type: ignore[import-not-found]
+    except Exception:
+        logger.debug("translate_draft_async not importable; skipping enqueue")
+        return
+    for opp_id in opp_ids:
+        try:
+            translate_draft_async.delay(opp_id)
+        except Exception as exc:
+            logger.warning(
+                "translate_enqueue_failed",
+                extra={"opportunity_id": opp_id, "error": str(exc)},
+            )

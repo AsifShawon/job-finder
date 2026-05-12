@@ -115,6 +115,9 @@ class ExtractionBase(BaseModel):
     typical_salary_bdt: int | None = None
     extraction_confidence: float = Field(ge=0, le=1, default=0.0)
     evidence_snippets: list[str] = Field(default_factory=list)
+    # Per-field confidence scores in [0, 1] computed by the multi-step extractor.
+    # Surfaced in the admin review UI so reviewers can spot weak fields.
+    field_confidences: dict[str, float] | None = None
 
 
 class JobOpportunityExtraction(ExtractionBase):

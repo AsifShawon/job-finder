@@ -10,6 +10,9 @@
     "admin": "Admin",
     "signIn": "Sign in",
     "createAccount": "Create account",
+    "freeAccount": "Free Account",
+    "menu": "Menu",
+    "login": "Login",
     "member": "Member",
     "administrator": "Administrator",
     "language": "Bangla"
@@ -151,5 +154,14 @@
     "cta": "View details",
     "footer": "সুযোগ বিডি | Your trusted platform for overseas opportunities",
     "unsubscribe": "To stop alerts, change your Alerts settings in your account"
+  },
+  "voice": {
+    "listen": "Listen",
+    "pause": "Pause",
+    "resume": "Resume",
+    "stop": "Stop",
+    "nowReading": "Now reading",
+    "notSupported": "Audio not supported in your browser",
+    "complete": "Done reading"
   }
 }

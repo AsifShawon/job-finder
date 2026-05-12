@@ -16,6 +16,7 @@ from app.services.embedding_service import EMBEDDING_MODEL, embed_text
 from app.services.email_service import send_alert_email
 from app.services.recommendation_service import ISC_TO_SEARCH_TERMS
 from app.services.search_service import search_opportunities
+from app.services.translation_service import translate_record
 from worker.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -358,6 +359,41 @@ def send_category_alert_emails(self) -> dict:
                 sent_count += 1
 
     return {"sent": sent_count, "skipped": skipped_count}
+
+
+@celery_app.task(base=BaseRetryTask, bind=True)
+def translate_draft_async(self, opportunity_id: int, overwrite: bool = False) -> dict:
+    """Fill missing _bn/_en bilingual fields on a draft. Enqueued by the pipeline
+    after a draft is saved; also reusable for backfill of existing rows.
+
+    Failures are logged and swallowed — translation is best-effort and never
+    blocks publishing or the ingestion pipeline.
+    """
+    with SessionLocal() as db:
+        opp = db.scalar(select(Opportunity).where(Opportunity.id == opportunity_id))
+        if not opp:
+            return {"skipped": True, "reason": "not_found", "opportunity_id": opportunity_id}
+        try:
+            changes = translate_record(db, opp, overwrite=overwrite)
+        except RuntimeError as exc:
+            # AI key not configured — not a retry-worthy error.
+            logger.info(
+                "translate_draft_skipped_no_ai_key",
+                extra={"opportunity_id": opportunity_id, "error": str(exc)},
+            )
+            return {"skipped": True, "reason": "no_ai_key", "opportunity_id": opportunity_id}
+        except Exception as exc:
+            logger.warning(
+                "translate_draft_failed",
+                extra={"opportunity_id": opportunity_id, "error": str(exc)},
+            )
+            return {"skipped": True, "reason": "error", "error": str(exc), "opportunity_id": opportunity_id}
+        if changes:
+            db.commit()
+        return {
+            "opportunity_id": opportunity_id,
+            "fields_updated": list(changes.keys()),
+        }
 
 
 @celery_app.task(base=BaseRetryTask, bind=True)

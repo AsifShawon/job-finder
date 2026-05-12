@@ -371,26 +371,235 @@ def _invoke_mistral_job(model: str, api_key: str, prompt: str) -> JobOpportunity
 
 
 def extract_structured(db: Session, cleaned: dict[str, Any]) -> ExtractionBase:
+    """Two-pass structured extraction with self-correction.
+
+    1. Single-shot LLM call (existing prompt) → parsed extraction.
+    2. Field-level validation in Python → per-field confidence scores.
+    3. If required fields are missing/low-confidence AND we have body text, send a
+       *targeted* re-prompt asking only for those fields, and merge the results.
+    4. Final extraction_confidence is the mean of field confidences (capped by
+       the original LLM-reported confidence so we don't inflate weak extractions).
+    5. The per-field map is saved to extracted_json["field_confidences"] so the
+       review UI can colour-code each field.
+
+    Falls through to the regex fallback whenever no AI key is configured or the
+    LLM call raises — same safety net as before.
+    """
     provider = get_ai_provider(db)
     api_key = get_ai_api_key(db)
     if not api_key:
         return _ensure_fields(_fallback_extract(cleaned))
 
-    prompt = _PROMPT_TEMPLATE.format(
-        title=cleaned.get("title") or "",
-        body=(cleaned.get("body_text") or "")[:6000],
-    )
+    body_text = (cleaned.get("body_text") or "")[:6000]
+    prompt = _PROMPT_TEMPLATE.format(title=cleaned.get("title") or "", body=body_text)
     try:
-        if provider == "mistral":
-            result = _invoke_mistral(get_ai_model(db), api_key, prompt)
-            return _ensure_fields(result.data)
-
-        model = ChatGroq(model=get_ai_model(db), api_key=api_key, temperature=0.0)
-        structured = model.with_structured_output(ExtractionEnvelope)
-        result: ExtractionEnvelope = structured.invoke(prompt)
-        return _ensure_fields(result.data)
+        result = _invoke_for_extraction(db, provider, api_key, prompt)
+        extraction = _ensure_fields(result.data)
     except Exception:
         return _ensure_fields(_fallback_extract(cleaned))
+
+    if extraction.record_type == "unknown":
+        # Don't bother self-correcting unknowns; the classifier said no.
+        _annotate_field_confidence(extraction, _score_extraction_fields(extraction))
+        return extraction
+
+    field_scores = _score_extraction_fields(extraction)
+    weak_fields = _select_weak_required_fields(extraction, field_scores)
+
+    if weak_fields and body_text.strip():
+        try:
+            patch = _self_correct(db, provider, api_key, body_text, extraction, weak_fields)
+            if patch:
+                _apply_self_correction(extraction, patch, weak_fields)
+                # Re-score after the patch.
+                field_scores = _score_extraction_fields(extraction)
+        except Exception:
+            # Self-correction is best-effort; original extraction stands.
+            pass
+
+    # Final confidence: mean of per-field confidences, but never higher than
+    # the LLM's original self-reported confidence (so we don't inflate weak runs).
+    if field_scores:
+        mean_score = sum(field_scores.values()) / len(field_scores)
+        original = float(extraction.extraction_confidence or 0.0)
+        extraction.extraction_confidence = round(min(mean_score, max(original, mean_score) ), 3)
+
+    _annotate_field_confidence(extraction, field_scores)
+    return extraction
+
+
+def _invoke_for_extraction(db: Session, provider: str, api_key: str, prompt: str) -> ExtractionEnvelope:
+    if provider == "mistral":
+        return _invoke_mistral(get_ai_model(db), api_key, prompt)
+    model = ChatGroq(model=get_ai_model(db), api_key=api_key, temperature=0.0)
+    structured = model.with_structured_output(ExtractionEnvelope)
+    return structured.invoke(prompt)  # type: ignore[return-value]
+
+
+# ── Field-level scoring ────────────────────────────────────────────────────────
+
+# Required fields per record type. Used to decide what counts as a "weak"
+# extraction worth re-prompting for.
+_REQUIRED_FIELDS_BY_TYPE: dict[str, tuple[str, ...]] = {
+    "job": ("title", "country", "employer", "deadline_text", "application_url"),
+    "scholarship": ("title", "country", "deadline_text", "application_url"),
+    "policy_update": ("title", "summary"),
+    "unknown": (),
+}
+
+
+def _score_extraction_fields(extraction: ExtractionBase) -> dict[str, float]:
+    """Per-field confidence in [0, 1]. 1.0 = present and well-formed,
+    0.0 = absent. Used both to compute the rolled-up extraction_confidence and
+    to surface a colour-coded view in the review UI."""
+    import re as _re
+    from datetime import date as _date
+
+    scores: dict[str, float] = {}
+
+    def text_score(value: str | None, *, min_len: int = 3) -> float:
+        if not value or not str(value).strip():
+            return 0.0
+        clean = str(value).strip()
+        if len(clean) < min_len:
+            return 0.4
+        return 1.0
+
+    def list_score(value: list | None) -> float:
+        if not value:
+            return 0.0
+        usable = [v for v in value if v and str(v).strip()]
+        if not usable:
+            return 0.0
+        return min(1.0, 0.5 + 0.1 * len(usable))
+
+    scores["title"] = text_score(extraction.title, min_len=4)
+    scores["title_bn"] = text_score(extraction.title_bn, min_len=2)
+    scores["summary"] = text_score(extraction.summary, min_len=20)
+    scores["summary_bn"] = text_score(extraction.summary_bn, min_len=10)
+    scores["summary_en"] = text_score(extraction.summary_en, min_len=10)
+    scores["country"] = text_score(extraction.country, min_len=2)
+    scores["employer"] = text_score(extraction.employer or extraction.organization, min_len=2)
+    scores["sector"] = text_score(extraction.sector, min_len=2)
+
+    # Deadline must be future and parseable as a date.
+    deadline_score = 0.0
+    if extraction.deadline_text:
+        match = _re.match(r"(\d{4})-(\d{2})-(\d{2})", extraction.deadline_text.strip())
+        if match:
+            try:
+                d = _date(int(match.group(1)), int(match.group(2)), int(match.group(3)))
+                deadline_score = 1.0 if d >= _date.today() else 0.4
+            except ValueError:
+                deadline_score = 0.3
+        else:
+            deadline_score = 0.3
+    scores["deadline_text"] = deadline_score
+
+    # Salary: all-or-nothing for the trio.
+    has_salary_value = extraction.salary_min is not None or extraction.salary_max is not None
+    has_currency = bool(extraction.salary_currency)
+    if has_salary_value and has_currency:
+        scores["salary"] = 1.0
+    elif has_salary_value or has_currency:
+        scores["salary"] = 0.5
+    else:
+        scores["salary"] = 0.0
+
+    # Application URL: must be http(s) and look like a URL.
+    url_score = 0.0
+    if extraction.application_url:
+        u = extraction.application_url.strip()
+        if u.startswith("http://") or u.startswith("https://"):
+            url_score = 1.0 if "." in u else 0.4
+    scores["application_url"] = url_score
+
+    scores["eligibility_text"] = text_score(extraction.eligibility_text, min_len=15)
+    scores["requirements"] = list_score(extraction.requirements)
+    scores["benefits"] = list_score(extraction.benefits)
+    scores["journey_steps"] = list_score(extraction.journey_steps)
+    scores["documents_needed"] = list_score(extraction.documents_needed)
+
+    return scores
+
+
+def _select_weak_required_fields(extraction: ExtractionBase, scores: dict[str, float]) -> list[str]:
+    """Required fields whose score is < 0.5. These get a targeted re-prompt."""
+    required = _REQUIRED_FIELDS_BY_TYPE.get(extraction.record_type, ())
+    return [name for name in required if scores.get(name, 0.0) < 0.5]
+
+
+def _self_correct(
+    db: Session,
+    provider: str,
+    api_key: str,
+    body_text: str,
+    extraction: ExtractionBase,
+    weak_fields: list[str],
+) -> dict[str, Any]:
+    """Re-prompt the LLM asking only for the weak fields. Returns a partial dict."""
+    import json as _json
+
+    field_descriptions = "\n".join(f"- {name}" for name in weak_fields)
+    known = {
+        "title": extraction.title,
+        "country": extraction.country,
+        "employer": extraction.employer or extraction.organization,
+        "record_type": extraction.record_type,
+    }
+    prompt = (
+        "You previously extracted an opportunity from a web page but the following "
+        "required fields are missing or look wrong. Re-read the page text and "
+        "return ONLY a JSON object whose keys are these fields:\n\n"
+        f"{field_descriptions}\n\n"
+        "Use the same schema as before (deadline_text in YYYY-MM-DD, application_url "
+        "must start with http, etc.). If a field truly isn't on the page, set it to "
+        "null — do NOT invent values.\n\n"
+        f"Already-known context (do not change these): {_json.dumps(known, ensure_ascii=False)}\n\n"
+        f"Page text:\n{body_text}\n\n"
+        "Respond ONLY with a JSON object containing just the requested fields."
+    )
+
+    if provider == "mistral":
+        response = httpx.post(
+            "https://api.mistral.ai/v1/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={
+                "model": get_ai_model(db),
+                "temperature": 0.0,
+                "messages": [
+                    {"role": "system", "content": "Return only valid JSON for the requested fields."},
+                    {"role": "user", "content": prompt},
+                ],
+            },
+            timeout=45,
+        )
+        response.raise_for_status()
+        content = response.json()["choices"][0]["message"]["content"]
+        return _json.loads(_strip_code_fences(content))
+
+    model = ChatGroq(model=get_ai_model(db), api_key=api_key, temperature=0.0)
+    raw = str(model.invoke(prompt).content)
+    return _json.loads(_strip_code_fences(raw))
+
+
+def _apply_self_correction(extraction: ExtractionBase, patch: dict[str, Any], allowed: list[str]) -> None:
+    """Apply only the allowed keys from `patch`. Skip None and empty values
+    (they don't help — keep whatever we had)."""
+    for key in allowed:
+        if key not in patch:
+            continue
+        value = patch[key]
+        if value is None or (isinstance(value, str) and not value.strip()):
+            continue
+        if hasattr(extraction, key):
+            setattr(extraction, key, value)
+
+
+def _annotate_field_confidence(extraction: ExtractionBase, scores: dict[str, float]) -> None:
+    """Set the per-field confidence map. The pipeline persists this as part of
+    extracted_json so the review UI can colour-code fields."""
+    extraction.field_confidences = {k: round(v, 3) for k, v in scores.items()}
 
 
 def extract_jobs_structured(db: Session, cleaned: dict[str, Any], *, max_jobs: int = 10) -> list[JobOpportunityExtraction]:

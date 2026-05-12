@@ -2,8 +2,8 @@ import { cookies } from "next/headers";
 
 import bn from "@/messages/bn.json";
 import en from "@/messages/en.json";
+import type { Locale } from "@/lib/i18n-shared";
 
-type Locale = "bn" | "en";
 type Messages = typeof bn;
 type Namespace = keyof Messages;
 

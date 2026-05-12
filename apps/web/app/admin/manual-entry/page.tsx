@@ -24,13 +24,13 @@ export default async function AdminManualEntryPage() {
             <p className="text-sm text-muted-foreground">
               {isEn
                 ? "Paste a full job post or upload a CSV/XLSX sheet and send everything into the same pending-review queue used by crawled opportunities."
-                : "সম্পূর্ণ চাকরির বিবরণ পেস্ট করুন অথবা CSV/XLSX শিট আপলোড করুন, তারপর সবকিছু একই pending-review queue-তে পাঠান যেখানে crawl করা সুযোগগুলো যায়।"}
+                : "সম্পূর্ণ চাকরির বিবরণ পেস্ট করুন অথবা CSV/XLSX শিট আপলোড করুন, তারপর সবকিছু একই pending-review queue-তে পাঠান যেখানে crawl করা সুযোগগুলো যায়।"}
             </p>
           </div>
         </div>
       </div>
 
-      <AdminManualEntryForm isEn={isEn} />
+      <AdminManualEntryForm />
     </div>
   );
 }

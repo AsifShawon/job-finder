@@ -16,6 +16,7 @@ class PublishedOpportunityCard(BaseModel):
     id: int
     title: str
     title_bn: str | None = None
+    title_en: str | None = None
     opportunity_type: str | None = None
     country: str | None = None
     destination_country: str | None = None
@@ -25,6 +26,8 @@ class PublishedOpportunityCard(BaseModel):
     salary_max: float | None = None
     salary_currency: str | None = None
     salary_text: str | None = None
+    salary_text_bn: str | None = None
+    salary_text_en: str | None = None
     deadline: date | None = None
     source_page_url: str = ""
     document_url: str | None = None
@@ -56,20 +59,42 @@ class PublishedOpportunityDetail(PublishedOpportunityCard):
     """Full detail page — maps to PublishedOpportunity with all fields."""
     summary_en: str | None = None
     job_title: str | None = None
+    job_title_bn: str | None = None
+    job_title_en: str | None = None
     skill_level: str | None = None
     location_text: str | None = None
+    location_text_bn: str | None = None
+    location_text_en: str | None = None
     posted_date: date | None = None
     eligibility_text: str | None = None
+    eligibility_text_bn: str | None = None
+    eligibility_text_en: str | None = None
     required_documents: str | None = None
+    required_documents_bn: str | None = None
+    required_documents_en: str | None = None
     application_process: str | None = None
+    application_process_bn: str | None = None
+    application_process_en: str | None = None
     education_requirement: str | None = None
+    education_requirement_bn: str | None = None
+    education_requirement_en: str | None = None
     experience_requirement: str | None = None
+    experience_requirement_bn: str | None = None
+    experience_requirement_en: str | None = None
     language_requirement: str | None = None
+    language_requirement_bn: str | None = None
+    language_requirement_en: str | None = None
     age_requirement: str | None = None
     gender_requirement: str | None = None
     visa_or_work_permit_info: str | None = None
+    visa_or_work_permit_info_bn: str | None = None
+    visa_or_work_permit_info_en: str | None = None
     journey_steps: list[str] = []
+    journey_steps_bn: list[str] = []
+    journey_steps_en: list[str] = []
     documents_needed: list[str] = []
+    documents_needed_bn: list[str] = []
+    documents_needed_en: list[str] = []
     typical_salary_bdt: int | None = None
     extraction_confidence: float = 0.0
     connector_key: str | None = None
@@ -88,6 +113,7 @@ class PublishedOpportunityDetail(PublishedOpportunityCard):
     requirements_json: dict[str, Any] | None = None
     benefits_json: dict[str, Any] | None = None
     language_requirements_json: dict[str, Any] | None = None
+    mirror_urls: list[str] = []
 
 
 class PublishedSearchResponse(Page[PublishedOpportunityCard]):

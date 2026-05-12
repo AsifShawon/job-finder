@@ -6,10 +6,11 @@ import { cn } from "@/lib/utils";
 interface BilingualSummaryProps {
   summaryBn: string | null;
   summaryEn: string | null;
+  initialLocale?: "bn" | "en";
 }
 
-export function BilingualSummary({ summaryBn, summaryEn }: BilingualSummaryProps) {
-  const [activeTab, setActiveTab] = useState<"bn" | "en">("bn");
+export function BilingualSummary({ summaryBn, summaryEn, initialLocale = "bn" }: BilingualSummaryProps) {
+  const [activeTab, setActiveTab] = useState<"bn" | "en">(initialLocale);
 
   if (!summaryBn && !summaryEn) return null;
 

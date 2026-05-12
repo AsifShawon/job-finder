@@ -144,6 +144,9 @@ class ReviewQueueOut(BaseModel):
     connector_key: str | None = None
     raw_text: str | None = None
     created_at: datetime
+    # Per-field confidence map produced by the multi-step extractor.
+    # Keys are field names (e.g. 'title', 'deadline_text', 'salary'); values 0..1.
+    field_confidences: dict[str, float] | None = None
     # Legacy compat
     record_type: str | None = None
     source_url: str | None = None
@@ -156,6 +159,50 @@ class ReviewQueuePage(Page[ReviewQueueOut]):
 class ReviewStatusUpdate(BaseModel):
     status: str  # approved | rejected | needs_manual_fix
     note: str | None = None
+
+
+class ManualEntryPrefillRequest(BaseModel):
+    """Input for `POST /admin/manual-entry/prefill` — fetch a URL, run extraction,
+    return form-ready fields without writing to the DB."""
+    url: str = Field(min_length=4, max_length=2048)
+
+
+class ManualEntryPrefillResponse(BaseModel):
+    """Form-shaped payload returned by the prefill endpoint. Each field maps 1:1
+    to a `FormState` field on the frontend manual-entry form. All optional —
+    the reviewer fills the gaps before submit."""
+    title: str | None = None
+    title_bn: str | None = None
+    summary_en: str | None = None
+    summary_bn: str | None = None
+    raw_description: str | None = None
+    country: str | None = None
+    employer: str | None = None
+    deadline: str | None = None
+    opportunity_type: str | None = None
+    sector: str | None = None
+    degree_level: str | None = None
+    salary_min: float | None = None
+    salary_max: float | None = None
+    salary_currency: str | None = None
+    application_url: str | None = None
+    eligibility_text: str | None = None
+    eligibility_text_bn: str | None = None
+    application_process: str | None = None
+    application_process_bn: str | None = None
+    visa_support: bool | None = None
+    can_apply_from_bd: bool | None = None
+    requirements: list[str] = []
+    benefits: list[str] = []
+    language_requirements: list[str] = []
+    journey_steps: list[str] = []
+    journey_steps_bn: list[str] = []
+    documents_needed: list[str] = []
+    documents_needed_bn: list[str] = []
+    typical_salary_bdt: int | None = None
+    extraction_confidence: float = 0.0
+    fetched_url: str
+    warnings: list[str] = []
 
 
 class ManualJobEntryRequest(BaseModel):
@@ -178,13 +225,18 @@ class ManualJobEntryRequest(BaseModel):
     salary_currency: str | None = None
     application_url: str | None = None
     eligibility_text: str | None = None
+    eligibility_text_bn: str | None = None
+    application_process: str | None = None
+    application_process_bn: str | None = None
     visa_support: bool | None = None
     can_apply_from_bd: bool | None = None
     requirements: list[str] | None = None
     benefits: list[str] | None = None
     language_requirements: list[str] | None = None
     journey_steps: list[str] | None = None
+    journey_steps_bn: list[str] | None = None
     documents_needed: list[str] | None = None
+    documents_needed_bn: list[str] | None = None
     typical_salary_bdt: int | None = None
 
 

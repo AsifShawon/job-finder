@@ -77,6 +77,7 @@ export interface PublishedOpportunityCard {
   id: number;
   title: string;
   title_bn: string | null;
+  title_en: string | null;
   opportunity_type: OpportunityType | null;
   country: string | null;
   destination_country: string | null;
@@ -86,6 +87,8 @@ export interface PublishedOpportunityCard {
   salary_max: number | null;
   salary_currency: string | null;
   salary_text: string | null;
+  salary_text_bn: string | null;
+  salary_text_en: string | null;
   deadline: string | null;
   source_page_url: string;
   document_url: string | null;
@@ -116,20 +119,42 @@ export interface PublishedOpportunityCard {
 export interface PublishedOpportunityDetail extends PublishedOpportunityCard {
   summary_en: string | null;
   job_title: string | null;
+  job_title_bn: string | null;
+  job_title_en: string | null;
   skill_level: string | null;
   location_text: string | null;
+  location_text_bn: string | null;
+  location_text_en: string | null;
   posted_date: string | null;
   eligibility_text: string | null;
+  eligibility_text_bn: string | null;
+  eligibility_text_en: string | null;
   required_documents: string | null;
+  required_documents_bn: string | null;
+  required_documents_en: string | null;
   application_process: string | null;
+  application_process_bn: string | null;
+  application_process_en: string | null;
   education_requirement: string | null;
+  education_requirement_bn: string | null;
+  education_requirement_en: string | null;
   experience_requirement: string | null;
+  experience_requirement_bn: string | null;
+  experience_requirement_en: string | null;
   language_requirement: string | null;
+  language_requirement_bn: string | null;
+  language_requirement_en: string | null;
   age_requirement: string | null;
   gender_requirement: string | null;
   visa_or_work_permit_info: string | null;
+  visa_or_work_permit_info_bn: string | null;
+  visa_or_work_permit_info_en: string | null;
   journey_steps: string[];
+  journey_steps_bn: string[];
+  journey_steps_en: string[];
   documents_needed: string[];
+  documents_needed_bn: string[];
+  documents_needed_en: string[];
   typical_salary_bdt: number | null;
   extraction_confidence: number;
   connector_key: string | null;
@@ -148,6 +173,7 @@ export interface PublishedOpportunityDetail extends PublishedOpportunityCard {
   requirements_json?: { items?: string[] } | null;
   benefits_json?: { items?: string[] } | null;
   language_requirements_json?: { items?: string[] } | null;
+  mirror_urls: string[];
 }
 
 export interface SearchResponse {
@@ -159,6 +185,62 @@ export interface SearchResponse {
 
 export interface SimilarOpportunityResponse {
   items: PublishedOpportunityCard[];
+}
+
+export interface CopilotSuggestedFollowUp {
+  text: string;
+}
+
+export interface CopilotChatCitation {
+  opportunity_id: number;
+  title: string;
+  title_bn: string | null;
+  title_en: string | null;
+  opportunity_type: OpportunityType | null;
+  country: string | null;
+  destination_country: string | null;
+  deadline: string | null;
+  employer_or_organization: string | null;
+  salary_min: number | null;
+  salary_max: number | null;
+  salary_currency: string | null;
+  salary_text: string | null;
+  salary_text_bn: string | null;
+  can_apply_from_bd: boolean | null;
+  source_trust_badge: string | null;
+  source_url: string;
+  is_saved: boolean;
+  why_this_matches: string;
+  summary: string | null;
+  summary_bn: string | null;
+}
+
+export interface CopilotMessage {
+  id: number;
+  role: "user" | "assistant";
+  content: string;
+  citations: CopilotChatCitation[];
+  suggested_follow_ups: CopilotSuggestedFollowUp[];
+  created_at: string;
+}
+
+export interface CopilotConversationListItem {
+  id: number;
+  title: string;
+  locale: "bn" | "en";
+  last_message_preview: string | null;
+  updated_at: string;
+  last_message_at: string;
+}
+
+export interface CopilotConversationDetail {
+  id: number;
+  title: string;
+  locale: "bn" | "en";
+  created_at: string;
+  updated_at: string;
+  last_message_at: string;
+  messages: CopilotMessage[];
 }
 
 // ── Opportunity Draft (admin review queue) ────────────────────────────────────
@@ -197,6 +279,7 @@ export interface DraftItem {
   connector_key: string | null;
   raw_text: string | null;
   created_at: string;
+  field_confidences: Record<string, number> | null;
   // backward compat
   record_type: RecordType | null;
   source_url: string | null;

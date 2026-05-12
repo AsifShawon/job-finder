@@ -107,13 +107,13 @@ function FilterFields({
                 type="button"
                 onClick={() => setValues((current) => ({ ...current, opportunity_type: value }))}
                 className={cn(
-                  "flex items-center gap-2 rounded-2xl border px-4 py-3 text-left text-sm font-semibold transition-colors",
+                  "flex items-center gap-2 rounded-2xl border px-4 py-3 text-left text-sm font-bold transition-all",
                   active
-                    ? "border-primary bg-primary text-white"
-                    : "border-border bg-background text-foreground hover:border-primary hover:text-primary",
+                    ? "border-primary bg-primary text-white shadow-md shadow-primary/20"
+                    : "border-border bg-background text-foreground hover:border-primary/50 hover:bg-primary/5",
                 )}
               >
-                <Icon className="h-4 w-4" />
+                <Icon className={cn("h-4 w-4", active ? "text-white" : "text-primary")} />
                 <span>{labelText}</span>
               </button>
             );
