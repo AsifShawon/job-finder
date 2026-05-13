@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   Banknote,
+  Briefcase,
   Calendar,
   CheckCircle,
   ExternalLink,

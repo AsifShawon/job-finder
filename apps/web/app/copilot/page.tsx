@@ -1,4 +1,4 @@
-import { CopilotForm } from "@/app/copilot/copilot-form";
+import { SudokkhoChatShell } from "@/app/copilot/sudokkho-chat-shell";
 import { getLocale } from "@/lib/i18n";
 import { requireCurrentUser } from "@/lib/server-auth-fetch";
 
@@ -12,8 +12,9 @@ export default async function CopilotPage({
   const initialQuestion = params.q ?? "";
 
   return (
-    <div className="min-h-screen bg-background">
-      <CopilotForm initialQuestion={initialQuestion} initialLocale={locale === "en" ? "en" : "bn"} />
-    </div>
+    <SudokkhoChatShell
+      initialQuestion={initialQuestion}
+      initialLocale={locale === "en" ? "en" : "bn"}
+    />
   );
 }

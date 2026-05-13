@@ -24,7 +24,7 @@ const BOTTOM_NAV = [
   { icon: Home, label: "হোম", labelEn: "Home", href: "/" },
   { icon: Search, label: "চাকরি", labelEn: "Jobs", href: "/search?record_type=job" },
   { icon: Bookmark, label: "সংরক্ষিত", labelEn: "Saved", href: "/saved" },
-  { icon: Bell, label: "সতর্কতা", labelEn: "Alerts", href: "/alerts" },
+  { icon: Sparkles, label: "সুদক্ষ AI", labelEn: "Sudokkho AI", href: "/copilot" },
 ] as const;
 
 const NAV_LINKS = [
@@ -34,6 +34,7 @@ const NAV_LINKS = [
   { href: "/search?trust_tier=official_gov", label: "সরকারি নোটিশ", labelEn: "Official Notices", icon: LayoutDashboard },
   { href: "/saved", label: "সংরক্ষিত", labelEn: "Saved", icon: Bookmark },
   { href: "/alerts", label: "সতর্কতা", labelEn: "Alerts", icon: Bell },
+  { href: "/copilot", label: "সুদক্ষ AI", labelEn: "Sudokkho AI", icon: Sparkles },
   { href: "/help", label: "সাহায্য", labelEn: "Help", icon: Sparkles },
 ] as const;
 
@@ -125,7 +126,7 @@ export function MobileBottomNav() {
                     return (
                       <Link
                         key={href}
-                        href={href}
+                        href={href as any}
                         onClick={() => setOpen(false)}
                         className={cn(
                           "flex items-center gap-3 rounded-2xl border px-4 py-3 text-sm font-semibold transition-colors",

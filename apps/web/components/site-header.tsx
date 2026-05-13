@@ -19,6 +19,7 @@ const NAV_LINKS: Array<{ label: string; labelEn: string; href: Route }> = [
   { label: "সরকারি নোটিশ", labelEn: "Official Notices", href: "/search?trust_tier=official_gov" as Route },
   { label: "সংরক্ষিত", labelEn: "Saved", href: "/saved" as Route },
   { label: "সতর্কতা", labelEn: "Alerts", href: "/alerts" as Route },
+  { label: "সুদক্ষ AI", labelEn: "Sudokkho AI", href: "/copilot" as Route },
   { label: "সাহায্য", labelEn: "Help", href: "/help" as Route },
 ];
 

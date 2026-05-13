@@ -12,7 +12,7 @@ import {
   Sparkles,
 } from "lucide-react";
 
-import { Hero } from "@/components/hero";
+import { HeroSlider } from "@/components/hero-slider";
 import { NewsTicker } from "@/components/news-ticker";
 import { OpportunityCard } from "@/components/opportunity-card";
 import { Card } from "@/components/ui/card";
@@ -153,7 +153,7 @@ export default async function HomePage() {
 
   return (
     <main className="space-y-8 bg-background pb-8">
-      <Hero isEn={isEn} />
+      <HeroSlider />
       <div className="bg-card py-4 border-y border-border">
         <NewsTicker items={tickerItems} />
       </div>
@@ -273,18 +273,18 @@ export default async function HomePage() {
             <div className="rounded-2xl border border-primary/20 bg-primary/5 p-5">
               <div className="mb-3 flex items-center gap-2">
                 <Sparkles className="h-5 w-5 text-primary" />
-                <h3 className="text-base font-semibold text-foreground">AI Copilot</h3>
+                <h3 className="text-base font-semibold text-foreground">{isEn ? "Sudokkho AI" : "সুদক্ষ AI"}</h3>
               </div>
-              <p className="text-muted-foreground">
+              <p className="text-muted-foreground text-sm leading-relaxed">
                 {isEn
-                  ? "Ask AI to explain a listing, compare countries, or help you prepare next steps."
-                  : "AI-কে দিয়ে সুযোগ বুঝুন, দেশ তুলনা করুন, আর পরের করণীয় জেনে নিন।"}
+                  ? "Ask Sudokkho AI to explain a listing, compare countries, or help you prepare next steps."
+                  : "সুদক্ষ AI-কে দিয়ে সুযোগ বুঝুন, দেশ তুলনা করুন, আর পরের করণীয় জেনে নিন।"}
               </p>
               <Link
                 href="/copilot"
                 className="mt-4 inline-flex items-center gap-2 rounded-full bg-primary px-5 py-3 text-sm font-bold text-white transition-opacity hover:opacity-90"
               >
-                <span>{isEn ? "Ask AI" : "AI-কে জিজ্ঞেস করুন"}</span>
+                <span>{isEn ? "Ask Sudokkho AI" : "সুদক্ষ AI-কে জিজ্ঞেস করুন"}</span>
                 <ArrowRight className="h-4 w-4" />
               </Link>
             </div>
