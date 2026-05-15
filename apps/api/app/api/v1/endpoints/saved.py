@@ -19,6 +19,8 @@ def save(
         select(Opportunity).where(
             Opportunity.id == opportunity_id,
             Opportunity.status == "published",
+            Opportunity.is_active.is_(True),
+            Opportunity.admin_status.notin_(["hidden", "archived", "inactive", "rejected"]),
         )
     )
     if not opp:
@@ -66,7 +68,11 @@ def list_saved(
         select(Opportunity)
         .join(SavedOpportunity, SavedOpportunity.opportunity_id == Opportunity.id)
         .where(SavedOpportunity.user_id == user.id)
-        .where(Opportunity.status == "published")
+        .where(
+            Opportunity.status == "published",
+            Opportunity.is_active.is_(True),
+            Opportunity.admin_status.notin_(["hidden", "archived", "inactive", "rejected"]),
+        )
         .order_by(SavedOpportunity.created_at.desc())
     ).all()
 
@@ -77,6 +83,8 @@ def list_saved(
             destination_country=p.destination_country,
             employer_or_organization=p.employer_or_organization,
             sector=p.sector,
+            platform_category_bn=p.platform_category_bn,
+            platform_category_en=p.platform_category_en,
             salary_min=float(p.salary_min) if p.salary_min is not None else None,
             salary_max=float(p.salary_max) if p.salary_max is not None else None,
             salary_currency=p.salary_currency, salary_text=p.salary_text,
@@ -91,7 +99,11 @@ def list_saved(
             lmia_status=p.lmia_status, eligibility_status=p.eligibility_status,
             target_audience_tags=p.target_audience_tags or [],
             risk_flags=p.risk_flags or [],
-            trust_score=p.trust_score, overall_rank_score=p.overall_rank_score,
+            trust_score=p.trust_score,
+            bangladesh_applicability=p.bangladesh_applicability,
+            rural_user_fit_score=p.rural_user_fit_score,
+            actionability_score=p.actionability_score,
+            overall_rank_score=p.overall_rank_score,
             published_at=p.published_at, is_saved=True,
             why_this_matches="সংরক্ষিত সুযোগ",
             summary=p.summary_bn or p.summary_en, summary_bn=p.summary_bn,

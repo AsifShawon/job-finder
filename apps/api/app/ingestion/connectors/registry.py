@@ -16,6 +16,12 @@ from app.ingestion.connectors.rss_connector import RSSSourceConnector
 from app.ingestion.connectors.search_html_jobs_connector import SearchHTMLJobsConnector
 from app.ingestion.connectors.static_html_connector import StaticHTMLConnector
 from app.ingestion.connectors.usa_jobs_api import USAJobsAPIConnector
+from app.ingestion.connectors.official_saudi import (
+    AlfanarSuccessFactorsConnector,
+    AramcoSuccessFactorsConnector,
+    MaharahPostsConnector,
+    TamimiCareersConnector,
+)
 
 # Keyed by ConnectorKey enum value strings
 CONNECTOR_KEY_MAP: dict[str, type] = {
@@ -36,6 +42,10 @@ CONNECTOR_KEY_MAP: dict[str, type] = {
     "eures_connector": EURESConnector,
     "usa_jobs_api": USAJobsAPIConnector,
     "reliefweb_api": ReliefWebAPIConnector,
+    "successfactors_alfanar": AlfanarSuccessFactorsConnector,
+    "successfactors_aramco": AramcoSuccessFactorsConnector,
+    "tamimi_careers": TamimiCareersConnector,
+    "maharah_posts": MaharahPostsConnector,
     # Canada
     "jobbank_linkout": JobBankLinkoutConnector,
     "jobbank_open_data_or_linkout": JobBankConnector,   # legacy

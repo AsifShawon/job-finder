@@ -143,6 +143,7 @@ def _retrieve(db: Session, question: str) -> list[Opportunity]:
         select(Opportunity)
         .join(OpportunityEmbedding, OpportunityEmbedding.opportunity_id == Opportunity.id)
         .where(Opportunity.status == "published", Opportunity.is_active.is_(True))
+        .where(Opportunity.admin_status.notin_(["hidden", "archived", "inactive", "rejected"]))
         .order_by(distance)
         .limit(_TOP_K)
     )
@@ -172,6 +173,9 @@ def _generate_answer(
         f"Write follow-up suggestions in {follow_up_language}.\n\n"
         "Use the conversation history only to understand continuity and pronouns. "
         "Use fresh retrieval context for facts.\n\n"
+        "Explain why a job may fit the user, education/experience needed, Bangladesh suitability, "
+        "documents, warnings, and safe application steps when present. Never claim guaranteed visa, "
+        "guaranteed job, or guaranteed selection.\n\n"
         "Cite specific opportunities by their ID number in square brackets, "
         "e.g. [#42], so the UI can deep-link them. Mention 2-3 most relevant "
         "opportunities. If the context doesn't contain a good match, say so honestly.\n\n"
@@ -268,6 +272,19 @@ def _opp_to_context(opp: Opportunity) -> str:
         lines.append(f"Salary: {salary}")
     if opp.eligibility_text:
         lines.append(f"Eligibility: {opp.eligibility_text[:300]}")
+    if opp.education_min or opp.education_requirement:
+        lines.append(f"Education: {(opp.education_min or opp.education_requirement)[:220]}")
+    if opp.experience_min_years is not None or opp.experience_requirement:
+        lines.append(f"Experience: {opp.experience_min_years if opp.experience_min_years is not None else opp.experience_requirement}")
+    if opp.bangladesh_applicability:
+        lines.append(f"Bangladesh suitability: {opp.bangladesh_applicability} - {opp.bangladesh_applicability_reason or 'No reason recorded'}")
+    if opp.documents_needed or opp.documents_required:
+        docs = opp.documents_needed or opp.documents_required
+        lines.append(f"Documents: {', '.join(docs[:6])}")
+    if opp.extraction_warnings:
+        lines.append(f"Warnings: {', '.join(opp.extraction_warnings[:5])}")
+    if opp.application_url or opp.original_apply_url:
+        lines.append(f"Apply safely through: {opp.application_url or opp.original_apply_url}")
     summary = opp.summary_bn or opp.summary_en or opp.summary
     if summary:
         lines.append(f"Summary: {summary[:400]}")

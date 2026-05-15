@@ -27,6 +27,8 @@ const ELIGIBILITY_LABELS: Record<string, { bn: string; cls: string }> = {
   not_relevant:           { bn: "প্রযোজ্য নয়",           cls: "bg-slate-100 border-slate-200 text-slate-500 dark:bg-slate-800 dark:text-slate-400" },
 };
 
+const OFFICIAL_CONNECTORS = new Set(["successfactors_alfanar", "successfactors_aramco", "tamimi_careers", "maharah_posts"]);
+
 // Map a per-field confidence in [0, 1] to a tailwind text-color class.
 // Used to colour-code displayed fields so the reviewer sees at a glance which
 // pieces of the extraction the AI was confident about.
@@ -603,6 +605,7 @@ export function AdminReviewTable({
                       {isEn ? "Reject" : "প্রত্যাখ্যান"}
                     </button>
                   )}
+                  {!OFFICIAL_CONNECTORS.has(item.connector_key ?? "") && (
                   <button
                     onClick={() => doDelete(item.id)}
                     disabled={bulkBusy || busy === item.id || translating === item.id || reExtracting === item.id || deletingId === item.id}
@@ -613,6 +616,7 @@ export function AdminReviewTable({
                       ? (isEn ? "Deleting..." : "মুছা হচ্ছে...")
                       : (isEn ? "Delete" : "মুছুন")}
                   </button>
+                  )}
                 </div>
               </div>
 

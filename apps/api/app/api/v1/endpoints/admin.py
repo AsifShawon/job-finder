@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.core.deps import get_admin_user, get_db
 from app.ingestion.eligibility_engine import tag_eligibility
 from app.ingestion.extractor import extract_structured
+from app.ingestion.official_sources import ensure_official_sources
 from app.ingestion.scrapeability import check_scrapeability
 from app.ingestion.validators import parse_deadline
 from app.models.entities import (
@@ -57,7 +58,7 @@ from app.schemas.admin import (
     TriggerAllResult,
 )
 from app.schemas.common import MessageResponse
-from app.schemas.opportunity import RawDocumentOut
+from app.schemas.opportunity import RawDocumentOut, RawDocumentPage
 from app.schemas.source import SourceCreate, SourceOut, SourceUpdate
 from app.services.runtime_settings_service import (
     AI_API_KEY,
@@ -635,6 +636,14 @@ def _serialize_sources(db: Session, sources: list[Source]) -> list[AdminSourceOu
                 first_crawl_mode=src.first_crawl_mode,
                 feed_type=src.feed_type,
                 auto_publish=src.auto_publish or False,
+                is_official_seed_source=src.is_official_seed_source,
+                is_deletable=src.is_deletable,
+                settings_json=src.settings_json or {},
+                last_status=src.last_status,
+                discovered_item_count=src.discovered_item_count,
+                imported_job_count=src.imported_job_count,
+                skipped_item_count=src.skipped_item_count,
+                needs_review_count=src.needs_review_count,
                 target_audience=src.target_audience or [],
                 search_keywords=src.search_keywords or [],
                 enabled=src.enabled if src.enabled is not None else src.is_active,
@@ -726,6 +735,16 @@ def _draft_to_review_out(draft: Opportunity, source_name: str | None) -> ReviewQ
         risk_flags=draft.risk_flags or [],
         source_trust_badge=draft.source_trust_badge,
         connector_key=draft.connector_key,
+        admin_status=draft.admin_status,
+        platform_category_bn=draft.platform_category_bn,
+        platform_category_en=draft.platform_category_en,
+        bangladesh_applicability=draft.bangladesh_applicability,
+        bangladesh_applicability_reason=draft.bangladesh_applicability_reason,
+        rural_user_fit_score=draft.rural_user_fit_score,
+        actionability_score=draft.actionability_score,
+        trust_score=draft.trust_score,
+        overall_rank_score=draft.overall_rank_score,
+        extraction_warnings=draft.extraction_warnings or [],
         raw_text=(draft.raw_text or draft.extracted_text or "")[:2000] or None,
         created_at=draft.created_at,
         field_confidences=(draft.extracted_json or {}).get("field_confidences") if isinstance(draft.extracted_json, dict) else None,
@@ -852,6 +871,7 @@ def update_ai_settings(
 
 @router.get("/sources", response_model=list[AdminSourceOut])
 def list_sources(db: Session = Depends(get_db), _: User = Depends(get_admin_user)) -> list[AdminSourceOut]:
+    ensure_official_sources(db)
     sources = db.scalars(select(Source).order_by(Source.created_at.desc())).all()
     return _serialize_sources(db, sources)
 
@@ -899,6 +919,8 @@ def delete_source(source_id: int, db: Session = Depends(get_db), _: User = Depen
     source = db.scalar(select(Source).where(Source.id == source_id))
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")
+    if source.is_official_seed_source or not source.is_deletable:
+        raise HTTPException(status_code=409, detail="Official seed sources cannot be deleted")
     db.delete(source)
     db.commit()
     logger.info("admin_source_deleted", extra={"source_id": source_id})
@@ -1174,6 +1196,7 @@ def crawl_runs(
                 status=r.status, discovered_count=r.discovered_count,
                 parsed_count=r.parsed_count, duplicate_count=r.duplicate_count,
                 draft_created_count=r.draft_created_count, draft_updated_count=r.draft_updated_count,
+                unchanged_count=r.unchanged_count, skipped_count=r.skipped_count,
                 failed_count=r.failed_count, manual_review_count=r.manual_review_count,
                 started_at=r.started_at, finished_at=r.finished_at,
                 error_message=r.error_message, logs=r.logs,
@@ -1245,6 +1268,7 @@ def approve_draft(
 
     draft.status = "published"
     draft.review_status = "approved"
+    draft.admin_status = "auto_approved"
     draft.is_active = True
     draft.reviewed_by = admin.id
     draft.reviewed_at = datetime.now(UTC)
@@ -1274,6 +1298,7 @@ def reject_draft(
 
     draft.status = "rejected"
     draft.review_status = "rejected"
+    draft.admin_status = "rejected"
     draft.is_active = False
     draft.reviewed_by = admin.id
     draft.reviewed_at = datetime.now(UTC)
@@ -1296,6 +1321,7 @@ def needs_manual_fix(
 
     draft.status = "pending"
     draft.review_status = "needs_manual_fix"
+    draft.admin_status = "needs_review"
     draft.is_active = False
     draft.reviewed_by = admin.id
     draft.reviewed_at = datetime.now(UTC)
@@ -1385,6 +1411,9 @@ def delete_review_draft(
     draft = db.scalar(select(Opportunity).where(Opportunity.id == draft_id))
     if not draft:
         raise HTTPException(status_code=404, detail="Draft not found")
+    source = db.scalar(select(Source).where(Source.id == draft.source_id))
+    if source and source.is_official_seed_source:
+        raise HTTPException(status_code=409, detail="Crawled jobs from official sources cannot be hard deleted; archive, hide, reject, or mark inactive instead.")
 
     db.delete(draft)
     db.commit()
@@ -1400,7 +1429,7 @@ def set_review_status(
     admin: User = Depends(get_admin_user),
 ) -> ReviewQueueOut:
     """Legacy single-endpoint for approve/reject/needs_manual_fix (used by old frontend)."""
-    valid = {"approved", "rejected", "needs_manual_fix"}
+    valid = {"approved", "rejected", "needs_manual_fix", "hidden", "archived", "inactive", "needs_review", "auto_approved"}
     if payload.status not in valid:
         raise HTTPException(status_code=422, detail=f"status must be one of: {valid}")
 
@@ -1408,8 +1437,27 @@ def set_review_status(
         return approve_draft(opportunity_id, db=db, admin=admin)
     elif payload.status == "rejected":
         return reject_draft(opportunity_id, payload=payload, db=db, admin=admin)
-    else:
+    elif payload.status == "needs_manual_fix":
         return needs_manual_fix(opportunity_id, payload=payload, db=db, admin=admin)
+    draft = db.scalar(select(Opportunity).where(Opportunity.id == opportunity_id))
+    if not draft:
+        raise HTTPException(status_code=404, detail="Draft not found")
+    draft.admin_status = "needs_review" if payload.status == "needs_review" else payload.status
+    draft.needs_admin_review = payload.status == "needs_review"
+    if payload.status == "auto_approved":
+        draft.status = "published"
+        draft.review_status = "approved"
+        draft.is_active = True
+        draft.published_at = draft.published_at or datetime.now(UTC)
+    elif payload.status in {"hidden", "archived", "inactive"}:
+        draft.is_active = False
+        if draft.status == "published":
+            draft.status = "expired"
+    draft.reviewed_by = admin.id
+    draft.reviewed_at = datetime.now(UTC)
+    db.commit()
+    source_name = db.scalar(select(Source.name).where(Source.id == draft.source_id))
+    return _draft_to_review_out(draft, source_name)
 
 
 @router.patch("/review/{draft_id}", response_model=ReviewQueueOut)
@@ -2139,6 +2187,25 @@ def reset_all_data(db: Session = Depends(get_db), _: User = Depends(get_admin_us
 
 
 # ── Raw documents ──────────────────────────────────────────────────────────────
+
+@router.get("/raw-documents", response_model=RawDocumentPage)
+def raw_documents(
+    page: int = 1,
+    page_size: int = 20,
+    source_id: int | None = None,
+    crawl_run_id: int | None = None,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_admin_user),
+) -> RawDocumentPage:
+    stmt = select(RawDocument).order_by(RawDocument.fetched_at.desc(), RawDocument.id.desc())
+    if source_id:
+        stmt = stmt.where(RawDocument.source_id == source_id)
+    if crawl_run_id:
+        stmt = stmt.where(RawDocument.crawl_run_id == crawl_run_id)
+    total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+    items = db.scalars(stmt.offset((page - 1) * page_size).limit(page_size)).all()
+    return RawDocumentPage(items=items, total=total, page=page, page_size=page_size)
+
 
 @router.get("/raw-documents/{doc_id}", response_model=RawDocumentOut)
 def raw_document(doc_id: int, db: Session = Depends(get_db), _: User = Depends(get_admin_user)) -> RawDocumentOut:

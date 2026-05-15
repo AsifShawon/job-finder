@@ -21,6 +21,9 @@ class SourceBase(BaseModel):
 
     feed_type: str | None = None       # rss | html | api | pdf
     auto_publish: bool = False
+    is_official_seed_source: bool = False
+    is_deletable: bool = True
+    settings_json: dict = {}
 
     target_audience: list[str] = []
     search_keywords: list[str] = []
@@ -86,5 +89,10 @@ class SourceOut(SourceBase):
     last_crawled_at: datetime | None = None
     last_success_at: datetime | None = None
     last_error: str | None = None
+    last_status: str | None = None
+    discovered_item_count: int = 0
+    imported_job_count: int = 0
+    skipped_item_count: int = 0
+    needs_review_count: int = 0
     created_at: datetime
     updated_at: datetime

@@ -16,6 +16,7 @@ export type IngestionMode =
 export type ConnectorKey =
   | "generic_news" | "generic_rss" | "generic_pdf" | "generic_policy"
   | "search_html_jobs"
+  | "successfactors_alfanar" | "successfactors_aramco" | "tamimi_careers" | "maharah_posts"
   | "generic_scholarship" | "generic_training"
   | "boesl_brms" | "boesl_reports_pdf" | "bmet_connector" | "oep_connector"
   | "eures_connector" | "usa_jobs_api" | "reliefweb_api"
@@ -34,7 +35,8 @@ export type FirstCrawlMode =
   | "active_only" | "backfill_recent" | "backfill_all" | "preview_only" | "linkout_only";
 
 export type CrawlRunStatus =
-  | "queued" | "running" | "success" | "partial_success" | "failed";
+  | "queued" | "running" | "success" | "success_empty" | "partial_success" | "failed"
+  | "failed_config" | "skipped" | "skipped_recently" | "skipped_compliance" | "linkout_only_skipped";
 
 export type OpportunityType =
   | "overseas_job" | "local_job" | "scholarship" | "training"
@@ -83,6 +85,8 @@ export interface PublishedOpportunityCard {
   destination_country: string | null;
   employer_or_organization: string | null;
   sector: string | null;
+  platform_category_bn: string | null;
+  platform_category_en: string | null;
   salary_min: number | null;
   salary_max: number | null;
   salary_currency: string | null;
@@ -105,6 +109,9 @@ export interface PublishedOpportunityCard {
   target_audience_tags: string[];
   risk_flags: string[];
   trust_score: number;
+  bangladesh_applicability: string | null;
+  rural_user_fit_score: number;
+  actionability_score: number;
   overall_rank_score: number;
   published_at: string | null;
   is_saved: boolean;
@@ -122,6 +129,9 @@ export interface PublishedOpportunityDetail extends PublishedOpportunityCard {
   job_title_bn: string | null;
   job_title_en: string | null;
   skill_level: string | null;
+  education_min: string | null;
+  experience_min_years: number | null;
+  extraction_warnings: string[];
   location_text: string | null;
   location_text_bn: string | null;
   location_text_en: string | null;
@@ -158,6 +168,8 @@ export interface PublishedOpportunityDetail extends PublishedOpportunityCard {
   typical_salary_bdt: number | null;
   extraction_confidence: number;
   connector_key: string | null;
+  admin_status: string | null;
+  bangladesh_applicability_reason: string | null;
   created_at: string | null;
   updated_at: string | null;
   draft_id: number | null;
@@ -277,6 +289,16 @@ export interface DraftItem {
   risk_flags: string[];
   source_trust_badge: string | null;
   connector_key: string | null;
+  admin_status: string | null;
+  platform_category_bn: string | null;
+  platform_category_en: string | null;
+  bangladesh_applicability: string | null;
+  bangladesh_applicability_reason: string | null;
+  rural_user_fit_score: number;
+  actionability_score: number;
+  trust_score: number;
+  overall_rank_score: number;
+  extraction_warnings: string[];
   raw_text: string | null;
   created_at: string;
   field_confidences: Record<string, number> | null;
@@ -310,6 +332,14 @@ export interface AdminSource {
   first_crawl_mode: FirstCrawlMode | null;
   feed_type: FeedType | null;
   auto_publish: boolean;
+  is_official_seed_source: boolean;
+  is_deletable: boolean;
+  settings_json: Record<string, unknown>;
+  last_status: string | null;
+  discovered_item_count: number;
+  imported_job_count: number;
+  skipped_item_count: number;
+  needs_review_count: number;
   target_audience: string[];
   search_keywords: string[];
   enabled: boolean;
@@ -376,6 +406,8 @@ export interface CrawlRun {
   duplicate_count: number;
   draft_created_count: number;
   draft_updated_count: number;
+  unchanged_count: number;
+  skipped_count: number;
   failed_count: number;
   manual_review_count: number;
   started_at: string | null;
@@ -496,6 +528,29 @@ export interface FailedExtraction {
 
 export interface FailedExtractionPage {
   items: FailedExtraction[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface RawDocument {
+  id: number;
+  source_url: string;
+  canonical_url: string | null;
+  content_type: string | null;
+  raw_title: string | null;
+  source_job_id: string | null;
+  detected_item_type: string | null;
+  skip_reason: string | null;
+  raw_text: string | null;
+  raw_html_path: string | null;
+  raw_html_snapshot: string | null;
+  metadata_json: Record<string, unknown>;
+  fetched_at: string | null;
+}
+
+export interface RawDocumentPage {
+  items: RawDocument[];
   total: number;
   page: number;
   page_size: number;

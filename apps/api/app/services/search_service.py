@@ -19,7 +19,11 @@ from app.services.embedding_service import embed_query
 
 def _apply_filters(stmt: Select, q: PublishedSearchQuery, user_id: int | None) -> Select:
     # Always filter to published opportunities only
-    stmt = stmt.where(Opportunity.status == "published")
+    stmt = stmt.where(
+        Opportunity.status == "published",
+        Opportunity.is_active.is_(True),
+        Opportunity.admin_status.notin_(["hidden", "archived", "inactive", "rejected"]),
+    )
 
     if q.q:
         stmt = stmt.where(
@@ -62,6 +66,27 @@ def _apply_filters(stmt: Select, q: PublishedSearchQuery, user_id: int | None) -
             stmt = stmt.where(Opportunity.sector.ilike(f"%{q.sector}%"))
     if q.skill_level:
         stmt = stmt.where(Opportunity.skill_level.ilike(f"%{q.skill_level}%"))
+    if q.education_level:
+        stmt = stmt.where(
+            or_(
+                Opportunity.education_min.ilike(f"%{q.education_level}%"),
+                Opportunity.degree_level.ilike(f"%{q.education_level}%"),
+                Opportunity.education_requirement.ilike(f"%{q.education_level}%"),
+            )
+        )
+    if q.experience_max is not None:
+        stmt = stmt.where(
+            or_(
+                Opportunity.experience_min_years.is_(None),
+                Opportunity.experience_min_years <= q.experience_max,
+            )
+        )
+    if q.bangladesh_applicability:
+        stmt = stmt.where(Opportunity.bangladesh_applicability == q.bangladesh_applicability)
+    if q.source:
+        stmt = stmt.where(Opportunity.source_name.ilike(f"%{q.source}%"))
+    if q.trust_score_min is not None:
+        stmt = stmt.where(Opportunity.trust_score >= q.trust_score_min)
     if q.deadline_from:
         stmt = stmt.where(Opportunity.deadline >= q.deadline_from)
     if q.deadline_to:
@@ -176,6 +201,8 @@ def search_opportunities(
             destination_country=opp.destination_country,
             employer_or_organization=opp.employer_or_organization,
             sector=opp.sector,
+            platform_category_bn=opp.platform_category_bn,
+            platform_category_en=opp.platform_category_en,
             salary_min=float(opp.salary_min) if opp.salary_min is not None else None,
             salary_max=float(opp.salary_max) if opp.salary_max is not None else None,
             salary_currency=opp.salary_currency,
@@ -196,6 +223,9 @@ def search_opportunities(
             target_audience_tags=opp.target_audience_tags or [],
             risk_flags=opp.risk_flags or [],
             trust_score=opp.trust_score,
+            bangladesh_applicability=opp.bangladesh_applicability,
+            rural_user_fit_score=opp.rural_user_fit_score,
+            actionability_score=opp.actionability_score,
             overall_rank_score=opp.overall_rank_score,
             published_at=opp.published_at,
             is_saved=opp.id in saved_ids,
@@ -218,6 +248,8 @@ def get_similar_opportunities(
         select(Opportunity).where(
             Opportunity.id == opportunity_id,
             Opportunity.status == "published",
+            Opportunity.is_active.is_(True),
+            Opportunity.admin_status.notin_(["hidden", "archived", "inactive", "rejected"]),
         )
     )
     if not base:
@@ -238,6 +270,8 @@ def get_similar_opportunities(
             )
             .where(Opportunity.id != opportunity_id)
             .where(Opportunity.status == "published")
+            .where(Opportunity.is_active.is_(True))
+            .where(Opportunity.admin_status.notin_(["hidden", "archived", "inactive", "rejected"]))
             .order_by(OpportunityEmbedding.embedding.cosine_distance(base_emb.embedding))
             .limit(limit)
         )
@@ -246,6 +280,8 @@ def get_similar_opportunities(
             select(Opportunity)
             .where(Opportunity.id != opportunity_id)
             .where(Opportunity.status == "published")
+            .where(Opportunity.is_active.is_(True))
+            .where(Opportunity.admin_status.notin_(["hidden", "archived", "inactive", "rejected"]))
             .where(Opportunity.opportunity_type == base.opportunity_type)
             .order_by(desc(Opportunity.overall_rank_score))
             .limit(limit)
@@ -259,6 +295,8 @@ def get_similar_opportunities(
             destination_country=p.destination_country,
             employer_or_organization=p.employer_or_organization,
             sector=p.sector,
+            platform_category_bn=p.platform_category_bn,
+            platform_category_en=p.platform_category_en,
             salary_min=float(p.salary_min) if p.salary_min is not None else None,
             salary_max=float(p.salary_max) if p.salary_max is not None else None,
             salary_currency=p.salary_currency, salary_text=p.salary_text,
@@ -273,7 +311,9 @@ def get_similar_opportunities(
             lmia_status=p.lmia_status, eligibility_status=p.eligibility_status,
             target_audience_tags=p.target_audience_tags or [],
             risk_flags=p.risk_flags or [],
-            trust_score=p.trust_score, overall_rank_score=p.overall_rank_score,
+            trust_score=p.trust_score, bangladesh_applicability=p.bangladesh_applicability,
+            rural_user_fit_score=p.rural_user_fit_score, actionability_score=p.actionability_score,
+            overall_rank_score=p.overall_rank_score,
             published_at=p.published_at, is_saved=False,
             why_this_matches="Similar type and eligibility profile.",
             summary=p.summary_bn or p.summary_en,

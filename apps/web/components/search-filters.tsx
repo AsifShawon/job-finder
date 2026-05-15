@@ -42,6 +42,8 @@ const FILTER_LABELS = {
   deadline_within: { bn: "শেষ সময়", en: "Deadline" },
   salary_min: { bn: "বেতন", en: "Salary" },
   requires_existing_work_permit: { bn: "ওয়ার্ক পারমিট", en: "Work permit" },
+  bangladesh_applicability: { bn: "বাংলাদেশিদের জন্য উপযুক্ত", en: "Bangladesh suitability" },
+  source: { bn: "উৎস", en: "Source" },
 } as const;
 
 type FilterValues = {
@@ -55,6 +57,11 @@ type FilterValues = {
   salary_min: string;
   lmia_status: string;
   requires_existing_work_permit: boolean;
+  bangladesh_applicability: string;
+  source: string;
+  trust_score_min: string;
+  education_level: string;
+  experience_max: string;
   sort: string;
 };
 
@@ -275,6 +282,42 @@ function FilterFields({
                 placeholder={isEn ? "Example: 2500" : "যেমন: ২৫০০"}
               />
             </div>
+
+            <div className="space-y-2">
+              <label className="block text-sm font-semibold text-foreground">
+                {isEn ? "Bangladesh suitability" : "বাংলাদেশিদের জন্য উপযুক্ত"}
+              </label>
+              <select
+                value={values.bangladesh_applicability}
+                onChange={(event) => setValues((current) => ({ ...current, bangladesh_applicability: event.target.value }))}
+                className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground"
+              >
+                <option value="">{isEn ? "Any" : "যেকোনো"}</option>
+                <option value="high">{isEn ? "High" : "উচ্চ"}</option>
+                <option value="medium">{isEn ? "Medium" : "মাঝারি"}</option>
+                <option value="low">{isEn ? "Low" : "কম"}</option>
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-sm font-semibold text-foreground">{isEn ? "Source" : "উৎস"}</label>
+              <Input value={values.source} onChange={(event) => setValues((current) => ({ ...current, source: event.target.value }))} placeholder="alfanar, Aramco, Tamimi" />
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-sm font-semibold text-foreground">{isEn ? "Education level" : "কম শিক্ষাগত যোগ্যতা"}</label>
+              <Input value={values.education_level} onChange={(event) => setValues((current) => ({ ...current, education_level: event.target.value }))} placeholder={isEn ? "diploma, high school" : "ডিপ্লোমা, হাই স্কুল"} />
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-sm font-semibold text-foreground">{isEn ? "Maximum experience years" : "অভিজ্ঞতা প্রয়োজন"}</label>
+              <Input type="number" value={values.experience_max} onChange={(event) => setValues((current) => ({ ...current, experience_max: event.target.value }))} placeholder="3" />
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-sm font-semibold text-foreground">{isEn ? "Minimum trust score" : "বিশ্বাসযোগ্যতার স্কোর"}</label>
+              <Input type="number" min={0} max={1} step={0.1} value={values.trust_score_min} onChange={(event) => setValues((current) => ({ ...current, trust_score_min: event.target.value }))} placeholder="0.7" />
+            </div>
           </div>
         )}
       </div>
@@ -295,7 +338,7 @@ export function SearchFilters({
   const [mobileOpen, setMobileOpen] = useState(false);
   const [categoriesOpen, setCategoriesOpen] = useState(Boolean(initialValues.isc_sector));
   const [showMore, setShowMore] = useState(
-    Boolean(initialValues.deadline_within || initialValues.salary_min || initialValues.lmia_status),
+    Boolean(initialValues.deadline_within || initialValues.salary_min || initialValues.lmia_status || initialValues.bangladesh_applicability || initialValues.source || initialValues.education_level || initialValues.experience_max || initialValues.trust_score_min),
   );
   const [values, setValues] = useState(initialValues);
 
@@ -400,6 +443,11 @@ export function SearchFilters({
     if (values.salary_min) params.set("salary_min", values.salary_min);
     if (values.lmia_status) params.set("lmia_status", values.lmia_status);
     if (values.requires_existing_work_permit) params.set("requires_existing_work_permit", "true");
+    if (values.bangladesh_applicability) params.set("bangladesh_applicability", values.bangladesh_applicability);
+    if (values.source) params.set("source", values.source);
+    if (values.trust_score_min) params.set("trust_score_min", values.trust_score_min);
+    if (values.education_level) params.set("education_level", values.education_level);
+    if (values.experience_max) params.set("experience_max", values.experience_max);
     if (values.sort) params.set("sort", values.sort);
 
     router.push((`/search${params.toString() ? `?${params.toString()}` : ""}`) as Route);
@@ -419,6 +467,11 @@ export function SearchFilters({
       salary_min: "",
       lmia_status: "",
       requires_existing_work_permit: false,
+      bangladesh_applicability: "",
+      source: "",
+      trust_score_min: "",
+      education_level: "",
+      experience_max: "",
     };
 
     setValues(resetValues);

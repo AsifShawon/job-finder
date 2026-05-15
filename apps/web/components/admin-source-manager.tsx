@@ -18,6 +18,10 @@ import { formatDateTime, humanizeSlug } from "@/lib/utils";
 const CONNECTOR_OPTIONS = [
   { value: "", label: "Default connector" },
   { value: "search_html_jobs", label: "Search HTML Jobs" },
+  { value: "successfactors_alfanar", label: "alfanar SuccessFactors" },
+  { value: "successfactors_aramco", label: "Aramco SuccessFactors" },
+  { value: "tamimi_careers", label: "Tamimi Careers" },
+  { value: "maharah_posts", label: "Maharah Posts" },
   { value: "generic_news", label: "Generic HTML" },
   { value: "boesl_brms", label: "BOESL BRMS" },
 ];
@@ -859,8 +863,9 @@ export function AdminSourceManager({ initialSources }: { initialSources: AdminSo
                       [isEn ? "Published" : "প্রকাশিত", source.published_count ?? 0],
                       [isEn ? "Pending" : "বাকি", source.pending_review_count ?? 0],
                       [isEn ? "Drafts" : "ড্রাফট", source.draft_count ?? source.opportunity_count],
-                      [isEn ? "Fetched" : "এক্সট্র্যাক্ট", source.last_pages_fetched],
-                      [isEn ? "Extracted" : "সংরক্ষিত", source.last_records_extracted],
+    [isEn ? "Discovered" : "আবিষ্কৃত", source.discovered_item_count ?? source.last_pages_fetched],
+    [isEn ? "Imported" : "ইমপোর্ট", source.imported_job_count ?? source.last_records_extracted],
+    [isEn ? "Skipped" : "স্কিপ", source.skipped_item_count ?? 0],
                       [isEn ? "Crawl freq" : "ক্রল ফ্রিক.", source.crawl_frequency ?? "—"],
                     ].map(([label, val]) => (
                       <div key={String(label)} className="rounded bg-slate-50 p-2 dark:bg-slate-950">
@@ -881,14 +886,16 @@ export function AdminSourceManager({ initialSources }: { initialSources: AdminSo
                     <Button variant="outline" size="sm" onClick={() => testSource(source.id)} disabled={busyKey === `test-${source.id}`}>
                       <FlaskConical className="mr-1.5 size-3.5" />{busyKey === `test-${source.id}` ? (isEn ? "Testing…" : "পরীক্ষা হচ্ছে…") : (isEn ? "Test" : "পরীক্ষা")}
                     </Button>
-                    <Button
-                      variant="ghost" size="sm"
-                      onClick={() => deleteSource(source.id)}
-                      disabled={busyKey === `delete-${source.id}`}
-                      className="text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:hover:bg-rose-500/10"
-                    >
-                      <Trash2 className="mr-1.5 size-3.5" />{busyKey === `delete-${source.id}` ? (isEn ? "Deleting…" : "মুছছে…") : (isEn ? "Delete" : "মুছুন")}
-                    </Button>
+                    {source.is_deletable && !source.is_official_seed_source && (
+                      <Button
+                        variant="ghost" size="sm"
+                        onClick={() => deleteSource(source.id)}
+                        disabled={busyKey === `delete-${source.id}`}
+                        className="text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:hover:bg-rose-500/10"
+                      >
+                        <Trash2 className="mr-1.5 size-3.5" />{busyKey === `delete-${source.id}` ? (isEn ? "Deleting…" : "মুছছে…") : (isEn ? "Delete" : "মুছুন")}
+                      </Button>
+                    )}
                   </div>
                 </div>
                 <p className="mt-3 border-t border-slate-100 pt-3 text-xs text-slate-500 dark:border-slate-800">

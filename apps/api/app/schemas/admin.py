@@ -23,6 +23,8 @@ class CrawlRunOut(BaseModel):
     duplicate_count: int = 0
     draft_created_count: int = 0
     draft_updated_count: int = 0
+    unchanged_count: int = 0
+    skipped_count: int = 0
     failed_count: int = 0
     manual_review_count: int = 0
     started_at: datetime | None = None
@@ -73,6 +75,14 @@ class AdminSourceOut(BaseModel):
     search_keywords: list[str] = []
     feed_type: str | None = None
     auto_publish: bool = False
+    is_official_seed_source: bool = False
+    is_deletable: bool = True
+    settings_json: dict[str, Any] = {}
+    last_status: str | None = None
+    discovered_item_count: int = 0
+    imported_job_count: int = 0
+    skipped_item_count: int = 0
+    needs_review_count: int = 0
     enabled: bool = True
     requires_admin_review: bool = True
     last_attempted_at: datetime | None = None
@@ -142,6 +152,16 @@ class ReviewQueueOut(BaseModel):
     risk_flags: list[str] = []
     source_trust_badge: str | None = None
     connector_key: str | None = None
+    admin_status: str | None = None
+    platform_category_bn: str | None = None
+    platform_category_en: str | None = None
+    bangladesh_applicability: str | None = None
+    bangladesh_applicability_reason: str | None = None
+    rural_user_fit_score: float = 0.0
+    actionability_score: float = 0.0
+    trust_score: float = 0.0
+    overall_rank_score: float = 0.0
+    extraction_warnings: list[str] = []
     raw_text: str | None = None
     created_at: datetime
     # Per-field confidence map produced by the multi-step extractor.

@@ -43,6 +43,10 @@ class ConnectorKey(str, Enum):
     eures_connector = "eures_connector"
     usa_jobs_api = "usa_jobs_api"
     reliefweb_api = "reliefweb_api"
+    successfactors_alfanar = "successfactors_alfanar"
+    successfactors_aramco = "successfactors_aramco"
+    tamimi_careers = "tamimi_careers"
+    maharah_posts = "maharah_posts"
     jobbank_linkout = "jobbank_linkout"
     linkout_only = "linkout_only"
     # Legacy — kept for DB backward compat

@@ -7,6 +7,7 @@ import {
   ClipboardCheck,
   PenLine,
   Shield,
+  FileText,
 } from "lucide-react";
 
 import { getLocale } from "@/lib/i18n";
@@ -16,6 +17,7 @@ const ADMIN_LINKS: Array<{ label: string; labelEn: string; href: string; icon: R
   { label: "ওভারভিউ", labelEn: "Overview", href: "/admin", icon: LayoutDashboard },
   { label: "উৎস", labelEn: "Sources", href: "/admin/sources", icon: Database },
   { label: "ক্রল", labelEn: "Crawls", href: "/admin/crawls", icon: Activity },
+  { label: "মূল আইটেম", labelEn: "Raw Items", href: "/admin/raw-items", icon: FileText },
   { label: "পর্যালোচনা", labelEn: "Review", href: "/admin/review", icon: ClipboardCheck },
   { label: "ম্যানুয়াল এন্ট্রি", labelEn: "Manual Entry", href: "/admin/manual-entry", icon: PenLine },
 ];

@@ -21,7 +21,21 @@ const FILTER_LABELS = {
   can_apply_from_bd: { bn: "বাংলাদেশ থেকে আবেদন", en: "Apply from BD" },
   deadline_within: { bn: "শেষ সময়", en: "Deadline" },
   salary_min: { bn: "বেতন", en: "Salary" },
+  bangladesh_applicability: { bn: "বাংলাদেশিদের জন্য উপযুক্ত", en: "Bangladesh suitability" },
+  source: { bn: "উৎস", en: "Source" },
   sort: { bn: "সাজানো", en: "Sort" },
+} as const;
+
+const SORT_OPTIONS = {
+  relevance: { bn: "সবচেয়ে প্রাসঙ্গিক", en: "Most relevant" },
+  newest: { bn: "নতুন আগে", en: "Newest first" },
+  deadline: { bn: "শেষ তারিখ আগে", en: "Deadline first" },
+  trust: { bn: "সবচেয়ে বিশ্বস্ত", en: "Most trusted" },
+} as const;
+
+const SORT_SUBMIT_LABEL = {
+  bn: "প্রয়োগ",
+  en: "Apply",
 } as const;
 
 function getFilterValueLabel(key: string, value: string, isEn: boolean): string {
@@ -147,14 +161,19 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
                   name="sort"
                   defaultValue={query.get("sort") ?? "relevance"}
                   className="bg-transparent border-none focus:ring-0 text-sm font-bold text-foreground cursor-pointer"
-                  onChange={(e) => e.target.form?.submit()}
                 >
-                  <option value="relevance">{isEn ? "Most relevant" : "সবচেয়ে প্রাসঙ্গিক"}</option>
-                  <option value="newest">{isEn ? "Newest first" : "নতুন আগে"}</option>
-                  <option value="deadline">{isEn ? "Deadline first" : "শেষ তারিখ আগে"}</option>
-                  <option value="trust">{isEn ? "Most trusted" : "সবচেয়ে বিশ্বস্ত"}</option>
-                </select>
-              </form>
+                  <option value="relevance">{isEn ? SORT_OPTIONS.relevance.en : SORT_OPTIONS.relevance.bn}</option>
+                  <option value="newest">{isEn ? SORT_OPTIONS.newest.en : SORT_OPTIONS.newest.bn}</option>
+                  <option value="deadline">{isEn ? SORT_OPTIONS.deadline.en : SORT_OPTIONS.deadline.bn}</option>
+                  <option value="trust">{isEn ? SORT_OPTIONS.trust.en : SORT_OPTIONS.trust.bn}</option>
+	                </select>
+	                <button
+	                  type="submit"
+	                  className="rounded-full bg-primary px-3 py-1.5 text-xs font-bold text-white"
+	                >
+	                  {isEn ? SORT_SUBMIT_LABEL.en : SORT_SUBMIT_LABEL.bn}
+	                </button>
+	              </form>
             </div>
           </div>
         </div>
@@ -176,6 +195,11 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
               salary_min: query.get("salary_min") ?? "",
               lmia_status: query.get("lmia_status") ?? "",
               requires_existing_work_permit: query.get("requires_existing_work_permit") === "true",
+              bangladesh_applicability: query.get("bangladesh_applicability") ?? "",
+              source: query.get("source") ?? "",
+              trust_score_min: query.get("trust_score_min") ?? "",
+              education_level: query.get("education_level") ?? "",
+              experience_max: query.get("experience_max") ?? "",
               sort: query.get("sort") ?? "relevance",
             }}
           />

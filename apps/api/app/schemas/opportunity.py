@@ -22,6 +22,8 @@ class PublishedOpportunityCard(BaseModel):
     destination_country: str | None = None
     employer_or_organization: str | None = None
     sector: str | None = None
+    platform_category_bn: str | None = None
+    platform_category_en: str | None = None
     salary_min: float | None = None
     salary_max: float | None = None
     salary_currency: str | None = None
@@ -44,6 +46,9 @@ class PublishedOpportunityCard(BaseModel):
     target_audience_tags: list[str] = []
     risk_flags: list[str] = []
     trust_score: float = 0.0
+    bangladesh_applicability: str | None = None
+    rural_user_fit_score: float = 0.0
+    actionability_score: float = 0.0
     overall_rank_score: float = 0.0
     published_at: datetime | None = None
     is_saved: bool = False
@@ -62,6 +67,9 @@ class PublishedOpportunityDetail(PublishedOpportunityCard):
     job_title_bn: str | None = None
     job_title_en: str | None = None
     skill_level: str | None = None
+    education_min: str | None = None
+    experience_min_years: float | None = None
+    extraction_warnings: list[str] = []
     location_text: str | None = None
     location_text_bn: str | None = None
     location_text_en: str | None = None
@@ -135,6 +143,11 @@ class PublishedSearchQuery(BaseModel):
     source_type: str | None = None
     sector: str | None = None
     skill_level: str | None = None
+    education_level: str | None = None
+    experience_max: float | None = None
+    bangladesh_applicability: str | None = None
+    source: str | None = None
+    trust_score_min: float | None = None
     deadline_from: date | None = None
     deadline_to: date | None = None
     salary_min: float | None = None
@@ -295,7 +308,16 @@ class RawDocumentOut(BaseModel):
     source_url: str
     canonical_url: str | None = None
     content_type: str | None = None
+    raw_title: str | None = None
+    source_job_id: str | None = None
+    detected_item_type: str | None = None
+    skip_reason: str | None = None
     raw_text: str | None = None
+    raw_html_snapshot: str | None = None
     raw_html_path: str | None = None
     metadata_json: dict[str, Any] = {}
     fetched_at: datetime | None = None
+
+
+class RawDocumentPage(Page[RawDocumentOut]):
+    pass

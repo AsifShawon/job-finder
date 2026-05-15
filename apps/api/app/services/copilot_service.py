@@ -95,6 +95,8 @@ def _fetch_published_rows(db: Session, ids: list[int]) -> list[tuple[Opportunity
         .where(
             Opportunity.id.in_(ids),
             Opportunity.status == "published",
+            Opportunity.is_active.is_(True),
+            Opportunity.admin_status.notin_(["hidden", "archived", "inactive", "rejected"]),
         )
     ).all()
 
@@ -115,6 +117,8 @@ def run_copilot_query(db: Session, question: str) -> CopilotResponse:
             "country": opp.country,
             "deadline": str(opp.deadline) if opp.deadline else None,
             "trust_badge": opp.source_trust_badge,
+            "bangladesh_applicability": opp.bangladesh_applicability,
+            "warnings": opp.extraction_warnings,
             "source_url": opp.source_url,
         }
         for opp, source in rows
