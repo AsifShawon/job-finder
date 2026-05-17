@@ -65,6 +65,7 @@ _AD_REMOVAL_SCRIPT = (
 class ListingJob:
     title: str
     detail_url: str
+    listing_page_url: str | None = None
     source_job_id: str | None = None
     location: str | None = None
     department: str | None = None
@@ -97,7 +98,7 @@ def parse_successfactors_listing(html: str, page_url: str, *, flavor: str) -> tu
         if not row_text:
             row_text = surrounding
         parsed = _parse_successfactors_row_text(title, row_text, flavor=flavor)
-        jobs[detail_url] = ListingJob(title=title, detail_url=detail_url, **parsed)
+        jobs[detail_url] = ListingJob(title=title, detail_url=detail_url, listing_page_url=page_url, **parsed)
 
     next_pages = []
     for anchor in soup.select("a[href]"):
@@ -136,6 +137,7 @@ def parse_successfactors_detail(
         original_apply_url=apply_url,
         metadata={
             "structured_job": True,
+            "official_detail_page": True,
             "source_item_key": source_job_id or canonical or detail_url,
             "source_job_id": source_job_id,
             "company": company,
@@ -148,6 +150,12 @@ def parse_successfactors_detail(
             "connector_flavor": flavor,
             "rendered": True,
             "crawl_engine": "playwright",
+            "section_parser_required": True,
+            "connector_key": f"successfactors_{flavor}",
+            "listing_page_url": listing.listing_page_url,
+            "requested_detail_url": listing.detail_url,
+            "final_rendered_url": detail_url,
+            "listing_card_title": listing.title,
         },
     )
 
@@ -177,6 +185,7 @@ def parse_tamimi_listing(html: str, page_url: str) -> tuple[list[ListingJob], li
         jobs[detail_url] = ListingJob(
             title=title,
             detail_url=detail_url,
+            listing_page_url=page_url,
             location=_extract_location(block),
             department=_clean(subtitle.get_text(" ", strip=True)) if subtitle else None,
             posting_date=_extract_date_text(block),
@@ -205,6 +214,7 @@ def parse_tamimi_listing(html: str, page_url: str) -> tuple[list[ListingJob], li
         jobs[detail_url] = ListingJob(
             title=title,
             detail_url=detail_url,
+            listing_page_url=page_url,
             location=_extract_location(combined),
             department=_extract_labeled(combined, "department"),
             posting_date=_extract_date_text(combined),
@@ -238,6 +248,7 @@ def parse_maharah_posts(html: str, page_url: str) -> tuple[list[ListingJob], lis
         posts[detail_url] = ListingJob(
             title=title,
             detail_url=detail_url,
+            listing_page_url=page_url,
             posting_date=_extract_date_text(block),
             department=_extract_labeled(block, "department"),
             location=_extract_labeled(block, "location"),
@@ -330,6 +341,7 @@ class TamimiCareersConnector(BaseSourceConnector):
         pages, diagnostics = _discover_static_detail_pages(
             source,
             parse_tamimi_listing,
+            connector_key=self.connector_key,
             company="Abdulmohsen Al-Tamimi Group",
             detected_item_type="job",
             preview=crawl_mode == "preview_only",
@@ -345,6 +357,7 @@ class MaharahPostsConnector(BaseSourceConnector):
         pages, diagnostics = _discover_static_detail_pages(
             source,
             parse_maharah_posts,
+            connector_key=self.connector_key,
             company="Maharah",
             detected_item_type="job",
             preview=crawl_mode == "preview_only",
@@ -503,6 +516,7 @@ def _discover_static_detail_pages(
     source: Source,
     parser,
     *,
+    connector_key: str,
     company: str,
     detected_item_type: str,
     preview: bool,
@@ -541,6 +555,7 @@ def _discover_static_detail_pages(
                         rendered_detail.html,
                         rendered_detail.final_url,
                         job,
+                        connector_key=connector_key,
                         company=company,
                         detected_item_type=detected_item_type,
                     )
@@ -561,6 +576,7 @@ def _static_detail_page(
     detail_url: str,
     listing: ListingJob,
     *,
+    connector_key: str,
     company: str,
     detected_item_type: str,
 ) -> FetchedPage:
@@ -588,6 +604,7 @@ def _static_detail_page(
         original_apply_url=apply_url,
         metadata={
             "structured_job": detected_item_type == "job" or bool(apply_url),
+            "official_detail_page": detected_item_type == "job" or bool(apply_url),
             "source_item_key": listing.source_job_id or detail_url,
             "source_job_id": listing.source_job_id,
             "company": company,
@@ -598,6 +615,12 @@ def _static_detail_page(
             "content_hash": content_hash,
             "rendered": True,
             "crawl_engine": "playwright",
+            "section_parser_required": detected_item_type == "job" or bool(apply_url),
+            "connector_key": connector_key,
+            "listing_page_url": listing.listing_page_url,
+            "requested_detail_url": listing.detail_url,
+            "final_rendered_url": detail_url,
+            "listing_card_title": listing.title,
         },
     )
 

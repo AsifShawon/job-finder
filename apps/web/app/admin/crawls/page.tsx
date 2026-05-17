@@ -1,4 +1,6 @@
 import { AlertCircle, CheckCircle, Clock, Loader2, XCircle } from "lucide-react";
+import Link from "next/link";
+import type { Route } from "next";
 import type { ElementType } from "react";
 
 import { Card } from "@/components/ui/card";
@@ -262,6 +264,7 @@ export default async function AdminCrawlsPage() {
                   isEn ? "Skipped" : "স্কিপ",
                   isEn ? "Failed" : "ব্যর্থ",
                   isEn ? "Diagnostics" : "ডায়াগনস্টিকস",
+                  isEn ? "Inspect" : "ইনস্পেক্ট",
                   isEn ? "Error" : "ত্রুটি",
                 ].map((header) => (
                   <th
@@ -276,7 +279,7 @@ export default async function AdminCrawlsPage() {
             <tbody className="divide-y divide-border">
               {data.items.length === 0 ? (
                 <tr>
-                  <td colSpan={13} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                  <td colSpan={14} className="px-4 py-8 text-center text-sm text-muted-foreground">
                     {isEn ? "No crawl runs found." : "কোনো ক্রল রান নেই।"}
                   </td>
                 </tr>
@@ -313,6 +316,14 @@ export default async function AdminCrawlsPage() {
                     </td>
                     <td className="px-3 py-3 align-top">
                       <DiagnosticsPanel run={run} isEn={isEn} />
+                    </td>
+                    <td className="px-3 py-3 align-top">
+                      <Link
+                        href={`/admin/crawls/${run.id}/inspection` as Route}
+                        className="inline-flex rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-primary hover:text-primary"
+                      >
+                        {isEn ? "Inspect run" : "রান দেখুন"}
+                      </Link>
                     </td>
                     <td className="max-w-[180px] truncate px-3 py-3 text-xs text-red-500">
                       {run.error_message ?? "—"}
@@ -352,6 +363,12 @@ export default async function AdminCrawlsPage() {
                   <MetricBadge label={isEn ? "Fail" : "ব্যর্থ"} value={run.failed_count} highlight />
                 </div>
                 <DiagnosticsPanel run={run} isEn={isEn} />
+                <Link
+                  href={`/admin/crawls/${run.id}/inspection` as Route}
+                  className="inline-flex rounded-md border border-border px-3 py-2 text-xs font-medium text-foreground transition-colors hover:border-primary hover:text-primary"
+                >
+                  {isEn ? "Open inspection" : "ইনস্পেকশন খুলুন"}
+                </Link>
                 {run.error_message ? (
                   <p className="text-xs text-red-500">Warning: {run.error_message}</p>
                 ) : null}

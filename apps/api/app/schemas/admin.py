@@ -404,6 +404,83 @@ class SourceProbeResult(BaseModel):
 
 # ── Legacy (kept for backward compat with existing code) ─────────────────────
 
+class CrawlInspectionPageSummary(BaseModel):
+    raw_document_id: int
+    opportunity_id: int | None = None
+    title: str | None = None
+    source_url: str
+    final_url: str | None = None
+    raw_text_length: int = 0
+    html_captured: bool = False
+    parser_status: str | None = None
+    ai_status: str | None = None
+    publish_status: str | None = None
+    parser_confidence: float = 0.0
+    warnings: list[str] = []
+
+
+class CrawlRunInspectionOut(BaseModel):
+    run_id: int
+    source_id: int
+    source_name: str | None = None
+    connector_key: str | None = None
+    crawl_status: str | None = None
+    source_url: str | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    pages_discovered: int = 0
+    detail_pages_followed: int = 0
+    parser_success_count: int = 0
+    ai_success_count: int = 0
+    failed_count: int = 0
+    pending_admin_review_count: int = 0
+    run_logs: list[str] = []
+    discovery_diagnostics: dict[str, Any] = Field(default_factory=dict)
+    extraction_method_counts: dict[str, int] = Field(default_factory=dict)
+    skip_reasons: dict[str, int] = Field(default_factory=dict)
+    fallback_reasons: dict[str, int] = Field(default_factory=dict)
+    pages: list[CrawlInspectionPageSummary] = Field(default_factory=list)
+    opportunity_ids: list[int] = Field(default_factory=list)
+
+
+class RawDocumentInspectionOut(BaseModel):
+    raw_document_id: int
+    crawl_run_id: int | None = None
+    source_id: int
+    source_name: str | None = None
+    connector_key: str | None = None
+    source_url: str
+    raw_title: str | None = None
+    requested_url: str | None = None
+    listing_page_url: str | None = None
+    final_url: str | None = None
+    raw_text_preview: str | None = None
+    cleaned_text: str | None = None
+    raw_html_snapshot: str | None = None
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
+    section_parser: dict[str, Any] = Field(default_factory=dict)
+    compact_ai_input: dict[str, Any] | None = None
+    raw_ai_output: Any = None
+    validated_ai_output: dict[str, Any] | None = None
+    final_record: dict[str, Any] = Field(default_factory=dict)
+    final_opportunity_id: int | None = None
+    skip_reason: str | None = None
+    fallback_reason: str | None = None
+    warnings: list[str] = Field(default_factory=list)
+
+
+class SaveParserEditsRequest(BaseModel):
+    parsed_payload: dict[str, Any]
+
+
+class RawDocumentActionResult(BaseModel):
+    raw_document_id: int
+    status: str
+    message: str
+    opportunity_id: int | None = None
+    diagnostics: dict[str, Any] = Field(default_factory=dict)
+
+
 class FailedExtractionOut(BaseModel):
     id: int
     title: str

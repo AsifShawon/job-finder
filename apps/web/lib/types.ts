@@ -184,7 +184,12 @@ export interface PublishedOpportunityDetail extends PublishedOpportunityCard {
   visa_support: boolean | null;
   record_type: RecordType | null;
   trust_tier: TrustTier | null;
-  requirements_json?: { items?: string[] } | null;
+  requirements_json?: {
+    items?: string[];
+    groups?: Record<string, string[]>;
+    source_sections?: Array<{ title: string; items: string[] }>;
+    job_purpose?: string | null;
+  } | null;
   benefits_json?: { items?: string[]; work_conditions?: string[] } | null;
   language_requirements_json?: { items?: string[] } | null;
   job_purpose: string | null;
@@ -609,4 +614,77 @@ export interface RawDocumentPage {
   total: number;
   page: number;
   page_size: number;
+}
+
+export interface CrawlInspectionPageSummary {
+  raw_document_id: number;
+  opportunity_id: number | null;
+  title: string | null;
+  source_url: string;
+  final_url: string | null;
+  raw_text_length: number;
+  html_captured: boolean;
+  parser_status: string | null;
+  ai_status: string | null;
+  publish_status: string | null;
+  parser_confidence: number;
+  warnings: string[];
+}
+
+export interface CrawlRunInspection {
+  run_id: number;
+  source_id: number;
+  source_name: string | null;
+  connector_key: string | null;
+  crawl_status: string | null;
+  source_url: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  pages_discovered: number;
+  detail_pages_followed: number;
+  parser_success_count: number;
+  ai_success_count: number;
+  failed_count: number;
+  pending_admin_review_count: number;
+  run_logs: string[];
+  discovery_diagnostics: Record<string, unknown>;
+  extraction_method_counts: Record<string, number>;
+  skip_reasons: Record<string, number>;
+  fallback_reasons: Record<string, number>;
+  pages: CrawlInspectionPageSummary[];
+  opportunity_ids: number[];
+}
+
+export interface RawDocumentInspection {
+  raw_document_id: number;
+  crawl_run_id: number | null;
+  source_id: number;
+  source_name: string | null;
+  connector_key: string | null;
+  source_url: string;
+  raw_title: string | null;
+  requested_url: string | null;
+  listing_page_url: string | null;
+  final_url: string | null;
+  raw_text_preview: string | null;
+  cleaned_text: string | null;
+  raw_html_snapshot: string | null;
+  metadata_json: Record<string, unknown>;
+  section_parser: Record<string, unknown>;
+  compact_ai_input: Record<string, unknown> | null;
+  raw_ai_output: unknown;
+  validated_ai_output: Record<string, unknown> | null;
+  final_record: Record<string, unknown>;
+  final_opportunity_id: number | null;
+  skip_reason: string | null;
+  fallback_reason: string | null;
+  warnings: string[];
+}
+
+export interface RawDocumentActionResult {
+  raw_document_id: number;
+  status: string;
+  message: string;
+  opportunity_id: number | null;
+  diagnostics: Record<string, unknown>;
 }

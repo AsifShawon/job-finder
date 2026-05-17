@@ -36,9 +36,13 @@ from app.ingestion.compliance_guard import ComplianceError, check_before_crawl
 from app.ingestion.eligibility_engine import tag_eligibility
 from app.ingestion.errors import ConnectorNotImplementedError, SourceConfigError
 from app.ingestion.extractor import (
+    build_official_job_ai_input_payload,
     extract_jobs_structured,
+    extract_official_job_from_parsed_payload,
     extract_official_job_structured,
     extract_structured,
+    is_raw_metadata_summary,
+    official_parsed_payload_to_fallback_extraction,
     summarize_linkout_job,
 )
 from app.ingestion.job_classification import (
@@ -47,6 +51,8 @@ from app.ingestion.job_classification import (
     is_relevant_for_active_job,
 )
 from app.ingestion.parsers.registry import get_parser
+from app.ingestion.official_job_detail_parser import parse_official_job_detail
+from app.ingestion.official_job_sections import OfficialJobParsedPayload
 from app.ingestion.pdf_extractor import download_pdf, extract_text as pdf_extract_text
 from app.ingestion.schemas import JobOpportunityExtraction
 from app.ingestion.source_router import get_connector
@@ -497,6 +503,30 @@ def _process_page(
     )
     db.add(raw)
     db.flush()
+    raw.extraction_diagnostics_json = _initial_extraction_diagnostics(page=page, cleaned=cleaned, canonical_url=canonical_url)
+
+    if _is_official_detail_page(source, page):
+        parsed_payload = parse_official_job_detail(
+            getattr(page, "raw_html", None) or "",
+            page.raw_text or cleaned.get("body_text") or "",
+            page.metadata or {},
+            source.connector_key or (page.metadata or {}).get("connector_key") or "",
+            getattr(page, "canonical_url", None) or page.url,
+        )
+        compact_payload = build_official_job_ai_input_payload(parsed_payload)
+        parser_state = "parser_low_confidence" if parsed_payload.parser_confidence < _OFFICIAL_STRICT_CONFIDENCE_THRESHOLD else "parser_pending_admin"
+        _store_official_parser_diagnostics(
+            raw,
+            parsed_payload=parsed_payload,
+            compact_payload=compact_payload,
+            parser_state=parser_state,
+        )
+        crawl_run.parsed_count += 1
+        result.manual_review += 1
+        logs.append(
+            f"Official parser staged for admin review: {canonical_url} "
+            f"(confidence={parsed_payload.parser_confidence:.2f}, state={parser_state})"
+        )
 
     if snapshot_duplicate:
         _mark_seen_for_duplicate(db, source=source, page=page, raw=raw, seen_at=datetime.now(UTC))
@@ -509,6 +539,9 @@ def _process_page(
         raw.skip_reason = "pre_filter_rejected_news_article"
         result.skipped += 1
         logs.append(f"Pre-filter rejected news article: '{(cleaned.get('title') or '')[:80]}'")
+        return
+
+    if _is_official_detail_page(source, page):
         return
 
     extractions = _extract_records_for_page(db, source, page, cleaned)
@@ -553,6 +586,81 @@ def _process_page(
 
     if not extracted_any and source.connector_key != "search_html_jobs":
         result.failed += 1
+
+
+def _initial_extraction_diagnostics(*, page, cleaned: dict, canonical_url: str) -> dict[str, object]:
+    return {
+        "crawl": {
+            "requested_url": (page.metadata or {}).get("requested_detail_url") or page.url,
+            "listing_page_url": (page.metadata or {}).get("listing_page_url"),
+            "final_url": (page.metadata or {}).get("final_rendered_url") or canonical_url,
+            "crawl_engine": (page.metadata or {}).get("crawl_engine") or "unknown",
+            "raw_html_length": len(getattr(page, "raw_html", None) or ""),
+            "raw_text_length": len((page.raw_text or cleaned.get("body_text") or "")),
+        },
+        "section_parser": {
+            "status": "not_run",
+            "parser_confidence": 0.0,
+            "parsed_payload": None,
+            "ignored_noise_lines": [],
+            "warnings": [],
+        },
+        "ai": {
+            "status": "not_run",
+            "provider": None,
+            "model": None,
+            "prompt_version": "official_job_compact_v1",
+            "input_payload": None,
+            "raw_output": None,
+            "validated_output": None,
+            "validation_errors": [],
+            "repair_attempted": False,
+            "repair_success": False,
+        },
+        "final_record": {
+            "opportunity_id": None,
+            "status": "",
+            "published": False,
+            "fallback_used": False,
+        },
+        "attempts": [],
+    }
+
+
+def _is_official_detail_page(source: Source, page) -> bool:
+    metadata = page.metadata or {}
+    return bool(metadata.get("official_detail_page")) or (source.connector_key in _OFFICIAL_JOB_CONNECTOR_KEYS)
+
+
+def _store_official_parser_diagnostics(
+    raw: RawDocument,
+    *,
+    parsed_payload: OfficialJobParsedPayload,
+    compact_payload: dict[str, object],
+    parser_state: str,
+) -> None:
+    diagnostics = raw.extraction_diagnostics_json if isinstance(raw.extraction_diagnostics_json, dict) else {}
+    diagnostics["section_parser"] = {
+        "status": "success",
+        "state": parser_state,
+        "parser_confidence": float(parsed_payload.parser_confidence),
+        "parsed_payload": parsed_payload.model_dump(mode="json"),
+        "ignored_noise_lines": list(parsed_payload.ignored_noise_lines),
+        "warnings": list(parsed_payload.parser_warnings),
+    }
+    diagnostics["ai"] = {
+        **(diagnostics.get("ai") or {}),
+        "status": "ai_pending_admin",
+        "input_payload": compact_payload,
+        "prompt_version": "official_job_compact_v1",
+    }
+    diagnostics["final_record"] = {
+        **(diagnostics.get("final_record") or {}),
+        "status": parser_state,
+        "published": False,
+        "fallback_used": False,
+    }
+    raw.extraction_diagnostics_json = diagnostics
 
 
 def _extract_records_for_page(db: Session, source: Source, page, cleaned: dict) -> list:

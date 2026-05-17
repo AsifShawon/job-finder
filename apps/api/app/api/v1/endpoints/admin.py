@@ -17,6 +17,9 @@ from app.core.deps import get_admin_user, get_db
 from app.ingestion.eligibility_engine import tag_eligibility
 from app.ingestion.extractor import extract_structured
 from app.ingestion.official_sources import ensure_official_sources
+from app.ingestion.pipeline import (
+    _build_slug,
+)
 from app.ingestion.scrapeability import check_scrapeability
 from app.ingestion.validators import parse_deadline
 from app.models.entities import (
@@ -1452,13 +1455,15 @@ def translate_draft(
         import json as _json
 
         if provider == "mistral":
-            from mistralai import Mistral as _Mistral
-            client = _Mistral(api_key=api_key)
-            resp = client.chat.complete(
+            from app.services.mistral_client import mistral_chat
+
+            raw = mistral_chat(
+                api_key=api_key,
                 model=get_ai_model(db),
                 messages=[{"role": "user", "content": translate_prompt}],
-            )
-            raw = resp.choices[0].message.content or "{}"
+                temperature=0.0,
+                json_mode=False,
+            ) or "{}"
         else:
             from langchain_groq import ChatGroq as _ChatGroq
             model = _ChatGroq(model=get_ai_model(db), api_key=api_key, temperature=0.0)

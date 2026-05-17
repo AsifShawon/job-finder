@@ -162,6 +162,69 @@ function deadlinePill(deadline: string | null, locale: "bn" | "en") {
   };
 }
 
+function getNotSpecified(locale: "bn" | "en") {
+  return locale === "en" ? "Not specified" : "উল্লেখ নেই";
+}
+
+function isRawMetadataText(text: string | null | undefined): boolean {
+  if (!text) {
+    return false;
+  }
+  const head = text.slice(0, 600).toLowerCase();
+  return [
+    "official listing metadata:",
+    "job detail page content:",
+    "source job id:",
+    "apply url:",
+    "career details",
+    "login view profile",
+    "start apply with linkedin",
+    "please wait",
+  ].some((signal) => head.includes(signal));
+}
+
+function sanitizeText(text: string | null | undefined): string | null {
+  if (!text || isRawMetadataText(text)) {
+    return null;
+  }
+  const cleaned = text.trim();
+  return cleaned.length > 0 ? cleaned : null;
+}
+
+function sanitizeList(items: string[] | null | undefined): string[] {
+  return (items ?? [])
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0 && !isRawMetadataText(item));
+}
+
+function sanitizeSections(
+  sections: Array<{ title: string; items: string[] }> | null | undefined,
+): Array<{ title: string; items: string[] }> {
+  return (sections ?? [])
+    .map((section) => ({
+      title: section.title.trim(),
+      items: sanitizeList(section.items),
+    }))
+    .filter((section) => section.title.length > 0 && section.items.length > 0);
+}
+
+function groupLabel(key: string, locale: "bn" | "en") {
+  const labels: Record<string, { en: string; bn: string }> = {
+    requirements: { en: "Requirements", bn: "প্রয়োজনীয়তা" },
+    qualifications: { en: "Qualifications", bn: "যোগ্যতা" },
+    responsibilities: { en: "Responsibilities", bn: "দায়িত্ব" },
+    key_accountabilities: { en: "Key Accountability Areas", bn: "মূল দায়িত্বের ক্ষেত্র" },
+    role_accountabilities: { en: "Role Accountability", bn: "পদের দায়িত্ব" },
+    skills: { en: "Technical Skills", bn: "টেকনিক্যাল স্কিল" },
+    work_conditions: { en: "Work Experience and Conditions", bn: "কাজের অভিজ্ঞতা ও শর্ত" },
+  };
+  const label = labels[key];
+  if (!label) {
+    return key.replaceAll("_", " ");
+  }
+  return locale === "en" ? label.en : label.bn;
+}
+
 export default async function OpportunityDetailPage({
   params,
 }: OpportunityDetailProps) {
@@ -175,7 +238,7 @@ export default async function OpportunityDetailPage({
   const opportunityUrl = `/opportunity/${id}`;
   const applyHref = opportunity.application_url ?? opportunity.original_apply_url ?? opportunity.source_url;
   const organization = opportunity.employer ?? opportunity.organization ?? opportunity.employer_or_organization;
-  const requirementItems = opportunity.requirements_json?.items ?? [];
+  const requirementItems = sanitizeList(opportunity.requirements_json?.items ?? []);
   // Bilingual content — picks the locale's variant, then falls back to the
   // other language, then to the canonical (source-language) value.
   const titleText = pickLang(opportunity, "title", locale) ?? opportunity.title;
@@ -191,38 +254,59 @@ export default async function OpportunityDetailPage({
   const languageRequirementText = pickLang(opportunity, "language_requirement", locale);
   const visaInfoText = pickLang(opportunity, "visa_or_work_permit_info", locale);
   const salaryText = pickLang(opportunity, "salary_text", locale);
-  const journeySteps = pickLangList(opportunity, "journey_steps", locale);
-  const documentsNeeded = pickLangList(opportunity, "documents_needed", locale);
-  function isRawMetadata(text: string | null | undefined): boolean {
-    if (!text) return false;
-    const head = text.slice(0, 400);
-    return ["Official listing metadata:", "Job detail page content:", "Source job ID:", "Apply URL:"]
-      .some(s => head.includes(s));
-  }
-  const cleanSummaryBn = isRawMetadata(opportunity.summary_bn) ? null : (opportunity.summary_bn ?? null);
-  const cleanSummaryEn = isRawMetadata(opportunity.summary_en) ? null : (opportunity.summary_en ?? null);
-
-  const richSections = opportunity.source_sections.length > 0
-    ? opportunity.source_sections
-    : [
-        opportunity.job_purpose ? { title: isEn ? "Job Purpose" : "কাজের উদ্দেশ্য", items: [opportunity.job_purpose] } : null,
-        opportunity.responsibilities.length > 0 ? { title: isEn ? "Responsibilities" : "দায়িত্ব", items: opportunity.responsibilities } : null,
-        opportunity.key_accountabilities.length > 0 ? { title: isEn ? "Key Accountability Areas" : "মূল দায়িত্বের ক্ষেত্র", items: opportunity.key_accountabilities } : null,
-        opportunity.role_accountabilities.length > 0 ? { title: isEn ? "Role Accountability" : "পদের দায়িত্ব", items: opportunity.role_accountabilities } : null,
-        opportunity.qualifications.length > 0 ? { title: isEn ? "Qualifications" : "যোগ্যতা", items: opportunity.qualifications } : null,
-        opportunity.skills.length > 0 ? { title: isEn ? "Skills and tools" : "দক্ষতা ও টুলস", items: opportunity.skills } : null,
-        opportunity.work_conditions.length > 0 ? { title: isEn ? "Work conditions" : "কাজের পরিবেশ", items: opportunity.work_conditions } : null,
-      ].filter((section): section is { title: string; items: string[] } => Boolean(section));
+  const journeySteps = sanitizeList(pickLangList(opportunity, "journey_steps", locale));
+  const documentsNeeded = sanitizeList(pickLangList(opportunity, "documents_needed", locale));
+  const cleanSummaryBn = sanitizeText(opportunity.summary_bn);
+  const cleanSummaryEn = sanitizeText(opportunity.summary_en);
+  const cleanSummaryText = sanitizeText(summaryText);
+  const cleanEligibilityText = sanitizeText(eligibilityText);
+  const cleanRequiredDocumentsText = sanitizeText(requiredDocumentsText);
+  const cleanApplicationProcessText = sanitizeText(applicationProcessText);
+  const cleanEducationRequirementText = sanitizeText(educationRequirementText);
+  const cleanExperienceRequirementText = sanitizeText(experienceRequirementText);
+  const cleanLanguageRequirementText = sanitizeText(languageRequirementText);
+  const cleanVisaInfoText = sanitizeText(visaInfoText);
+  const groupedSections = Object.entries(opportunity.requirements_json?.groups ?? {})
+    .map(([key, items]) => ({
+      title: groupLabel(key, locale),
+      items: sanitizeList(items),
+    }))
+    .filter((section) => section.items.length > 0);
+  const sourceSections = sanitizeSections(opportunity.source_sections);
+  const fallbackSections = [
+    sanitizeText(opportunity.job_purpose)
+      ? { title: isEn ? "Job Purpose" : "কাজের উদ্দেশ্য", items: [sanitizeText(opportunity.job_purpose)!] }
+      : null,
+    sanitizeList(opportunity.key_accountabilities).length > 0
+      ? { title: isEn ? "Key Accountability Areas" : "মূল দায়িত্বের ক্ষেত্র", items: sanitizeList(opportunity.key_accountabilities) }
+      : null,
+    sanitizeList(opportunity.role_accountabilities).length > 0
+      ? { title: isEn ? "Role Accountability" : "পদের দায়িত্ব", items: sanitizeList(opportunity.role_accountabilities) }
+      : null,
+    sanitizeList(opportunity.responsibilities).length > 0
+      ? { title: isEn ? "Responsibilities" : "দায়িত্ব", items: sanitizeList(opportunity.responsibilities) }
+      : null,
+    sanitizeList(opportunity.qualifications).length > 0
+      ? { title: isEn ? "Qualifications" : "যোগ্যতা", items: sanitizeList(opportunity.qualifications) }
+      : null,
+    sanitizeList(opportunity.skills).length > 0
+      ? { title: isEn ? "Technical Skills" : "টেকনিক্যাল স্কিল", items: sanitizeList(opportunity.skills) }
+      : null,
+    sanitizeList(opportunity.work_conditions).length > 0
+      ? { title: isEn ? "Work Experience and Conditions" : "কাজের অভিজ্ঞতা ও শর্ত", items: sanitizeList(opportunity.work_conditions) }
+      : null,
+  ].filter((section): section is { title: string; items: string[] } => Boolean(section));
+  const richSections = sourceSections.length > 0 ? sourceSections : groupedSections.length > 0 ? groupedSections : fallbackSections;
 
   const documentDetails = [
-    requiredDocumentsText,
-    languageRequirementText,
-    educationRequirementText,
+    cleanRequiredDocumentsText,
+    cleanLanguageRequirementText,
+    cleanEducationRequirementText,
   ].filter(Boolean) as string[];
   const processDetails = [
-    applicationProcessText,
-    visaInfoText,
-    experienceRequirementText,
+    cleanApplicationProcessText,
+    cleanVisaInfoText,
+    cleanExperienceRequirementText,
   ].filter(Boolean) as string[];
   const salaryBdt = opportunity.typical_salary_bdt
     ? new Intl.NumberFormat(locale === "bn" ? "bn-BD" : "en-US").format(opportunity.typical_salary_bdt)
@@ -231,12 +315,12 @@ export default async function OpportunityDetailPage({
 
   const voiceSections: VoiceSection[] = [
     { label: isEn ? "Title" : "শিরোনাম", text: titleText },
-    { label: isEn ? "Summary" : "সংক্ষেপ", text: summaryText ?? "" },
+    { label: isEn ? "Summary" : "সংক্ষেপ", text: cleanSummaryText ?? "" },
     { label: isEn ? "Employer" : "নিয়োগকর্তা", text: organization ?? "" },
     { label: isEn ? "Country" : "দেশ", text: opportunity.destination_country ?? opportunity.country ?? "" },
     { label: isEn ? "Salary" : "বেতন", text: salaryText ?? (opportunity.salary_min != null ? `${opportunity.salary_min} ${opportunity.salary_currency ?? ""}` : "") },
     { label: isEn ? "Deadline" : "শেষ তারিখ", text: opportunity.deadline ? formatDate(opportunity.deadline, locale) : "" },
-    { label: isEn ? "Eligibility" : "যোগ্যতা", text: eligibilityText ?? "" },
+    { label: isEn ? "Eligibility" : "যোগ্যতা", text: cleanEligibilityText ?? "" },
     { label: isEn ? "Requirements" : "প্রয়োজনীয়তা", text: requirementItems.join(isEn ? ". " : "। ") },
     { label: isEn ? "Steps" : "আবেদনের ধাপ", text: journeySteps.join(isEn ? ". " : "। ") },
     { label: isEn ? "Documents" : "প্রয়োজনীয় কাগজপত্র", text: documentsNeeded.join(isEn ? ". " : "। ") },
@@ -409,16 +493,20 @@ export default async function OpportunityDetailPage({
                     )}
                   </span>
                 </div>
-                {experienceRequirementText && (
+                {cleanExperienceRequirementText && (
                   <div className="flex items-start justify-between gap-3 border-t border-blue-100 pt-3 dark:border-blue-800">
                     <span>{isEn ? "Experience required" : "অভিজ্ঞতা"}</span>
-                    <span className="max-w-[60%] text-right font-semibold">{experienceRequirementText}</span>
+                    <span className="max-w-[60%] text-right font-semibold">{cleanExperienceRequirementText}</span>
                   </div>
                 )}
-                {visaInfoText && (
+                <div className="flex items-start justify-between gap-3 border-t border-blue-100 pt-3 dark:border-blue-800">
+                  <span>{isEn ? "Visa / Iqama" : "ভিসা / ইকামা"}</span>
+                  <span className="max-w-[60%] text-right font-semibold">{cleanVisaInfoText ?? getNotSpecified(locale)}</span>
+                </div>
+                {cleanEligibilityText && (
                   <div className="flex items-start justify-between gap-3 border-t border-blue-100 pt-3 dark:border-blue-800">
-                    <span>{isEn ? "Visa / Iqama" : "ভিসা / ইকামা"}</span>
-                    <span className="max-w-[60%] text-right font-semibold">{visaInfoText}</span>
+                    <span>{isEn ? "Eligibility note" : "যোগ্যতার নোট"}</span>
+                    <span className="max-w-[60%] text-right font-semibold">{cleanEligibilityText}</span>
                   </div>
                 )}
               </div>
@@ -433,12 +521,12 @@ export default async function OpportunityDetailPage({
             )}
 
             <section className="space-y-3" aria-label={isEn ? "Opportunity details" : "সুযোগের বিস্তারিত"}>
+              <SourceJobDetails sections={richSections} isEn={isEn} />
               <DetailAccordion
                 title={isEn ? "Requirements" : "যা যা লাগবে"}
                 content={requirementItems}
-                defaultOpen
+                defaultOpen={richSections.length === 0}
               />
-              <SourceJobDetails sections={richSections} isEn={isEn} />
               {journeySteps.length > 0 && (
                 <Card>
                   <h2 className="section-underline text-xl font-bold text-foreground">

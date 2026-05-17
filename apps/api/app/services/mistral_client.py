@@ -7,20 +7,47 @@ Default model: mistral-small-latest (fast, cheap, capable enough for our tasks)
 """
 from __future__ import annotations
 
+import importlib
 import json
 import logging
 from typing import Any, TypeVar
 
-from mistralai import Mistral
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 
+def _resolve_mistral_client_class():
+    """Support both top-level and nested SDK import layouts.
 
-def _client(api_key: str) -> Mistral:
-    return Mistral(api_key=api_key)
+    Recent docs show both `from mistralai import Mistral` and
+    `from mistralai.client import Mistral` depending on SDK generation/version.
+    We resolve lazily so the app can import even when the provider is not used.
+    """
+    import_errors: list[str] = []
+    for module_name, class_name in (
+        ("mistralai", "Mistral"),
+        ("mistralai.client", "Mistral"),
+        ("mistralai.client", "MistralClient"),
+    ):
+        try:
+            module = importlib.import_module(module_name)
+            client_cls = getattr(module, class_name, None)
+            if client_cls is not None:
+                return client_cls
+        except Exception as exc:  # pragma: no cover - depends on installed SDK layout
+            import_errors.append(f"{module_name}.{class_name}: {type(exc).__name__}: {exc}")
+    raise ImportError(
+        "Unable to import a compatible Mistral SDK client. Tried mistralai.Mistral, "
+        "mistralai.client.Mistral, and mistralai.client.MistralClient. "
+        f"Details: {' | '.join(import_errors) or 'symbol not found'}"
+    )
+
+
+def _client(api_key: str):
+    client_cls = _resolve_mistral_client_class()
+    return client_cls(api_key=api_key)
 
 
 def mistral_chat(
@@ -50,7 +77,12 @@ def mistral_chat(
     if json_mode:
         kwargs["response_format"] = {"type": "json_object"}
 
-    response = client.chat.complete(**kwargs)
+    if hasattr(getattr(client, "chat", None), "complete"):
+        response = client.chat.complete(**kwargs)
+    elif callable(getattr(client, "chat", None)):  # older SDK layout
+        response = client.chat(**kwargs)
+    else:  # pragma: no cover - defensive guard for unexpected SDK shape
+        raise RuntimeError("Unsupported Mistral SDK client shape: missing chat.complete/chat")
     return (response.choices[0].message.content or "").strip()
 
 

@@ -1,10 +1,12 @@
 import json
+import re
 from typing import Any
 
 from langchain_groq import ChatGroq
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.ingestion.official_job_sections import OfficialJobParsedPayload
 from app.ingestion.schemas import (
     ExtractionBase,
     JobOpportunityExtraction,
@@ -13,11 +15,31 @@ from app.ingestion.schemas import (
     ScholarshipExtraction,
     UnknownExtraction,
 )
+from app.services.mistral_client import mistral_chat
 from app.services.runtime_settings_service import get_ai_api_key, get_ai_model, get_ai_provider
 
 
 class ExtractionEnvelope(BaseModel):
     data: JobOpportunityExtraction | ScholarshipExtraction | PolicyUpdateExtraction | UnknownExtraction
+
+
+_RAW_METADATA_SIGNALS = (
+    "Official listing metadata:",
+    "Job detail page content:",
+    "Source job ID:",
+    "Apply URL:",
+    "Career Details",
+    "Login View profile",
+    "Start apply with LinkedIn",
+    "Please wait",
+)
+
+
+def is_raw_metadata_summary(text: str | None) -> bool:
+    if not text:
+        return False
+    head = text[:500]
+    return any(signal in head for signal in _RAW_METADATA_SIGNALS)
 
 
 def _fallback_extract(cleaned: dict[str, Any]) -> ExtractionBase:
@@ -195,6 +217,271 @@ def extract_official_job_fallback(
         extraction_method="heuristic_official_fallback",
         evidence_snippets=[title, body_text[:200]],
     )
+
+
+def build_official_job_ai_input_payload(parsed_payload: OfficialJobParsedPayload) -> dict[str, Any]:
+    return {
+        "title": parsed_payload.title or "",
+        "company": parsed_payload.company or "",
+        "country": parsed_payload.country or "",
+        "city": parsed_payload.city or "",
+        "department": parsed_payload.department or "",
+        "apply_url": parsed_payload.apply_url or "",
+        "posted_date": parsed_payload.posted_date_text or "",
+        "job_purpose": parsed_payload.job_purpose or "",
+        "responsibilities": parsed_payload.responsibilities,
+        "key_accountabilities": parsed_payload.key_accountabilities,
+        "role_accountabilities": parsed_payload.role_accountabilities,
+        "qualifications": parsed_payload.qualifications,
+        "technical_skills": parsed_payload.technical_skills,
+        "competencies": parsed_payload.competencies,
+        "work_experience": parsed_payload.work_experience or "",
+        "education": parsed_payload.education or "",
+        "work_permit_or_iqama": parsed_payload.work_permit_or_iqama or "",
+        "benefits": parsed_payload.benefits,
+        "deadline_text": parsed_payload.deadline_text or "",
+        "salary_text": parsed_payload.salary_text or "",
+        "source_sections": [
+            {"title": section.heading, "items": section.items}
+            for section in parsed_payload.raw_sections
+            if section.items
+        ],
+    }
+
+
+def build_official_job_ai_prompt(parsed_payload: OfficialJobParsedPayload) -> str:
+    payload = build_official_job_ai_input_payload(parsed_payload)
+    prompt = {
+        "task": (
+            "You are converting verified official job details into structured JSON for a "
+            "Bangladeshi overseas job platform. Use only the provided parsed facts. "
+            "Do not invent salary, deadline, visa support, or Bangladesh eligibility. "
+            "Write worker-friendly Bangla and English summaries. Keep all requirements as "
+            "separate list items. Return valid JSON only."
+        ),
+        "rules": [
+            "If salary is not provided, keep salary fields null.",
+            "If deadline is not provided, keep deadline_text null.",
+            "If the page says transferable iqama, do not say Bangladeshi applicants can clearly apply from Bangladesh.",
+            "If the page is for Saudi Arabia and requires transferable iqama, set can_apply_from_bd to null or false based on wording.",
+            "Never include cookie, login, apply button, or navigation text in requirements.",
+            "summary_bn must be natural Bangla.",
+            "summary_en must be concise and professional.",
+            "requirements must contain applicant requirements only.",
+            "responsibilities must contain duties only.",
+            "source_sections must preserve original important sections.",
+        ],
+        "output_schema": {
+            "record_type": "job",
+            "title": "",
+            "title_bn": "",
+            "summary_en": "",
+            "summary_bn": "",
+            "country": "",
+            "city": "",
+            "employer": "",
+            "organization": "",
+            "sector": "",
+            "degree_level": "",
+            "salary_min": None,
+            "salary_max": None,
+            "salary_currency": None,
+            "deadline_text": None,
+            "application_url": "",
+            "eligibility_text": "",
+            "visa_support": None,
+            "can_apply_from_bd": None,
+            "requirements": [],
+            "benefits": [],
+            "language_requirements": [],
+            "job_purpose": "",
+            "responsibilities": [],
+            "key_accountabilities": [],
+            "role_accountabilities": [],
+            "qualifications": [],
+            "skills": [],
+            "work_conditions": [],
+            "source_sections": [],
+            "journey_steps": [],
+            "documents_needed": [],
+            "typical_salary_bdt": None,
+            "extraction_confidence": 0.0,
+            "evidence_snippets": [],
+        },
+        "input_facts": payload,
+    }
+    return json.dumps(prompt, ensure_ascii=False)
+
+
+def official_parsed_payload_to_fallback_extraction(
+    parsed_payload: OfficialJobParsedPayload,
+) -> JobOpportunityExtraction:
+    title = parsed_payload.title or "Official job opening"
+    employer = parsed_payload.company or "The employer"
+    country = parsed_payload.country or "Saudi Arabia"
+    city = parsed_payload.city
+    location_phrase = ", ".join([item for item in [city, country] if item])
+    education = parsed_payload.education or _first_list_item(parsed_payload.qualifications)
+    experience = parsed_payload.work_experience or _first_matching_item(parsed_payload.qualifications, ("experience", "year", "years"))
+    responsibilities = list(parsed_payload.responsibilities)
+    key_accountabilities = list(parsed_payload.key_accountabilities)
+    role_accountabilities = list(parsed_payload.role_accountabilities)
+    qualifications = _unique_items(
+        parsed_payload.qualifications
+        + ([parsed_payload.education] if parsed_payload.education else [])
+        + ([parsed_payload.work_experience] if parsed_payload.work_experience else [])
+    )
+    requirements = _unique_items(
+        qualifications
+        + parsed_payload.technical_skills
+        + parsed_payload.competencies
+        + ([parsed_payload.work_permit_or_iqama] if parsed_payload.work_permit_or_iqama else [])
+    )
+    summary_en_parts = [
+        f"{employer} is hiring {title}",
+        f"in {location_phrase}" if location_phrase else "",
+        ".",
+    ]
+    role_bits = []
+    if parsed_payload.job_purpose:
+        role_bits.append(parsed_payload.job_purpose)
+    if responsibilities:
+        role_bits.append("The role includes " + "; ".join(responsibilities[:4]))
+    if education or experience:
+        quals = " and ".join([item for item in [education, experience] if item])
+        role_bits.append(f"The page mentions {quals}.")
+    summary_en = " ".join(part for part in summary_en_parts if part).replace(" .", ".").strip()
+    if role_bits:
+        summary_en = f"{summary_en} {' '.join(role_bits)}".strip()
+
+    summary_bn_parts = []
+    if location_phrase:
+        summary_bn_parts.append(f"{employer} {location_phrase} এ {title} পদে নিয়োগ দিচ্ছে।")
+    else:
+        summary_bn_parts.append(f"{employer} {title} পদে নিয়োগ দিচ্ছে।")
+    bn_duties = []
+    if parsed_payload.job_purpose:
+        bn_duties.append(parsed_payload.job_purpose)
+    if responsibilities:
+        bn_duties.append("এই পদের কাজের মধ্যে রয়েছে " + ", ".join(responsibilities[:4]) + "।")
+    if education or experience:
+        quals = " এবং ".join([item for item in [education, experience] if item])
+        bn_duties.append(f"পেজে {quals} উল্লেখ আছে।")
+    summary_bn = " ".join(summary_bn_parts + bn_duties).strip()
+
+    can_apply_from_bd: bool | None = None
+    if parsed_payload.work_permit_or_iqama:
+        lowered = parsed_payload.work_permit_or_iqama.lower()
+        if "transferable iqama" in lowered:
+            can_apply_from_bd = False
+        elif any(term in lowered for term in ("work permit", "authorization", "resident", "residency")):
+            can_apply_from_bd = False
+
+    visa_support: bool | None = None
+    if parsed_payload.work_permit_or_iqama and re.search(r"\b(sponsorship provided|visa provided)\b", parsed_payload.work_permit_or_iqama, re.I):
+        visa_support = True
+
+    extraction = JobOpportunityExtraction(
+        record_type="job",
+        title=title,
+        title_bn=title,
+        summary=summary_en,
+        summary_en=summary_en,
+        summary_bn=summary_bn,
+        country=parsed_payload.country,
+        city=parsed_payload.city,
+        employer=parsed_payload.company,
+        organization=parsed_payload.department,
+        sector=parsed_payload.department,
+        degree_level=_derive_degree_level(parsed_payload.education or "\n".join(parsed_payload.qualifications)),
+        deadline_text=parsed_payload.deadline_text,
+        application_url=parsed_payload.apply_url or parsed_payload.final_url,
+        eligibility_text=parsed_payload.work_permit_or_iqama or _join_non_empty(requirements[:4], separator="\n"),
+        visa_support=visa_support,
+        can_apply_from_bd=can_apply_from_bd,
+        requirements=requirements,
+        benefits=list(parsed_payload.benefits),
+        language_requirements=[],
+        job_purpose=parsed_payload.job_purpose,
+        responsibilities=responsibilities,
+        key_accountabilities=key_accountabilities,
+        role_accountabilities=role_accountabilities,
+        qualifications=qualifications,
+        skills=_unique_items(parsed_payload.technical_skills + parsed_payload.competencies),
+        work_conditions=[],
+        source_sections=[
+            {"title": section.heading, "items": list(section.items)}
+            for section in parsed_payload.raw_sections
+            if section.items
+        ],
+        journey_steps=["মূল জব ডিটেইলস পড়ুন", "প্রয়োজনীয় কাগজপত্র প্রস্তুত করুন", "অফিশিয়াল লিংকে আবেদন করুন"],
+        documents_needed=["পাসপোর্ট", "সিভি", "শিক্ষাগত সনদ", "অভিজ্ঞতার সনদ"],
+        typical_salary_bdt=None,
+        extraction_confidence=max(float(parsed_payload.parser_confidence), 0.62),
+        evidence_snippets=_build_evidence_snippets(parsed_payload),
+        extraction_method="official_parsed_fallback",
+    )
+    return _hydrate_official_extraction_from_parsed_payload(extraction, parsed_payload, use_fallback_summary=True)
+
+
+def run_official_job_ai_extraction(
+    db: Session,
+    parsed_payload: OfficialJobParsedPayload,
+) -> tuple[JobOpportunityExtraction, dict[str, Any]]:
+    provider = get_ai_provider(db)
+    api_key = get_ai_api_key(db)
+    input_payload = build_official_job_ai_input_payload(parsed_payload)
+    diagnostics: dict[str, Any] = {
+        "provider": provider,
+        "model": get_ai_model(db),
+        "prompt_version": "official_job_compact_v1",
+        "input_payload": input_payload,
+        "raw_output": None,
+        "validated_output": None,
+        "validation_errors": [],
+        "repair_attempted": False,
+        "repair_success": False,
+        "fallback_used": False,
+    }
+    if not api_key:
+        fallback = official_parsed_payload_to_fallback_extraction(parsed_payload)
+        fallback.fallback_reason = "no_ai_api_key"
+        diagnostics["validated_output"] = fallback.model_dump(mode="json")
+        diagnostics["fallback_used"] = True
+        return fallback, diagnostics
+
+    prompt = build_official_job_ai_prompt(parsed_payload)
+    try:
+        raw_output = _invoke_official_job_text(db, provider, api_key, prompt)
+        diagnostics["raw_output"] = raw_output
+        extraction = _parse_official_job_json(raw_output)
+    except Exception as exc:
+        diagnostics["validation_errors"] = [f"initial_parse_failed:{type(exc).__name__}:{exc}"]
+        diagnostics["repair_attempted"] = True
+        try:
+            repaired_raw = _invoke_official_job_repair(db, provider, api_key, parsed_payload, diagnostics["raw_output"])
+            diagnostics["raw_output"] = repaired_raw
+            extraction = _parse_official_job_json(repaired_raw)
+            diagnostics["repair_success"] = True
+        except Exception as repair_exc:
+            diagnostics["validation_errors"].append(f"repair_failed:{type(repair_exc).__name__}:{repair_exc}")
+            fallback = official_parsed_payload_to_fallback_extraction(parsed_payload)
+            fallback.fallback_reason = f"official_repair_failed:{type(repair_exc).__name__}"
+            diagnostics["validated_output"] = fallback.model_dump(mode="json")
+            diagnostics["fallback_used"] = True
+            return fallback, diagnostics
+
+    extraction = _hydrate_official_extraction_from_parsed_payload(extraction, parsed_payload)
+    diagnostics["validated_output"] = extraction.model_dump(mode="json")
+    return extraction, diagnostics
+
+
+def extract_official_job_from_parsed_payload(
+    db: Session,
+    parsed_payload: OfficialJobParsedPayload,
+) -> JobOpportunityExtraction:
+    extraction, _diagnostics = run_official_job_ai_extraction(db, parsed_payload)
+    return extraction
 
 
 def _ensure_fields(extraction: ExtractionBase) -> ExtractionBase:
@@ -463,6 +750,168 @@ def _strip_code_fences(text: str) -> str:
         if cleaned.startswith("json"):
             cleaned = cleaned[4:].strip()
     return cleaned
+
+
+def _invoke_official_job_text(db: Session, provider: str, api_key: str, prompt: str) -> str:
+    if provider == "mistral":
+        return mistral_chat(
+            api_key,
+            get_ai_model(db),
+            [
+                {"role": "system", "content": "Return only valid JSON matching the requested job schema."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.0,
+            json_mode=True,
+        )
+    model = ChatGroq(model=get_ai_model(db), api_key=api_key, temperature=0.0)
+    return str(model.invoke(prompt).content or "")
+
+
+def _invoke_official_job_repair(
+    db: Session,
+    provider: str,
+    api_key: str,
+    parsed_payload: OfficialJobParsedPayload,
+    raw_output: str | None,
+) -> str:
+    repair_prompt = (
+        "Repair the following model output into valid JSON that matches the requested job schema. "
+        "Use only these parsed facts and do not invent missing values.\n\n"
+        f"Parsed facts:\n{json.dumps(build_official_job_ai_input_payload(parsed_payload), ensure_ascii=False)}\n\n"
+        f"Invalid output:\n{raw_output or ''}"
+    )
+    return _invoke_official_job_text(db, provider, api_key, repair_prompt)
+
+
+def _parse_official_job_json(raw_output: str) -> JobOpportunityExtraction:
+    cleaned = _strip_code_fences(raw_output)
+    payload = json.loads(cleaned)
+    if isinstance(payload, dict) and isinstance(payload.get("data"), dict):
+        payload = payload["data"]
+    extraction = JobOpportunityExtraction.model_validate(payload)
+    return _ensure_job_fields(extraction)
+
+
+def _hydrate_official_extraction_from_parsed_payload(
+    extraction: JobOpportunityExtraction,
+    parsed_payload: OfficialJobParsedPayload,
+    *,
+    use_fallback_summary: bool = False,
+) -> JobOpportunityExtraction:
+    extraction.title = extraction.title or parsed_payload.title
+    extraction.title_bn = extraction.title_bn or extraction.title or parsed_payload.title
+    extraction.country = extraction.country or parsed_payload.country
+    extraction.city = extraction.city or parsed_payload.city
+    extraction.employer = extraction.employer or parsed_payload.company
+    extraction.organization = extraction.organization or parsed_payload.department
+    extraction.sector = extraction.sector or parsed_payload.department
+    extraction.application_url = extraction.application_url or parsed_payload.apply_url or parsed_payload.final_url
+    extraction.deadline_text = extraction.deadline_text or parsed_payload.deadline_text
+    extraction.job_purpose = extraction.job_purpose or parsed_payload.job_purpose
+    extraction.key_accountabilities = _unique_items(extraction.key_accountabilities + parsed_payload.key_accountabilities)
+    extraction.role_accountabilities = _unique_items(extraction.role_accountabilities + parsed_payload.role_accountabilities)
+    extraction.responsibilities = _unique_items(extraction.responsibilities + parsed_payload.responsibilities)
+    extraction.qualifications = _unique_items(
+        extraction.qualifications
+        + parsed_payload.qualifications
+        + ([parsed_payload.education] if parsed_payload.education else [])
+        + ([parsed_payload.work_experience] if parsed_payload.work_experience else [])
+    )
+    extraction.skills = _unique_items(extraction.skills + parsed_payload.technical_skills + parsed_payload.competencies)
+    extraction.benefits = _unique_items(extraction.benefits + parsed_payload.benefits)
+    extraction.source_sections = extraction.source_sections or [
+        {"title": section.heading, "items": list(section.items)}
+        for section in parsed_payload.raw_sections
+        if section.items
+    ]
+    extraction.evidence_snippets = extraction.evidence_snippets or _build_evidence_snippets(parsed_payload)
+    extraction.degree_level = extraction.degree_level or _derive_degree_level(parsed_payload.education or "\n".join(parsed_payload.qualifications))
+    extraction.eligibility_text = extraction.eligibility_text or parsed_payload.work_permit_or_iqama
+    if extraction.can_apply_from_bd is None and parsed_payload.work_permit_or_iqama:
+        lowered = parsed_payload.work_permit_or_iqama.lower()
+        if "transferable iqama" in lowered:
+            extraction.can_apply_from_bd = False
+        elif any(term in lowered for term in ("work permit", "authorization", "resident")):
+            extraction.can_apply_from_bd = False
+    if extraction.visa_support is None and parsed_payload.work_permit_or_iqama:
+        if re.search(r"\b(sponsorship provided|visa provided)\b", parsed_payload.work_permit_or_iqama, re.I):
+            extraction.visa_support = True
+    if not extraction.requirements:
+        extraction.requirements = _unique_items(
+            parsed_payload.qualifications
+            + ([parsed_payload.education] if parsed_payload.education else [])
+            + ([parsed_payload.work_experience] if parsed_payload.work_experience else [])
+            + parsed_payload.technical_skills
+            + parsed_payload.competencies
+        )
+    if not extraction.summary_en or is_raw_metadata_summary(extraction.summary_en):
+        extraction.summary_en = official_parsed_payload_to_fallback_extraction(parsed_payload).summary_en
+        extraction.extraction_method = extraction.extraction_method or "official_job_compact_ai"
+    if not extraction.summary_bn or is_raw_metadata_summary(extraction.summary_bn):
+        extraction.summary_bn = official_parsed_payload_to_fallback_extraction(parsed_payload).summary_bn
+    if not extraction.summary or is_raw_metadata_summary(extraction.summary):
+        extraction.summary = extraction.summary_en
+    if any(is_raw_metadata_summary(value) for value in (extraction.summary, extraction.summary_bn, extraction.summary_en)):
+        fallback = official_parsed_payload_to_fallback_extraction(parsed_payload)
+        extraction.summary = fallback.summary
+        extraction.summary_en = fallback.summary_en
+        extraction.summary_bn = fallback.summary_bn
+        if "recovered_bad_summary" not in extraction.evidence_snippets:
+            extraction.evidence_snippets.append("recovered_bad_summary")
+    field_scores = _score_extraction_fields(extraction)
+    extraction.field_confidences = {key: round(value, 3) for key, value in field_scores.items()}
+    extraction.extraction_confidence = max(float(parsed_payload.parser_confidence), _rollup_confidence(extraction, field_scores))
+    extraction.extraction_method = extraction.extraction_method or ("official_parsed_fallback" if use_fallback_summary else "official_job_compact_ai")
+    return _ensure_job_fields(extraction)
+
+
+def _build_evidence_snippets(parsed_payload: OfficialJobParsedPayload) -> list[str]:
+    snippets: list[str] = []
+    for evidence in parsed_payload.field_sources.values():
+        for item in evidence:
+            if item.evidence_line and item.evidence_line not in snippets:
+                snippets.append(item.evidence_line)
+            if len(snippets) >= 3:
+                return snippets
+    return snippets
+
+
+def _derive_degree_level(text: str | None) -> str | None:
+    lowered = (text or "").lower()
+    for level in ("phd", "master", "bachelor", "diploma", "high school", "secondary"):
+        if level in lowered:
+            return level
+    return None
+
+
+def _first_list_item(values: list[str]) -> str | None:
+    for value in values:
+        if value and value.strip():
+            return value.strip()
+    return None
+
+
+def _first_matching_item(values: list[str], terms: tuple[str, ...]) -> str | None:
+    for value in values:
+        lowered = value.lower()
+        if any(term in lowered for term in terms):
+            return value
+    return None
+
+
+def _unique_items(values: list[str]) -> list[str]:
+    items: list[str] = []
+    for value in values:
+        cleaned = str(value or "").strip()
+        if cleaned and cleaned not in items:
+            items.append(cleaned)
+    return items
+
+
+def _join_non_empty(values: list[str], *, separator: str = ", ") -> str | None:
+    cleaned = [value.strip() for value in values if value and value.strip()]
+    return separator.join(cleaned) if cleaned else None
 
 
 def _invoke_mistral(model: str, api_key: str, prompt: str) -> ExtractionEnvelope:
