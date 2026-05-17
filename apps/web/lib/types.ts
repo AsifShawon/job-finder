@@ -85,6 +85,7 @@ export interface PublishedOpportunityCard {
   destination_country: string | null;
   employer_or_organization: string | null;
   sector: string | null;
+  isc_category_key: string | null;
   platform_category_bn: string | null;
   platform_category_en: string | null;
   salary_min: number | null;
@@ -93,6 +94,7 @@ export interface PublishedOpportunityCard {
   salary_text: string | null;
   salary_text_bn: string | null;
   salary_text_en: string | null;
+  experience_min_years: number | null;
   deadline: string | null;
   source_page_url: string;
   document_url: string | null;
@@ -195,6 +197,13 @@ export interface SearchResponse {
   page_size: number;
 }
 
+export interface OpportunityCategorySummary {
+  key: string;
+  label_bn: string;
+  label_en: string;
+  job_count: number;
+}
+
 export interface SimilarOpportunityResponse {
   items: PublishedOpportunityCard[];
 }
@@ -211,6 +220,7 @@ export interface CopilotChatCitation {
   opportunity_type: OpportunityType | null;
   country: string | null;
   destination_country: string | null;
+  experience_min_years?: number | null;
   deadline: string | null;
   employer_or_organization: string | null;
   salary_min: number | null;
@@ -413,6 +423,7 @@ export interface CrawlRun {
   started_at: string | null;
   finished_at: string | null;
   error_message: string | null;
+  diagnostics: CrawlRunDiagnostics | null;
   logs: Record<string, unknown> | null;
 }
 
@@ -421,6 +432,33 @@ export interface CrawlRunPage {
   total: number;
   page: number;
   page_size: number;
+}
+
+export interface CrawlRunDiagnostics {
+  accepted_count: number;
+  published_count: number;
+  skipped_count: number;
+  dominant_skip_reason: string | null;
+  confidence_summary: Record<string, number>;
+  skip_reasons: Record<string, number>;
+}
+
+export interface RawDocumentExtractionAttempt {
+  record_type: string | null;
+  extraction_confidence: number | null;
+  field_confidences: Record<string, number> | null;
+  evidence_snippets: string[];
+  application_url: string | null;
+  employer: string | null;
+  country: string | null;
+  title: string | null;
+  summary: string | null;
+  validation_errors: string[];
+  skip_reason: string | null;
+}
+
+export interface RawDocumentExtractionDiagnostics {
+  attempts: RawDocumentExtractionAttempt[];
 }
 
 // ── Legacy CrawlJob (kept for backward compat with existing admin pages) ───────
@@ -535,6 +573,8 @@ export interface FailedExtractionPage {
 
 export interface RawDocument {
   id: number;
+  source_id: number;
+  crawl_run_id: number | null;
   source_url: string;
   canonical_url: string | null;
   content_type: string | null;
@@ -546,6 +586,7 @@ export interface RawDocument {
   raw_html_path: string | null;
   raw_html_snapshot: string | null;
   metadata_json: Record<string, unknown>;
+  extraction_diagnostics_json: RawDocumentExtractionDiagnostics;
   fetched_at: string | null;
 }
 

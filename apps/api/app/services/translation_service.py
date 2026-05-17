@@ -103,6 +103,37 @@ class TranslationOutput(BaseModel):
     documents_needed: list[str] = Field(default_factory=list)
 
 
+class OfficialBilingualOutput(BaseModel):
+    title_bn: str | None = None
+    title_en: str | None = None
+    summary_bn: str | None = None
+    summary_en: str | None = None
+    job_title_bn: str | None = None
+    job_title_en: str | None = None
+    salary_text_bn: str | None = None
+    salary_text_en: str | None = None
+    location_text_bn: str | None = None
+    location_text_en: str | None = None
+    eligibility_text_bn: str | None = None
+    eligibility_text_en: str | None = None
+    required_documents_bn: str | None = None
+    required_documents_en: str | None = None
+    application_process_bn: str | None = None
+    application_process_en: str | None = None
+    education_requirement_bn: str | None = None
+    education_requirement_en: str | None = None
+    experience_requirement_bn: str | None = None
+    experience_requirement_en: str | None = None
+    language_requirement_bn: str | None = None
+    language_requirement_en: str | None = None
+    visa_or_work_permit_info_bn: str | None = None
+    visa_or_work_permit_info_en: str | None = None
+    journey_steps_bn: list[str] = Field(default_factory=list)
+    journey_steps_en: list[str] = Field(default_factory=list)
+    documents_needed_bn: list[str] = Field(default_factory=list)
+    documents_needed_en: list[str] = Field(default_factory=list)
+
+
 # ── Prompt ────────────────────────────────────────────────────────────────────
 
 _PROMPT = (
@@ -121,6 +152,20 @@ _PROMPT = (
 )
 
 _LANG_NAMES = {"bn": "Bengali (Bangla)", "en": "English"}
+
+_OFFICIAL_BILINGUAL_PROMPT = (
+    "You are enriching an overseas job record for a Bangladeshi worker platform.\n"
+    "Use the source JSON below and return bilingual field pairs in Bangla and English.\n\n"
+    "Rules:\n"
+    "- Use Bangla script for all *_bn fields.\n"
+    "- Use clear English for all *_en fields.\n"
+    "- Keep proper nouns, employer names, locations, and currency codes accurate.\n"
+    "- Do not invent facts that are not supported by the source JSON.\n"
+    "- For list fields, return arrays of short strings.\n"
+    "- Omit any field that cannot be filled reliably.\n\n"
+    "SOURCE JSON:\n{payload}\n\n"
+    "Return ONLY valid JSON."
+)
 
 
 # ── Field-level translate (used by manual entry buttons) ──────────────────────
@@ -199,6 +244,62 @@ def translate_record(
     return changes
 
 
+def enrich_bilingual_record(
+    db: Session,
+    opp: Opportunity,
+    *,
+    overwrite: bool = False,
+) -> dict[str, Any]:
+    """Best-effort bilingual enrichment for strict ingestion flows."""
+    api_key = get_ai_api_key(db)
+    if not api_key:
+        raise RuntimeError("AI API key not configured")
+
+    payload: dict[str, Any] = {}
+    desired_fields: set[str] = set()
+    for canonical, bn_field, en_field, is_list in BILINGUAL_FIELDS:
+        source_value = getattr(opp, canonical, None) or getattr(opp, bn_field, None) or getattr(opp, en_field, None)
+        if is_list:
+            if not isinstance(source_value, list) or not source_value:
+                continue
+        elif not source_value or not str(source_value).strip():
+            continue
+        payload[canonical] = source_value
+        if overwrite or not getattr(opp, bn_field, None):
+            desired_fields.add(bn_field)
+        if overwrite or not getattr(opp, en_field, None):
+            desired_fields.add(en_field)
+
+    if not payload or not desired_fields:
+        return {}
+
+    prompt = _OFFICIAL_BILINGUAL_PROMPT.format(
+        payload=json.dumps(payload, ensure_ascii=False),
+    )
+    try:
+        result = _invoke_llm_model(db, api_key, prompt, OfficialBilingualOutput)
+    except Exception as exc:
+        logger.warning(
+            "official_bilingual_enrichment_failed",
+            extra={"opp_id": opp.id, "error": str(exc)},
+        )
+        return {}
+
+    changes: dict[str, Any] = {}
+    for field_name in desired_fields:
+        value = getattr(result, field_name, None)
+        if isinstance(value, list):
+            cleaned = [str(item).strip() for item in value if str(item).strip()]
+            if cleaned:
+                setattr(opp, field_name, cleaned)
+                changes[field_name] = cleaned
+        elif isinstance(value, str) and value.strip():
+            cleaned = value.strip()
+            setattr(opp, field_name, cleaned)
+            changes[field_name] = cleaned
+    return changes
+
+
 def _translate_to(
     db: Session,
     opp: Opportunity,
@@ -262,17 +363,26 @@ def _translate_to(
 
 # ── LLM invocation helpers (mirror extractor.py patterns) ─────────────────────
 
-def _invoke_llm_structured(db: Session, api_key: str, prompt: str) -> TranslationOutput:
+def _invoke_llm_model(db: Session, api_key: str, prompt: str, output_model: type[BaseModel]) -> BaseModel:
     provider = get_ai_provider(db)
     model_name = get_ai_model(db)
     if provider == "mistral":
-        return _invoke_mistral_structured(model_name, api_key, prompt)
+        return _invoke_mistral_structured(model_name, api_key, prompt, output_model)
     model = ChatGroq(model=model_name, api_key=api_key, temperature=0.0)
-    structured = model.with_structured_output(TranslationOutput)
+    structured = model.with_structured_output(output_model)
     return structured.invoke(prompt)  # type: ignore[return-value]
 
 
-def _invoke_mistral_structured(model: str, api_key: str, prompt: str) -> TranslationOutput:
+def _invoke_llm_structured(db: Session, api_key: str, prompt: str) -> TranslationOutput:
+    return TranslationOutput.model_validate(_invoke_llm_model(db, api_key, prompt, TranslationOutput).model_dump())
+
+
+def _invoke_mistral_structured(
+    model: str,
+    api_key: str,
+    prompt: str,
+    output_model: type[BaseModel],
+) -> BaseModel:
     response = httpx.post(
         "https://api.mistral.ai/v1/chat/completions",
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
@@ -288,7 +398,7 @@ def _invoke_mistral_structured(model: str, api_key: str, prompt: str) -> Transla
     )
     response.raise_for_status()
     content = response.json()["choices"][0]["message"]["content"]
-    return TranslationOutput.model_validate(json.loads(_strip_code_fences(content)))
+    return output_model.model_validate(json.loads(_strip_code_fences(content)))
 
 
 def _invoke_llm_text(db: Session, api_key: str, prompt: str) -> str:

@@ -4,24 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.entities import Opportunity, SavedOpportunity, UserProfile
-
-ISC_TO_SEARCH_TERMS: dict[str, list[str]] = {
-    "construction_isc":    ["construction", "civil", "mason", "welder", "carpenter", "plumber", "electrician"],
-    "ict_isc":             ["IT", "software", "developer", "tech", "digital", "programmer", "network"],
-    "agrofood_isc":        ["food processing", "agriculture", "farm", "fishery", "food", "dairy"],
-    "tourism_isc":         ["hotel", "hospitality", "restaurant", "tourism", "cook", "waiter", "chef"],
-    "rgt_isc":             ["garments", "textile", "sewing", "fabric", "apparel", "tailoring"],
-    "leather_isc":         ["leather", "footwear", "tannery", "shoe"],
-    "light_eng_isc":       ["engineering", "mechanic", "lathe", "machinist", "fitter", "welder"],
-    "jute_isc":            ["jute", "fiber", "yarn"],
-    "ceramic_isc":         ["ceramic", "tile", "pottery", "glass"],
-    "pharma_isc":          ["pharmaceutical", "medicine", "laboratory", "pharmacy", "medical"],
-    "furniture_isc":       ["furniture", "carpentry", "wood", "cabinet"],
-    "plastics_isc":        ["plastic", "polymer", "molding", "packaging"],
-    "creative_media_isc":  ["media", "graphic", "video", "design", "creative", "photography"],
-    "agriculture_isc":     ["agriculture", "farming", "crop", "livestock", "poultry"],
-    "informal_isc":        ["general", "labor", "helper", "driver", "cleaner", "domestic", "security"],
-}
+from app.services.isc_taxonomy import ISC_TO_SEARCH_TERMS, count_isc_term_hits
 
 
 def compute_match_score(opp: Opportunity, profile: UserProfile) -> float:
@@ -31,23 +14,26 @@ def compute_match_score(opp: Opportunity, profile: UserProfile) -> float:
     # --- ISC SECTOR MATCH — weight 0.45 ---
     isc_keys = profile.preferred_sectors_json or []
     if isc_keys:
-        opp_text = " ".join(filter(None, [
-            opp.title or "",
-            opp.sector or "",
-            opp.summary_en or "",
-            opp.summary or "",
-            opp.employer_or_organization or "",
-        ])).lower()
+        if opp.isc_category_key and opp.isc_category_key in isc_keys:
+            score += 0.45
+        else:
+            opp_text = " ".join(filter(None, [
+                opp.title or "",
+                opp.sector or "",
+                opp.summary_en or "",
+                opp.summary or "",
+                opp.employer_or_organization or "",
+            ])).lower()
 
-        best_isc_score = 0.0
-        for key in isc_keys:
-            terms = ISC_TO_SEARCH_TERMS.get(key, [])
-            matched_terms = sum(1 for t in terms if t.lower() in opp_text)
-            if matched_terms > 0:
-                term_score = min(matched_terms / max(len(terms), 1), 1.0)
-                best_isc_score = max(best_isc_score, term_score)
+            best_isc_score = 0.0
+            for key in isc_keys:
+                terms = ISC_TO_SEARCH_TERMS.get(key, [])
+                matched_terms = sum(1 for t in terms if t.lower() in opp_text)
+                if matched_terms > 0:
+                    term_score = min(matched_terms / max(len(terms), 1), 1.0)
+                    best_isc_score = max(best_isc_score, term_score)
 
-        score += 0.25 + (best_isc_score * 0.20)
+            score += 0.25 + (best_isc_score * 0.20)
     else:
         score += 0.15
 
@@ -90,12 +76,13 @@ def compute_match_score(opp: Opportunity, profile: UserProfile) -> float:
 
 def get_matching_isc_label(opp: Opportunity, isc_keys: list[str]) -> str | None:
     """Returns the first ISC key that matches this opportunity, or None."""
+    if opp.isc_category_key and opp.isc_category_key in isc_keys:
+        return opp.isc_category_key
     opp_text = " ".join(filter(None, [
         opp.title or "", opp.sector or "", opp.summary_en or ""
     ])).lower()
     for key in isc_keys:
-        terms = ISC_TO_SEARCH_TERMS.get(key, [])
-        if any(t.lower() in opp_text for t in terms):
+        if count_isc_term_hits(opp_text, category_key=key) > 0:
             return key
     return None
 

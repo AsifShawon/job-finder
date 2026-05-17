@@ -1,22 +1,14 @@
 import type { Route } from "next";
 import Link from "next/link";
-import {
-  AlertCircle,
-  ArrowRight,
-  BookOpen,
-  Briefcase,
-  FileText,
-  Globe,
-  GraduationCap,
-  ShieldCheck,
-  Sparkles,
-} from "lucide-react";
+import { AlertCircle, ArrowRight, ShieldCheck, Sparkles } from "lucide-react";
 
 import { HeroSlider } from "@/components/hero-slider";
+import { HomeCategoryGrid } from "@/components/home-category-grid";
 import { NewsTicker } from "@/components/news-ticker";
 import { OpportunityCard } from "@/components/opportunity-card";
 import { Card } from "@/components/ui/card";
-import { searchOpportunities } from "@/lib/api";
+import { getOpportunityCategories, searchOpportunities } from "@/lib/api";
+import { buildAllJobsHref, getDefaultOpportunityCategories } from "@/lib/isc-sectors";
 import { getLocale } from "@/lib/i18n";
 
 async function getFeaturedOpportunities() {
@@ -24,6 +16,7 @@ async function getFeaturedOpportunities() {
     const params = new URLSearchParams({
       page_size: "3",
       sort: "trust",
+      opportunity_type: "overseas_job,local_job",
     });
     return await searchOpportunities(params);
   } catch {
@@ -36,6 +29,7 @@ async function getRecentOpportunities() {
     const params = new URLSearchParams({
       page_size: "6",
       sort: "newest",
+      opportunity_type: "overseas_job,local_job",
     });
     return await searchOpportunities(params);
   } catch {
@@ -45,7 +39,11 @@ async function getRecentOpportunities() {
 
 async function getTickerOpportunities() {
   try {
-    const params = new URLSearchParams({ page_size: "12", sort: "newest" });
+    const params = new URLSearchParams({
+      page_size: "12",
+      sort: "newest",
+      opportunity_type: "overseas_job,local_job",
+    });
     const response = await searchOpportunities(params);
     return response.items.map(({ id, title, title_bn, opportunity_type }) => ({
       id,
@@ -57,66 +55,6 @@ async function getTickerOpportunities() {
     return [];
   }
 }
-
-type CategoryItem = {
-  icon: (props: { className?: string }) => React.ReactNode;
-  label: string;
-  labelEn: string;
-  href: Route;
-  color: string;
-  bg: string;
-};
-
-const CATEGORIES: CategoryItem[] = [
-  {
-    icon: Briefcase,
-    label: "বিদেশি চাকরি",
-    labelEn: "Overseas Jobs",
-    href: "/search?record_type=job" as Route,
-    color: "text-primary",
-    bg: "bg-primary/5",
-  },
-  {
-    icon: GraduationCap,
-    label: "স্কলারশিপ",
-    labelEn: "Scholarships",
-    href: "/search?record_type=scholarship" as Route,
-    color: "text-primary",
-    bg: "bg-primary/5",
-  },
-  {
-    icon: BookOpen,
-    label: "দক্ষতা প্রশিক্ষণ",
-    labelEn: "Skill Training",
-    href: "/search?source_class=bd_migration" as Route,
-    color: "text-primary",
-    bg: "bg-primary/5",
-  },
-  {
-    icon: Globe,
-    label: "ভিসা ও নীতি",
-    labelEn: "Visa & Policy",
-    href: "/search?record_type=policy_update" as Route,
-    color: "text-primary",
-    bg: "bg-primary/5",
-  },
-  {
-    icon: FileText,
-    label: "সরকারি সার্কুলার",
-    labelEn: "Official Circulars",
-    href: "/search?trust_tier=official_gov" as Route,
-    color: "text-primary",
-    bg: "bg-primary/5",
-  },
-  {
-    icon: AlertCircle,
-    label: "সতর্কতা",
-    labelEn: "Alerts",
-    href: "/alerts" as Route,
-    color: "text-primary",
-    bg: "bg-primary/5",
-  },
-];
 
 const TRUST_FEATURES = [
   {
@@ -140,52 +78,40 @@ const TRUST_FEATURES = [
     body: "জটিল প্রক্রিয়াকে সহজ করে তোলা হয়েছে, যাতে আপনি নিজে থেকেই সঠিক উপায়ে আবেদন করতে পারেন।",
     bodyEn: "Complex processes are simplified so you can apply safely through official channels.",
   },
-];
+] as const;
 
 export default async function HomePage() {
   const locale = await getLocale();
   const isEn = locale === "en";
-  const [featured, recent, tickerItems] = await Promise.all([
+  const [featured, recent, tickerItems, categories] = await Promise.all([
     getFeaturedOpportunities(),
     getRecentOpportunities(),
     getTickerOpportunities(),
+    getOpportunityCategories()
+      .then((items) => (items.length > 0 ? items : getDefaultOpportunityCategories()))
+      .catch(() => getDefaultOpportunityCategories()),
   ]);
 
   return (
     <main className="space-y-8 bg-background pb-8">
       <HeroSlider />
-      <div className="bg-card py-4 border-y border-border">
+      <div className="border-y border-border bg-card py-4">
         <NewsTicker items={tickerItems} />
       </div>
 
       <section className="mx-auto max-w-7xl space-y-8 px-4 py-8" aria-labelledby="home-categories">
-        <div className="text-center space-y-3">
+        <div className="space-y-3 text-center">
           <h2 id="home-categories" className="text-2xl font-bold text-foreground">
             {isEn ? "What are you looking for?" : "আপনি কী খুঁজছেন?"}
           </h2>
           <p className="text-muted-foreground">
             {isEn
-              ? "Select a service to explore verified opportunities."
-              : "যাচাই করা সুযোগগুলো দেখতে একটি সেবা বেছে নিন।"}
+              ? "Browse the strongest job categories first, then expand to see every sector."
+              : "সবচেয়ে বেশি চাকরি থাকা ক্যাটাগরিগুলো আগে দেখুন, তারপর আরও দেখুন দিয়ে সব সেক্টর খুলুন।"}
           </p>
         </div>
 
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-          {CATEGORIES.map(({ icon: Icon, label, labelEn, href, color, bg }) => (
-            <Link
-              key={href}
-              href={href}
-              className="group flex flex-col items-center gap-4 rounded-3xl border border-border bg-card p-6 text-center shadow-sm transition-all hover:border-primary hover:shadow-md active:scale-95"
-            >
-              <div className={`flex h-16 w-16 items-center justify-center rounded-2xl ${bg} transition-colors group-hover:bg-primary/10`}>
-                <Icon className={`h-8 w-8 ${color}`} />
-              </div>
-              <p className="text-sm font-bold text-foreground group-hover:text-primary">
-                {isEn ? labelEn : label}
-              </p>
-            </Link>
-          ))}
-        </div>
+        <HomeCategoryGrid categories={categories} isEn={isEn} />
       </section>
 
       {featured.items.length > 0 && (
@@ -201,14 +127,14 @@ export default async function HomePage() {
                   : "যাচাই করা উৎস, স্পষ্ট আবেদন লিংক, আর পরিষ্কার শেষ তারিখসহ বাছাই করা সুযোগ।"}
               </p>
             </div>
-            <Link href="/search?sort=trust" className="text-sm font-semibold text-primary hover:underline">
+            <Link href={buildAllJobsHref()} className="text-sm font-semibold text-primary hover:underline">
               {isEn ? "View all" : "সব দেখুন"} →
             </Link>
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {featured.items.map((item) => (
-              <OpportunityCard key={item.id} item={item} />
+              <OpportunityCard key={item.id} item={item} variant="compact" />
             ))}
           </div>
         </section>
@@ -224,8 +150,8 @@ export default async function HomePage() {
                 </h2>
                 <p className="text-muted-foreground">
                   {isEn
-                    ? "Updated listings across jobs, scholarships, and visa notices."
-                    : "চাকরি, স্কলারশিপ, আর ভিসা নোটিশের নতুন আপডেট একসাথে দেখুন।"}
+                    ? "Updated listings across overseas and local jobs."
+                    : "প্রবাস ও স্থানীয় চাকরির নতুন আপডেট একসাথে দেখুন।"}
                 </p>
               </div>
               <Link href="/search?sort=newest" className="text-sm font-semibold text-primary hover:underline">
@@ -233,15 +159,15 @@ export default async function HomePage() {
               </Link>
             </div>
 
-            <div className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
               {recent.items.length === 0 ? (
-                <Card className="text-center">
+                <Card className="text-center md:col-span-2">
                   <p className="font-semibold text-foreground">
                     {isEn ? "No opportunities available right now." : "এই মুহূর্তে কোনো সুযোগ পাওয়া যাচ্ছে না।"}
                   </p>
                 </Card>
               ) : (
-                recent.items.map((item) => <OpportunityCard key={item.id} item={item} />)
+                recent.items.map((item) => <OpportunityCard key={item.id} item={item} variant="compact" />)
               )}
             </div>
           </section>
@@ -253,13 +179,13 @@ export default async function HomePage() {
               </h3>
               <div className="mt-4 space-y-1">
                 {[
-                  { label: "কানাডার চাকরি", labelEn: "Jobs in Canada", href: "/search?country=Canada&record_type=job" as Route },
-                  { label: "মালয়েশিয়া কর্মসংস্থান", labelEn: "Malaysia jobs", href: "/search?country=Malaysia&record_type=job" as Route },
-                  { label: "জার্মানি স্কিল প্রোগ্রাম", labelEn: "Germany skill programs", href: "/search?country=Germany" as Route },
-                  { label: "সরকারি সার্কুলার", labelEn: "Official circulars", href: "/search?trust_tier=official_gov" as Route },
+                  { label: "কানাডার চাকরি", labelEn: "Jobs in Canada", href: "/search?country=Canada&opportunity_type=overseas_job,local_job" as Route },
+                  { label: "মালয়েশিয়া কর্মসংস্থান", labelEn: "Malaysia jobs", href: "/search?country=Malaysia&opportunity_type=overseas_job,local_job" as Route },
+                  { label: "জার্মানি চাকরি", labelEn: "Germany jobs", href: "/search?country=Germany&opportunity_type=overseas_job,local_job" as Route },
+                  { label: "সব চাকরি", labelEn: "All jobs", href: buildAllJobsHref() },
                 ].map(({ label, labelEn, href }) => (
                   <Link
-                    key={href}
+                    key={String(href)}
                     href={href}
                     className="flex items-center justify-between rounded-xl px-3 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-muted hover:text-primary"
                   >
@@ -275,7 +201,7 @@ export default async function HomePage() {
                 <Sparkles className="h-5 w-5 text-primary" />
                 <h3 className="text-base font-semibold text-foreground">{isEn ? "Sudokkho AI" : "সুদক্ষ AI"}</h3>
               </div>
-              <p className="text-muted-foreground text-sm leading-relaxed">
+              <p className="text-sm leading-relaxed text-muted-foreground">
                 {isEn
                   ? "Ask Sudokkho AI to explain a listing, compare countries, or help you prepare next steps."
                   : "সুদক্ষ AI-কে দিয়ে সুযোগ বুঝুন, দেশ তুলনা করুন, আর পরের করণীয় জেনে নিন।"}
@@ -292,9 +218,9 @@ export default async function HomePage() {
         </div>
       </section>
 
-      <section className="bg-primary/5 py-16 border-y border-primary/10" aria-labelledby="trust-features">
+      <section className="border-y border-primary/10 bg-primary/5 py-16" aria-labelledby="trust-features">
         <div className="mx-auto max-w-7xl space-y-12 px-4">
-          <div className="space-y-4 text-center max-w-3xl mx-auto">
+          <div className="mx-auto max-w-3xl space-y-4 text-center">
             <h2 id="trust-features" className="text-3xl font-bold text-foreground sm:text-4xl">
               {isEn ? "Why use our platform?" : "কেন আমাদের প্ল্যাটফর্ম ব্যবহার করবেন?"}
             </h2>
@@ -307,17 +233,13 @@ export default async function HomePage() {
 
           <div className="grid gap-8 lg:grid-cols-3">
             {TRUST_FEATURES.map(({ icon: Icon, title, titleEn, body, bodyEn }) => (
-              <div key={title} className="flex flex-col items-center text-center space-y-4">
-                <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-white shadow-sm border border-primary/10">
+              <div key={titleEn} className="flex flex-col items-center space-y-4 text-center">
+                <div className="flex h-16 w-16 items-center justify-center rounded-3xl border border-primary/10 bg-white shadow-sm">
                   <Icon className="h-8 w-8 text-primary" />
                 </div>
                 <div className="space-y-2">
-                  <h3 className="text-xl font-bold text-foreground">
-                    {isEn ? titleEn : title}
-                  </h3>
-                  <p className="text-muted-foreground leading-relaxed">
-                    {isEn ? bodyEn : body}
-                  </p>
+                  <h3 className="text-xl font-bold text-foreground">{isEn ? titleEn : title}</h3>
+                  <p className="leading-relaxed text-muted-foreground">{isEn ? bodyEn : body}</p>
                 </div>
               </div>
             ))}

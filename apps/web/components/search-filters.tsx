@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import {
@@ -15,12 +15,19 @@ import {
 
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { getISCSectorSearchParam, ISC_SECTORS } from "@/lib/isc-sectors";
+import type { OpportunityCategorySummary } from "@/lib/types";
+import {
+  ALL_JOBS_OPPORTUNITY_TYPES,
+  getISCSectorByKey,
+  ISC_SECTORS,
+} from "@/lib/isc-sectors";
 import { cn } from "@/lib/utils";
 
 const TYPE_OPTIONS = [
   { value: "", icon: SlidersHorizontal, bn: "সব", en: "All" },
+  { value: ALL_JOBS_OPPORTUNITY_TYPES, icon: BriefcaseBusiness, bn: "সব চাকরি", en: "All Jobs" },
   { value: "overseas_job", icon: BriefcaseBusiness, bn: "প্রবাস চাকরি", en: "Overseas Jobs" },
+  { value: "local_job", icon: BriefcaseBusiness, bn: "স্থানীয় চাকরি", en: "Local Jobs" },
   { value: "scholarship", icon: GraduationCap, bn: "স্কলারশিপ", en: "Scholarships" },
   { value: "migration_policy", icon: Stamp, bn: "ভিসা নীতি", en: "Visa Policy" },
 ] as const;
@@ -36,7 +43,7 @@ const FILTER_LABELS = {
   q: { bn: "খোঁজ", en: "Search" },
   opportunity_type: { bn: "ধরন", en: "Type" },
   country: { bn: "দেশ", en: "Country" },
-  isc_sector: { bn: "ক্যাটাগরি", en: "Category" },
+  isc_category_key: { bn: "ক্যাটাগরি", en: "Category" },
   official_sources_only: { bn: "সরকারি উৎস", en: "Official only" },
   can_apply_from_bd: { bn: "বাংলাদেশ থেকে আবেদন", en: "Apply from BD" },
   deadline_within: { bn: "শেষ সময়", en: "Deadline" },
@@ -50,7 +57,7 @@ type FilterValues = {
   q: string;
   opportunity_type: string;
   country: string;
-  isc_sector: string;
+  isc_category_key: string;
   official_sources_only: boolean;
   can_apply_from_bd: boolean;
   deadline_within: string;
@@ -65,6 +72,22 @@ type FilterValues = {
   sort: string;
 };
 
+function getCategoryLabel(
+  categoryKey: string,
+  isEn: boolean,
+  categories: OpportunityCategorySummary[],
+): string {
+  const summary = categories.find((entry) => entry.key === categoryKey);
+  if (summary) {
+    return isEn ? summary.label_en : summary.label_bn;
+  }
+  const sector = getISCSectorByKey(categoryKey);
+  if (sector) {
+    return isEn ? sector.en : sector.bn;
+  }
+  return categoryKey;
+}
+
 function FilterFields({
   values,
   setValues,
@@ -74,6 +97,7 @@ function FilterFields({
   categoriesOpen,
   setCategoriesOpen,
   typeCounts,
+  categories,
 }: {
   values: FilterValues;
   setValues: React.Dispatch<React.SetStateAction<FilterValues>>;
@@ -83,6 +107,7 @@ function FilterFields({
   categoriesOpen: boolean;
   setCategoriesOpen: React.Dispatch<React.SetStateAction<boolean>>;
   typeCounts?: Record<string, number>;
+  categories: OpportunityCategorySummary[];
 }) {
   return (
     <div className="space-y-5">
@@ -104,8 +129,11 @@ function FilterFields({
         <div className="grid gap-2">
           {TYPE_OPTIONS.map(({ value, icon: Icon, bn, en }) => {
             const active = values.opportunity_type === value;
-            const countKey = value || "all";
-            const count = typeof typeCounts?.[countKey] === "number" ? typeCounts?.[countKey] : undefined;
+            const countKey =
+              value === "" ? "all"
+                : value === ALL_JOBS_OPPORTUNITY_TYPES ? "all_jobs"
+                  : value;
+            const count = typeof typeCounts?.[countKey] === "number" ? typeCounts[countKey] : undefined;
             const labelText = `${isEn ? en : bn}${typeof count === "number" ? ` (${count})` : ""}`;
 
             return (
@@ -140,17 +168,20 @@ function FilterFields({
 
         {categoriesOpen && (
           <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
-            {ISC_SECTORS.map((sector) => {
-              const active = values.isc_sector === sector.key;
+            {categories.map((category) => {
+              const active = values.isc_category_key === category.key;
 
               return (
                 <button
-                  key={sector.key}
+                  key={category.key}
                   type="button"
                   onClick={() =>
                     setValues((current) => ({
                       ...current,
-                      isc_sector: current.isc_sector === sector.key ? "" : sector.key,
+                      isc_category_key: current.isc_category_key === category.key ? "" : category.key,
+                      opportunity_type: current.isc_category_key === category.key
+                        ? current.opportunity_type
+                        : ALL_JOBS_OPPORTUNITY_TYPES,
                     }))
                   }
                   className={cn(
@@ -160,9 +191,16 @@ function FilterFields({
                       : "border-border bg-background text-foreground hover:border-primary hover:text-primary",
                   )}
                 >
-                  <span className="block font-semibold">{sector.bn}</span>
-                  <span className={cn("block text-xs", active ? "text-primary/80" : "text-muted-foreground")}>
-                    {sector.en}
+                  <span className="flex items-center justify-between gap-3">
+                    <span>
+                      <span className="block font-semibold">{isEn ? category.label_en : category.label_bn}</span>
+                      <span className={cn("block text-xs", active ? "text-primary/80" : "text-muted-foreground")}>
+                        {isEn ? category.label_bn : category.label_en}
+                      </span>
+                    </span>
+                    <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground">
+                      {category.job_count}
+                    </span>
                   </span>
                 </button>
               );
@@ -205,17 +243,13 @@ function FilterFields({
             {isEn ? "Apply directly from Bangladesh" : "বাংলাদেশ থেকে সরাসরি আবেদন করা যাবে"}
           </p>
           <p className="text-xs text-muted-foreground">
-            {isEn
-              ? "Show opportunities suitable for Bangladeshi applicants"
-              : "বাংলাদেশি আবেদনকারীদের জন্য উপযোগী সুযোগ দেখান"}
+            {isEn ? "Show opportunities suitable for Bangladeshi applicants" : "বাংলাদেশি আবেদনকারীদের জন্য উপযোগী সুযোগ দেখান"}
           </p>
         </div>
         <input
           type="checkbox"
           checked={values.can_apply_from_bd}
-          onChange={(event) =>
-            setValues((current) => ({ ...current, can_apply_from_bd: event.target.checked }))
-          }
+          onChange={(event) => setValues((current) => ({ ...current, can_apply_from_bd: event.target.checked }))}
           className="h-5 w-5 accent-primary"
         />
       </label>
@@ -260,9 +294,7 @@ function FilterFields({
               </label>
               <select
                 value={values.deadline_within}
-                onChange={(event) =>
-                  setValues((current) => ({ ...current, deadline_within: event.target.value }))
-                }
+                onChange={(event) => setValues((current) => ({ ...current, deadline_within: event.target.value }))}
                 className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground"
               >
                 <option value="">{isEn ? "Any time" : "যেকোনো সময়"}</option>
@@ -301,22 +333,43 @@ function FilterFields({
 
             <div className="space-y-2">
               <label className="block text-sm font-semibold text-foreground">{isEn ? "Source" : "উৎস"}</label>
-              <Input value={values.source} onChange={(event) => setValues((current) => ({ ...current, source: event.target.value }))} placeholder="alfanar, Aramco, Tamimi" />
+              <Input
+                value={values.source}
+                onChange={(event) => setValues((current) => ({ ...current, source: event.target.value }))}
+                placeholder="alfanar, Aramco, Tamimi"
+              />
             </div>
 
             <div className="space-y-2">
               <label className="block text-sm font-semibold text-foreground">{isEn ? "Education level" : "কম শিক্ষাগত যোগ্যতা"}</label>
-              <Input value={values.education_level} onChange={(event) => setValues((current) => ({ ...current, education_level: event.target.value }))} placeholder={isEn ? "diploma, high school" : "ডিপ্লোমা, হাই স্কুল"} />
+              <Input
+                value={values.education_level}
+                onChange={(event) => setValues((current) => ({ ...current, education_level: event.target.value }))}
+                placeholder={isEn ? "diploma, high school" : "ডিপ্লোমা, হাই স্কুল"}
+              />
             </div>
 
             <div className="space-y-2">
               <label className="block text-sm font-semibold text-foreground">{isEn ? "Maximum experience years" : "অভিজ্ঞতা প্রয়োজন"}</label>
-              <Input type="number" value={values.experience_max} onChange={(event) => setValues((current) => ({ ...current, experience_max: event.target.value }))} placeholder="3" />
+              <Input
+                type="number"
+                value={values.experience_max}
+                onChange={(event) => setValues((current) => ({ ...current, experience_max: event.target.value }))}
+                placeholder="3"
+              />
             </div>
 
             <div className="space-y-2">
               <label className="block text-sm font-semibold text-foreground">{isEn ? "Minimum trust score" : "বিশ্বাসযোগ্যতার স্কোর"}</label>
-              <Input type="number" min={0} max={1} step={0.1} value={values.trust_score_min} onChange={(event) => setValues((current) => ({ ...current, trust_score_min: event.target.value }))} placeholder="0.7" />
+              <Input
+                type="number"
+                min={0}
+                max={1}
+                step={0.1}
+                value={values.trust_score_min}
+                onChange={(event) => setValues((current) => ({ ...current, trust_score_min: event.target.value }))}
+                placeholder="0.7"
+              />
             </div>
           </div>
         )}
@@ -329,30 +382,39 @@ export function SearchFilters({
   isEn,
   initialValues,
   typeCounts,
+  categories,
 }: {
   isEn: boolean;
   initialValues: FilterValues;
   typeCounts?: Record<string, number>;
+  categories: OpportunityCategorySummary[];
 }) {
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [categoriesOpen, setCategoriesOpen] = useState(Boolean(initialValues.isc_sector));
+  const [categoriesOpen, setCategoriesOpen] = useState(Boolean(initialValues.isc_category_key));
   const [showMore, setShowMore] = useState(
     Boolean(initialValues.deadline_within || initialValues.salary_min || initialValues.lmia_status || initialValues.bangladesh_applicability || initialValues.source || initialValues.education_level || initialValues.experience_max || initialValues.trust_score_min),
   );
   const [values, setValues] = useState(initialValues);
 
-  const activeFilters = () => {
+  const categoryOptions = useMemo(() => {
+    if (categories.length > 0) {
+      return categories;
+    }
+    return ISC_SECTORS.map((sector) => ({
+      key: sector.key,
+      label_bn: sector.bn,
+      label_en: sector.en,
+      job_count: 0,
+    }));
+  }, [categories]);
+
+  const activeFilterItems = useMemo(() => {
     const items: { key: keyof FilterValues; label: string; value?: string }[] = [];
 
     if (values.q) {
-      items.push({
-        key: "q",
-        label: isEn ? FILTER_LABELS.q.en : FILTER_LABELS.q.bn,
-        value: values.q,
-      });
+      items.push({ key: "q", label: isEn ? FILTER_LABELS.q.en : FILTER_LABELS.q.bn, value: values.q });
     }
-
     if (values.opportunity_type) {
       const type = TYPE_OPTIONS.find((option) => option.value === values.opportunity_type);
       items.push({
@@ -361,74 +423,37 @@ export function SearchFilters({
         value: type ? (isEn ? type.en : type.bn) : values.opportunity_type,
       });
     }
-
     if (values.country) {
+      items.push({ key: "country", label: isEn ? FILTER_LABELS.country.en : FILTER_LABELS.country.bn, value: values.country });
+    }
+    if (values.isc_category_key) {
       items.push({
-        key: "country",
-        label: isEn ? FILTER_LABELS.country.en : FILTER_LABELS.country.bn,
-        value: values.country,
+        key: "isc_category_key",
+        label: isEn ? FILTER_LABELS.isc_category_key.en : FILTER_LABELS.isc_category_key.bn,
+        value: getCategoryLabel(values.isc_category_key, isEn, categoryOptions),
       });
     }
-
-    if (values.isc_sector) {
-      const sector = ISC_SECTORS.find((entry) => entry.key === values.isc_sector);
-      items.push({
-        key: "isc_sector",
-        label: isEn ? FILTER_LABELS.isc_sector.en : FILTER_LABELS.isc_sector.bn,
-        value: sector ? (isEn ? sector.en : sector.bn) : values.isc_sector,
-      });
-    }
-
     if (values.official_sources_only) {
-      items.push({
-        key: "official_sources_only",
-        label: isEn ? FILTER_LABELS.official_sources_only.en : FILTER_LABELS.official_sources_only.bn,
-      });
+      items.push({ key: "official_sources_only", label: isEn ? FILTER_LABELS.official_sources_only.en : FILTER_LABELS.official_sources_only.bn });
     }
-
     if (values.can_apply_from_bd) {
-      items.push({
-        key: "can_apply_from_bd",
-        label: isEn ? FILTER_LABELS.can_apply_from_bd.en : FILTER_LABELS.can_apply_from_bd.bn,
-      });
+      items.push({ key: "can_apply_from_bd", label: isEn ? FILTER_LABELS.can_apply_from_bd.en : FILTER_LABELS.can_apply_from_bd.bn });
     }
-
     if (values.deadline_within) {
-      const deadlineLabel =
-        values.deadline_within === "7"
-          ? isEn
-            ? "Within 7 days"
-            : "৭ দিনের মধ্যে"
-          : isEn
-            ? "Within 30 days"
-            : "৩০ দিনের মধ্যে";
       items.push({
         key: "deadline_within",
         label: isEn ? FILTER_LABELS.deadline_within.en : FILTER_LABELS.deadline_within.bn,
-        value: deadlineLabel,
+        value: values.deadline_within === "7" ? (isEn ? "Within 7 days" : "৭ দিনের মধ্যে") : (isEn ? "Within 30 days" : "৩০ দিনের মধ্যে"),
       });
     }
-
     if (values.salary_min) {
-      items.push({
-        key: "salary_min",
-        label: isEn ? FILTER_LABELS.salary_min.en : FILTER_LABELS.salary_min.bn,
-        value: values.salary_min,
-      });
+      items.push({ key: "salary_min", label: isEn ? FILTER_LABELS.salary_min.en : FILTER_LABELS.salary_min.bn, value: values.salary_min });
     }
-
     if (values.requires_existing_work_permit) {
-      items.push({
-        key: "requires_existing_work_permit",
-        label: isEn ? FILTER_LABELS.requires_existing_work_permit.en : FILTER_LABELS.requires_existing_work_permit.bn,
-      });
+      items.push({ key: "requires_existing_work_permit", label: isEn ? FILTER_LABELS.requires_existing_work_permit.en : FILTER_LABELS.requires_existing_work_permit.bn });
     }
-
     return items;
-  };
-
-  const activeFilterItems = activeFilters();
-  const activeFilterCount = activeFilterItems.length;
+  }, [categoryOptions, isEn, values]);
 
   const applyFilters = () => {
     const params = new URLSearchParams();
@@ -436,7 +461,7 @@ export function SearchFilters({
     if (values.q) params.set("q", values.q);
     if (values.opportunity_type) params.set("opportunity_type", values.opportunity_type);
     if (values.country) params.set("country", values.country);
-    if (values.isc_sector) params.set("sector", getISCSectorSearchParam(values.isc_sector));
+    if (values.isc_category_key) params.set("isc_category_key", values.isc_category_key);
     if (values.official_sources_only) params.set("official_sources_only", "true");
     if (values.can_apply_from_bd) params.set("can_apply_from_bd", "true");
     if (values.deadline_within) params.set("deadline_within", values.deadline_within);
@@ -455,12 +480,12 @@ export function SearchFilters({
   };
 
   const clearFilters = () => {
-    const resetValues = {
+    const resetValues: FilterValues = {
       ...initialValues,
       q: "",
       opportunity_type: "",
       country: "",
-      isc_sector: "",
+      isc_category_key: "",
       official_sources_only: false,
       can_apply_from_bd: false,
       deadline_within: "",
@@ -483,17 +508,11 @@ export function SearchFilters({
   const clearSingleFilter = (key: keyof FilterValues) => {
     setValues((current) => {
       const next = { ...current };
-
-      if (
-        key === "official_sources_only"
-        || key === "can_apply_from_bd"
-        || key === "requires_existing_work_permit"
-      ) {
+      if (key === "official_sources_only" || key === "can_apply_from_bd" || key === "requires_existing_work_permit") {
         next[key] = false;
       } else {
         next[key] = "" as FilterValues[typeof key];
       }
-
       return next;
     });
   };
@@ -515,9 +534,7 @@ export function SearchFilters({
         <Card className="sticky top-32">
           <div className="mb-4 flex items-center gap-2">
             <SlidersHorizontal className="h-4 w-4 text-primary" />
-            <h2 className="text-base font-semibold text-foreground">
-              {isEn ? "Filters" : "ফিল্টার"}
-            </h2>
+            <h2 className="text-base font-semibold text-foreground">{isEn ? "Filters" : "ফিল্টার"}</h2>
           </div>
           <FilterFields
             values={values}
@@ -528,20 +545,13 @@ export function SearchFilters({
             categoriesOpen={categoriesOpen}
             setCategoriesOpen={setCategoriesOpen}
             typeCounts={typeCounts}
+            categories={categoryOptions}
           />
           <div className="mt-5 flex flex-col gap-2">
-            <button
-              type="button"
-              onClick={applyFilters}
-              className="rounded-xl bg-primary px-4 py-3 text-sm font-bold text-white"
-            >
+            <button type="button" onClick={applyFilters} className="rounded-xl bg-primary px-4 py-3 text-sm font-bold text-white">
               {isEn ? "Apply Filters" : "প্রয়োগ করুন"}
             </button>
-            <button
-              type="button"
-              onClick={clearFilters}
-              className="rounded-xl border border-border px-4 py-3 text-sm font-semibold text-foreground"
-            >
+            <button type="button" onClick={clearFilters} className="rounded-xl border border-border px-4 py-3 text-sm font-semibold text-foreground">
               {isEn ? "Clear All" : "সব মুছুন"}
             </button>
           </div>
@@ -573,11 +583,8 @@ export function SearchFilters({
                       type="button"
                       onClick={() => clearSingleFilter(item.key)}
                       className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary"
-                      aria-label={isEn ? "Remove filter" : "ফিল্টার সরান"}
                     >
-                      <span>
-                        {item.label}{item.value ? `: ${item.value}` : ""}
-                      </span>
+                      <span>{item.label}{item.value ? `: ${item.value}` : ""}</span>
                       <X className="h-3 w-3" />
                     </button>
                   ))}
@@ -585,7 +592,6 @@ export function SearchFilters({
                     type="button"
                     onClick={clearFilters}
                     className="inline-flex items-center gap-1 rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground"
-                    aria-label={isEn ? "Clear all filters" : "সব ফিল্টার সরান"}
                   >
                     <X className="h-3 w-3" />
                     <span>{isEn ? "Clear all" : "সব মুছুন"}</span>
@@ -602,6 +608,7 @@ export function SearchFilters({
                 categoriesOpen={categoriesOpen}
                 setCategoriesOpen={setCategoriesOpen}
                 typeCounts={typeCounts}
+                categories={categoryOptions}
               />
             </div>
 
@@ -610,15 +617,13 @@ export function SearchFilters({
                 type="button"
                 onClick={applyFilters}
                 className="mb-3 flex min-h-[52px] w-full items-center justify-center rounded-xl bg-primary px-4 text-sm font-bold text-white"
-                aria-label={isEn ? "Apply filters" : "ফিল্টার প্রয়োগ করুন"}
               >
-                {isEn ? `Apply (${activeFilterCount})` : `প্রয়োগ করুন (${activeFilterCount})`}
+                {isEn ? `Apply (${activeFilterItems.length})` : `প্রয়োগ করুন (${activeFilterItems.length})`}
               </button>
               <button
                 type="button"
                 onClick={() => setMobileOpen(false)}
                 className="min-h-[52px] w-full rounded-xl border border-border px-4 text-sm font-semibold text-foreground"
-                aria-label={isEn ? "Close filters" : "ফিল্টার বন্ধ করুন"}
               >
                 {isEn ? "Close" : "বন্ধ"}
               </button>

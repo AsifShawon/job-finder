@@ -10,15 +10,39 @@ interface ShareButtonProps {
   url: string;
   title: string;
   className?: string;
+  mode?: "menu" | "quick";
+  showLabel?: boolean;
+  ariaLabel?: string;
 }
 
-export function ShareButton({ url, title, className }: ShareButtonProps) {
+function toAbsoluteUrl(url: string) {
+  if (typeof window === "undefined") {
+    return url;
+  }
+
+  try {
+    return new URL(url, window.location.origin).toString();
+  } catch {
+    return url;
+  }
+}
+
+export function ShareButton({
+  url,
+  title,
+  className,
+  mode = "menu",
+  showLabel = true,
+  ariaLabel,
+}: ShareButtonProps) {
   const locale = useLocale() as "bn" | "en";
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [igToast, setIgToast] = useState(false);
+  const [shared, setShared] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const isBn = locale === "bn";
+  const normalizedUrl = toAbsoluteUrl(url);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -27,19 +51,19 @@ export function ShareButton({ url, title, className }: ShareButtonProps) {
       }
     };
 
-    if (open) {
+    if (mode === "menu" && open) {
       document.addEventListener("mousedown", handleClickOutside);
     }
 
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [open]);
+  }, [mode, open]);
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(url);
+      await navigator.clipboard.writeText(normalizedUrl);
     } catch {
       const area = document.createElement("textarea");
-      area.value = url;
+      area.value = normalizedUrl;
       document.body.appendChild(area);
       area.select();
       document.execCommand("copy");
@@ -52,7 +76,7 @@ export function ShareButton({ url, title, className }: ShareButtonProps) {
   };
 
   const handleFacebook = () => {
-    const facebookUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`;
+    const facebookUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(normalizedUrl)}`;
     window.open(facebookUrl, "_blank", "noopener,noreferrer");
     setOpen(false);
   };
@@ -64,16 +88,67 @@ export function ShareButton({ url, title, className }: ShareButtonProps) {
     setTimeout(() => setIgToast(false), 4000);
   };
 
+  const handleQuickShare = async () => {
+    if (typeof navigator !== "undefined" && navigator.share) {
+      try {
+        await navigator.share({ title, url: normalizedUrl });
+        setShared(true);
+        setTimeout(() => setShared(false), 2000);
+        return;
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
+      }
+    }
+
+    await handleCopy();
+  };
+
+  const shareAriaLabel = ariaLabel ?? (isBn ? "শেয়ার করুন" : "Share");
+  const copiedText = isBn ? `${title} লিংক কপি হয়েছে` : `${title} link copied`;
+
+  if (mode === "quick") {
+    return (
+      <>
+        <button
+          type="button"
+          onClick={handleQuickShare}
+          aria-label={shareAriaLabel}
+          className={cn(
+            "inline-flex touch-target h-11 items-center justify-center gap-2 rounded-2xl border border-border bg-white px-3 text-sm font-semibold text-foreground transition-colors hover:border-primary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
+            className,
+          )}
+        >
+          <Share2 className="h-4 w-4" />
+          {showLabel ? <span>{isBn ? "শেয়ার" : "Share"}</span> : null}
+        </button>
+
+        {copied && (
+          <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-full bg-slate-800 px-4 py-2 text-sm font-semibold text-white shadow-lg">
+            {copiedText}
+          </div>
+        )}
+
+        {shared && (
+          <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-full bg-slate-800 px-4 py-2 text-sm font-semibold text-white shadow-lg">
+            {isBn ? "শেয়ার করা হয়েছে" : "Shared successfully"}
+          </div>
+        )}
+      </>
+    );
+  }
+
   return (
     <div ref={ref} className={cn("relative", className)}>
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
-        aria-label={isBn ? "শেয়ার করুন" : "Share"}
+        aria-label={shareAriaLabel}
         className="inline-flex items-center gap-1 rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:border-primary hover:text-primary"
       >
         <Share2 className="h-4 w-4" />
-        <span>{isBn ? "শেয়ার" : "Share"}</span>
+        {showLabel ? <span>{isBn ? "শেয়ার" : "Share"}</span> : null}
       </button>
 
       {open && (
@@ -107,7 +182,7 @@ export function ShareButton({ url, title, className }: ShareButtonProps) {
 
       {copied && (
         <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-full bg-slate-800 px-4 py-2 text-sm font-semibold text-white shadow-lg">
-          {isBn ? `${title} লিংক কপি হয়েছে` : `${title} link copied`}
+          {copiedText}
         </div>
       )}
 

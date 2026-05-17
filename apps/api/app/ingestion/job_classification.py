@@ -4,6 +4,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.services.isc_taxonomy import count_isc_term_hits, determine_isc_category_key
+
 
 TARGET_TITLE_TERMS = {
     "electrician", "electrical technician", "technician", "mechanic", "driver",
@@ -28,6 +30,7 @@ INFORMATIONAL_TERMS = {
 
 @dataclass
 class CategoryResult:
+    isc_category_key: str | None
     platform_category_bn: str | None
     platform_category_en: str | None
     occupation_family: str | None
@@ -63,10 +66,15 @@ def classify_category(*, title: str | None, body: str | None, sector: str | None
         hits = sum(1 for keyword in keywords if keyword in text)
         if hits and (best is None or hits > best[3]):
             best = (bn, en, family, hits)
+    isc_category_key = determine_isc_category_key(title, body, sector)
     if best is None:
-        return CategoryResult(None, None, None, 0.0)
+        if isc_category_key is None:
+            return CategoryResult(None, None, None, None, 0.0)
+        hit_count = count_isc_term_hits(title, body, sector, category_key=isc_category_key)
+        score = min(1.0, 0.45 + (hit_count * 0.2)) if hit_count else 0.45
+        return CategoryResult(isc_category_key, None, None, None, score)
     score = min(1.0, 0.45 + (best[3] * 0.2))
-    return CategoryResult(best[0], best[1], best[2], score)
+    return CategoryResult(isc_category_key, best[0], best[1], best[2], score)
 
 
 def classify_bangladesh_suitability(

@@ -3,25 +3,14 @@ import Image from "next/image";
 import Link from "next/link";
 import { Search } from "lucide-react";
 
-import { HeaderNavLinks } from "@/components/header-nav-links";
+import { HeaderJobBrowseNav } from "@/components/header-job-browse-nav";
 import { HeaderUserMenu } from "@/components/header-user-menu";
 import { LanguageToggle } from "@/components/language-toggle";
-import { LogoutButton } from "@/components/logout-button";
 import { SearchAutocomplete } from "@/components/search-autocomplete";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { getCurrentUser } from "@/lib/server-auth-fetch";
 import { getLocale, getT } from "@/lib/i18n";
-
-const NAV_LINKS: Array<{ label: string; labelEn: string; href: Route }> = [
-  { label: "হোম", labelEn: "Home", href: "/" as Route },
-  { label: "চাকরি খুঁজুন", labelEn: "Find Jobs", href: "/search?record_type=job" as Route },
-  { label: "স্কলারশিপ", labelEn: "Scholarships", href: "/search?record_type=scholarship" as Route },
-  { label: "সরকারি নোটিশ", labelEn: "Official Notices", href: "/search?trust_tier=official_gov" as Route },
-  { label: "সংরক্ষিত", labelEn: "Saved", href: "/saved" as Route },
-  { label: "সতর্কতা", labelEn: "Alerts", href: "/alerts" as Route },
-  { label: "সুদক্ষ AI", labelEn: "Sudokkho AI", href: "/copilot" as Route },
-  { label: "সাহায্য", labelEn: "Help", href: "/help" as Route },
-];
+import { getCurrentUser } from "@/lib/server-auth-fetch";
+import type { OpportunityCategorySummary } from "@/lib/types";
 
 function getBanglaDate(): string {
   return new Date().toLocaleDateString("bn-BD", {
@@ -32,7 +21,11 @@ function getBanglaDate(): string {
   });
 }
 
-export async function SiteHeader() {
+export async function SiteHeader({
+  categories,
+}: {
+  categories: OpportunityCategorySummary[];
+}) {
   const [user, locale, t] = await Promise.all([
     getCurrentUser(),
     getLocale(),
@@ -49,8 +42,7 @@ export async function SiteHeader() {
   ];
 
   return (
-    <header className="sticky top-0 z-50 bg-white border-b border-border shadow-sm">
-      {/* Mini top bar - simplified */}
+    <header className="sticky top-0 z-50 border-b border-border bg-white shadow-sm">
       <div className="hidden border-b border-border bg-muted/30 text-xs text-muted-foreground md:block">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-2">
           <span className="font-medium">{banglaDate}</span>
@@ -61,7 +53,6 @@ export async function SiteHeader() {
         </div>
       </div>
 
-      {/* Main Header */}
       <div className="bg-white">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-6 px-4 py-4">
           <Link href="/" className="shrink-0">
@@ -70,21 +61,18 @@ export async function SiteHeader() {
               alt="সুদক্ষ প্রবাস লোগো"
               width={220}
               height={70}
-              className="h-10 sm:h-12 w-auto"
+              className="h-10 w-auto sm:h-12"
               priority
             />
           </Link>
 
-          <div className="hidden flex-1 max-w-xl md:block">
+          <div className="hidden max-w-xl flex-1 md:block">
             <SearchAutocomplete isEn={isEn} />
           </div>
 
           <div className="flex items-center gap-3">
             {user ? (
-              <HeaderUserMenu
-                label={t("menu")}
-                links={userMenuLinks}
-              />
+              <HeaderUserMenu label={t("menu")} links={userMenuLinks} />
             ) : (
               <div className="hidden items-center gap-3 md:flex">
                 <Link
@@ -101,11 +89,10 @@ export async function SiteHeader() {
                 </Link>
               </div>
             )}
-            
-            {/* Mobile search trigger */}
+
             <Link
               href="/search"
-              className="inline-flex items-center justify-center h-10 w-10 rounded-full border border-border bg-muted/20 md:hidden"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-border bg-muted/20 md:hidden"
             >
               <Search className="h-5 w-5 text-muted-foreground" />
             </Link>
@@ -113,15 +100,9 @@ export async function SiteHeader() {
         </div>
       </div>
 
-      {/* Navigation - Tablet/Desktop only */}
       <div className="hidden border-t border-border bg-white md:block">
         <div className="mx-auto max-w-7xl px-4">
-          <HeaderNavLinks
-            links={NAV_LINKS.map((link) => ({
-              href: link.href,
-              label: isEn ? link.labelEn : link.label,
-            }))}
-          />
+          <HeaderJobBrowseNav categories={categories} isEn={isEn} />
         </div>
       </div>
     </header>

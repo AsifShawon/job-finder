@@ -155,6 +155,12 @@ def parse_successfactors_detail(
 def parse_tamimi_listing(html: str, page_url: str) -> tuple[list[ListingJob], list[str]]:
     soup = BeautifulSoup(html, "html.parser")
     jobs: dict[str, ListingJob] = {}
+    next_pages = _extract_listing_next_pages(
+        soup,
+        page_url,
+        text_markers={"next", "2", "3", "4", "5", "6", "7", "8", "9", "10"},
+        href_markers=("page=", "paged=", "offset=", "start="),
+    )
     for card in soup.select(".card .card-body"):
         anchor = card.select_one("a[href*='career.php']")
         title_node = card.select_one(".card-body-title")
@@ -177,7 +183,7 @@ def parse_tamimi_listing(html: str, page_url: str) -> tuple[list[ListingJob], li
             apply_url=detail_url,
         )
     if jobs:
-        return list(jobs.values()), []
+        return list(jobs.values()), next_pages
 
     for anchor in soup.select("a[href]"):
         text = _clean(anchor.get_text(" ", strip=True))
@@ -204,55 +210,45 @@ def parse_tamimi_listing(html: str, page_url: str) -> tuple[list[ListingJob], li
             posting_date=_extract_date_text(combined),
             apply_url=detail_url,
         )
-    return list(jobs.values()), []
+    return list(jobs.values()), next_pages
 
 
 def parse_maharah_posts(html: str, page_url: str) -> tuple[list[ListingJob], list[str]]:
     soup = BeautifulSoup(html, "html.parser")
     posts: dict[str, ListingJob] = {}
-    for item in soup.select(".latest-news-item"):
-        anchor = item.select_one("a.latest-news-link[href]")
-        title_node = item.select_one(".latest-news-title")
-        if anchor is None or title_node is None:
-            continue
-        detail_url = urljoin(page_url, anchor.get("href") or "")
-        if not _same_host_or_relative(detail_url, page_url):
-            continue
-        if detail_url.rstrip("/") == page_url.rstrip("/"):
-            continue
-        title = _clean(title_node.get_text(" ", strip=True))
-        if not title or not _has_worker_or_post_signal(title, detail_url):
-            continue
-        date_node = item.select_one(".latest-news-date")
-        posts[detail_url] = ListingJob(
-            title=title,
-            detail_url=detail_url,
-            posting_date=_clean(date_node.get_text(" ", strip=True)) if date_node else None,
-        )
-    if posts:
-        return list(posts.values()), []
-
     for anchor in soup.select("a[href]"):
         title = _clean(anchor.get_text(" ", strip=True))
         href = anchor.get("href") or ""
-        if not title or len(title) < 4:
-            continue
-        block = _clean(
-            anchor.find_parent(["article", "div", "li"]).get_text(" ", strip=True)
-            if anchor.find_parent(["article", "div", "li"])
-            else title
-        )
-        if not _has_worker_or_post_signal(title + " " + block, href):
-            continue
         detail_url = urljoin(page_url, href)
         if not _same_host_or_relative(detail_url, page_url):
             continue
-        posts[detail_url] = ListingJob(title=title, detail_url=detail_url, posting_date=_extract_date_text(block))
-    next_pages = [
-        urljoin(page_url, anchor.get("href") or "")
-        for anchor in soup.select("a[href]")
-        if _clean(anchor.get_text(" ", strip=True)).lower() in {"next", "2", "3", "4", "5"}
-    ]
+        block = _clean(
+            anchor.find_parent(["article", "div", "li", "section"]).get_text(" ", strip=True)
+            if anchor.find_parent(["article", "div", "li", "section"])
+            else title
+        )
+        if not _looks_like_maharah_job_link(href):
+            continue
+        if detail_url.rstrip("/") == page_url.rstrip("/"):
+            continue
+        if not title or len(title) < 4 or title.lower() in {"apply now", "apply", "job application form"}:
+            title = _guess_title_from_block("", block)
+        if not title or _looks_like_noise_link(title):
+            continue
+        posts[detail_url] = ListingJob(
+            title=title,
+            detail_url=detail_url,
+            posting_date=_extract_date_text(block),
+            department=_extract_labeled(block, "department"),
+            location=_extract_labeled(block, "location"),
+            apply_url=detail_url,
+        )
+    next_pages = _extract_listing_next_pages(
+        soup,
+        page_url,
+        text_markers={"next", "2", "3", "4", "5", "6", "7", "8", "9", "10"},
+        href_markers=("page=", "/jobs/page/", "?page="),
+    )
     return list(posts.values()), list(dict.fromkeys(next_pages))
 
 
@@ -331,26 +327,30 @@ class TamimiCareersConnector(BaseSourceConnector):
     connector_key = "tamimi_careers"
 
     def discover_items(self, source: Source, crawl_mode: str = "active_only") -> list[FetchedPage]:
-        return _discover_static_detail_pages(
+        pages, diagnostics = _discover_static_detail_pages(
             source,
             parse_tamimi_listing,
             company="Abdulmohsen Al-Tamimi Group",
             detected_item_type="job",
             preview=crawl_mode == "preview_only",
         )
+        self.last_discovery_diagnostics = diagnostics
+        return pages
 
 
 class MaharahPostsConnector(BaseSourceConnector):
     connector_key = "maharah_posts"
 
     def discover_items(self, source: Source, crawl_mode: str = "active_only") -> list[FetchedPage]:
-        return _discover_static_detail_pages(
+        pages, diagnostics = _discover_static_detail_pages(
             source,
             parse_maharah_posts,
             company="Maharah",
-            detected_item_type="occupation_intelligence",
+            detected_item_type="job",
             preview=crawl_mode == "preview_only",
         )
+        self.last_discovery_diagnostics = diagnostics
+        return pages
 
 
 class _OfficialSiteBrowser:
@@ -506,7 +506,7 @@ def _discover_static_detail_pages(
     company: str,
     detected_item_type: str,
     preview: bool,
-) -> list[FetchedPage]:
+) -> tuple[list[FetchedPage], dict[str, int | str]]:
     pages: list[FetchedPage] = []
     queue = [source.base_url]
     seen_pages: set[str] = set()
@@ -547,7 +547,13 @@ def _discover_static_detail_pages(
                 )
             if preview:
                 break
-    return pages
+    diagnostics: dict[str, int | str] = {
+        "listing_pages_visited": len(seen_pages),
+        "detail_pages_followed": len(seen_details),
+        "pages_selected_for_ai": len(pages),
+        "crawl_engine": "playwright",
+    }
+    return pages, diagnostics
 
 
 def _static_detail_page(
@@ -701,6 +707,15 @@ def _has_worker_or_post_signal(text: str, href: str) -> bool:
     )
 
 
+def _looks_like_maharah_job_link(href: str) -> bool:
+    href_l = href.lower()
+    if not href or href.startswith("#"):
+        return False
+    if any(term in href_l for term in ["/web/login", "/web/signup", "/website/info", "/contact-us"]):
+        return False
+    return "/jobs/apply/" in href_l
+
+
 def _has_apply_signal(text: str) -> bool:
     return any(
         term in text.lower()
@@ -769,6 +784,41 @@ def _guess_title_from_block(anchor_text: str, block_text: str) -> str | None:
     )
     text_value = re.split(r"\b(?:department|location|posted|apply|view)\b", text_value, flags=re.I)[0]
     return _clean(text_value)[:180] or None
+
+
+def _extract_listing_next_pages(
+    soup: BeautifulSoup,
+    page_url: str,
+    *,
+    text_markers: set[str],
+    href_markers: tuple[str, ...],
+) -> list[str]:
+    next_pages: list[str] = []
+    for anchor in soup.select("a[href]"):
+        href = (anchor.get("href") or "").strip()
+        if not href:
+            continue
+        text = _clean(anchor.get_text(" ", strip=True)).lower()
+        href_l = href.lower()
+        if text in text_markers or any(marker in href_l for marker in href_markers):
+            next_page = urljoin(page_url, href)
+            if next_page.rstrip("/") != page_url.rstrip("/") and _same_host_or_relative(next_page, page_url):
+                next_pages.append(next_page)
+    return list(dict.fromkeys(next_pages))
+
+
+def _looks_like_noise_link(title: str) -> bool:
+    lowered = title.lower()
+    return lowered in {
+        "login",
+        "sign up",
+        "signup",
+        "apply now",
+        "apply",
+        "job application form",
+        "back",
+        "next",
+    }
 
 
 def _is_generic_detail_title(title: str | None) -> bool:

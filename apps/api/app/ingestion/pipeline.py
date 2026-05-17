@@ -25,6 +25,7 @@ import logging
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from statistics import median
 
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
@@ -55,6 +56,7 @@ from app.ingestion.validators import (
 from app.models.entities import CrawlJob, CrawlRun, Opportunity, OpportunityEmbedding, RawDocument, Source
 from app.models.enums import CrawlRunStatus, CrawlStatus
 from app.services.storage_service import ObjectStorage
+from app.services.translation_service import enrich_bilingual_record
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +74,7 @@ _NEWS_REJECT_PATTERNS = [
     r"(research unit|rmmru) (says?|said|found|report)",
     r"labour market (data|analysis|report|trend)",
 ]
+_OFFICIAL_STRICT_CONFIDENCE_THRESHOLD = 0.65
 
 
 @dataclass
@@ -84,17 +87,77 @@ class PipelineResult:
     skipped: int = 0
     failed: int = 0
     manual_review: int = 0
+    accepted: int = 0
+    published: int = 0
     error: str | None = None
+    skip_reasons: dict[str, int] = None  # type: ignore[assignment]
+    skipped_confidences: list[float] = None  # type: ignore[assignment]
     # IDs of drafts that should be auto-translated after the pipeline commits.
     pending_translation_ids: list[int] = None  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
+        if self.skip_reasons is None:
+            self.skip_reasons = {}
+        if self.skipped_confidences is None:
+            self.skipped_confidences = []
         if self.pending_translation_ids is None:
             self.pending_translation_ids = []
 
     @property
     def records_extracted(self) -> int:
         return self.draft_created + self.draft_updated
+
+
+def _build_confidence_summary(values: list[float]) -> dict[str, float | int]:
+    cleaned = [round(float(value), 3) for value in values if value is not None]
+    if not cleaned:
+        return {}
+    return {
+        "count": len(cleaned),
+        "min": min(cleaned),
+        "max": max(cleaned),
+        "median": round(float(median(cleaned)), 3),
+    }
+
+
+def _has_usable_crawl_outcome(result: PipelineResult) -> bool:
+    return any((
+        result.draft_created,
+        result.draft_updated,
+        result.duplicates,
+        result.unchanged,
+        result.accepted,
+        result.published,
+    ))
+
+
+def _build_run_diagnostics(result: PipelineResult) -> dict[str, object]:
+    dominant_skip_reason = None
+    if result.skip_reasons:
+        dominant_skip_reason = max(
+            result.skip_reasons.items(),
+            key=lambda item: (item[1], item[0]),
+        )[0]
+    return {
+        "accepted_count": result.accepted,
+        "published_count": result.published,
+        "skipped_count": result.skipped,
+        "dominant_skip_reason": dominant_skip_reason,
+        "confidence_summary": _build_confidence_summary(result.skipped_confidences),
+        "skip_reasons": dict(sorted(result.skip_reasons.items())),
+    }
+
+
+def _derive_run_status(source: Source, result: PipelineResult) -> CrawlRunStatus:
+    if result.pages_fetched == 0 and result.failed == 0 and result.records_extracted == 0:
+        if (source.compliance_status or "").lower() == "linkout_only":
+            return CrawlRunStatus.linkout_only_skipped
+        return CrawlRunStatus.success_empty
+    if result.failed > 0:
+        return CrawlRunStatus.partial_success
+    if result.skipped > 0 and not _has_usable_crawl_outcome(result):
+        return CrawlRunStatus.partial_success
+    return CrawlRunStatus.success
 
 
 def _content_hash(
@@ -134,6 +197,8 @@ def _source_item_key(
         application_url or "",
     ])
     return hashlib.sha256(combined.encode()).hexdigest()[:64]
+
+
 def _trust_badge_for_source(source: Source) -> str | None:
     trust = source.trust_level or ""
     if trust == "government_official":
@@ -259,13 +324,14 @@ def run_source_ingestion(db: Session, source_id: int, *, force: bool = False) ->
                 logs.append(f"Failed page {page.url}: {exc}")
                 logger.warning("pipeline_page_error", extra={"source_id": source_id, "url": page.url, "error": str(exc)})
 
-        if result.pages_fetched == 0 and result.failed == 0 and result.records_extracted == 0:
-            if (source.compliance_status or "").lower() == "linkout_only":
-                run.status = CrawlRunStatus.linkout_only_skipped
-            else:
-                run.status = CrawlRunStatus.success_empty
-        else:
-            run.status = CrawlRunStatus.success if result.failed == 0 else CrawlRunStatus.partial_success
+        diagnostics = _build_run_diagnostics(result)
+        if result.accepted or result.published or result.skip_reasons:
+            logs.append(
+                "Acceptance diagnostics: "
+                f"accepted={result.accepted}, published={result.published}, skip_reasons={result.skip_reasons}"
+            )
+
+        run.status = _derive_run_status(source, result)
         run.finished_at = datetime.now(UTC)
         run.discovered_count = result.pages_fetched
         run.draft_created_count = result.draft_created
@@ -275,7 +341,7 @@ def run_source_ingestion(db: Session, source_id: int, *, force: bool = False) ->
         run.skipped_count = result.skipped
         run.failed_count = result.failed
         run.manual_review_count = result.manual_review
-        run.logs = {"messages": logs}
+        run.logs = {"messages": logs, "diagnostics": diagnostics}
 
         legacy_job.status = CrawlStatus.success
         legacy_job.finished_at = datetime.now(UTC)
@@ -315,7 +381,10 @@ def run_source_ingestion(db: Session, source_id: int, *, force: bool = False) ->
         run.status = CrawlRunStatus.failed
         run.finished_at = datetime.now(UTC)
         run.error_message = err_msg
-        run.logs = {"messages": logs + [f"Fatal error: {err_msg}"]}
+        run.logs = {
+            "messages": logs + [f"Fatal error: {err_msg}"],
+            "diagnostics": _build_run_diagnostics(result),
+        }
         legacy_job.status = CrawlStatus.failed
         legacy_job.finished_at = datetime.now(UTC)
         legacy_job.error_message = err_msg
@@ -390,8 +459,7 @@ def _process_page(
 
     extractions = _extract_records_for_page(db, source, page, cleaned)
     if not extractions:
-        raw.skip_reason = "no_extractable_opportunity"
-        result.skipped += 1
+        _record_skip(result, raw, canonical_url, "no_extractable_opportunity", logs)
         if source.connector_key != "search_html_jobs":
             result.failed += 1
         return
@@ -400,8 +468,21 @@ def _process_page(
     for extraction in extractions:
         errors = validate_extraction(extraction)
         if errors or extraction.record_type == "unknown":
-            raw.skip_reason = "; ".join(errors) if errors else "unknown_record_type"
-            result.skipped += 1
+            skip_reason = "; ".join(errors) if errors else "unknown_record_type"
+            _append_raw_extraction_diagnostic(
+                raw,
+                extraction,
+                skip_reason=skip_reason,
+                validation_errors=errors,
+            )
+            _record_skip(
+                result,
+                raw,
+                canonical_url,
+                skip_reason,
+                logs,
+                confidence=extraction.extraction_confidence,
+            )
             continue
         extracted_any = True
         _process_extraction(
@@ -420,6 +501,13 @@ def _process_page(
 
 
 def _extract_records_for_page(db: Session, source: Source, page, cleaned: dict) -> list:
+    if _force_ai_detail_extraction(source, page):
+        extraction = extract_structured(db, _official_ai_cleaned_payload(source, page, cleaned))
+        if extraction.record_type == "unknown":
+            return []
+        _apply_extraction_fallbacks(source, page, extraction)
+        return [extraction]
+
     if (page.metadata or {}).get("structured_job"):
         return [_structured_page_extraction(source, page, cleaned)]
 
@@ -478,6 +566,133 @@ def _should_reject_as_news(cleaned: dict) -> bool:
     return hits >= 2
 
 
+def _source_setting(source: Source, key: str, default=None):
+    settings_json = getattr(source, "settings_json", None) or {}
+    return settings_json.get(key, default)
+
+
+def _is_strict_official_job_source(source: Source) -> bool:
+    return bool(_source_setting(source, "strict_bd_job_filter", False))
+
+
+def _force_ai_detail_extraction(source: Source, page) -> bool:
+    return bool(_source_setting(source, "force_ai_detail_extraction", False) and (page.metadata or {}).get("structured_job"))
+
+
+def _official_ai_cleaned_payload(source: Source, page, cleaned: dict) -> dict:
+    metadata = page.metadata or {}
+    context_lines = [
+        "Official listing metadata:",
+        f"Company: {metadata.get('company') or source.name}",
+    ]
+    for label, value in (
+        ("Location", metadata.get("location_raw")),
+        ("Department", metadata.get("department")),
+        ("Posting date", metadata.get("posting_date_text")),
+        ("Experience level", metadata.get("experience_level")),
+        ("Apply URL", getattr(page, "original_apply_url", None)),
+        ("Source job ID", metadata.get("source_job_id")),
+    ):
+        if value:
+            context_lines.append(f"{label}: {value}")
+    body = page.raw_text or cleaned.get("body_text") or ""
+    return {
+        **cleaned,
+        "title": page.title or cleaned.get("title"),
+        "body_text": "\n".join(context_lines) + "\n\nJob detail page content:\n" + body,
+    }
+
+
+def _apply_extraction_fallbacks(source: Source, page, extraction) -> None:
+    metadata = page.metadata or {}
+    location_raw = metadata.get("location_raw")
+    if not extraction.country:
+        extraction.country = _country_from_location(location_raw) or source.country
+    if not extraction.city:
+        extraction.city = _city_from_location(location_raw)
+    if not extraction.employer:
+        extraction.employer = metadata.get("company") or source.name
+    if not extraction.organization:
+        extraction.organization = metadata.get("department")
+    if not extraction.sector:
+        extraction.sector = metadata.get("department")
+    if not extraction.application_url:
+        extraction.application_url = getattr(page, "original_apply_url", None) or page.document_url
+    if not extraction.deadline_text:
+        extraction.deadline_text = _extract_deadline(page.raw_text or "")
+
+
+def _append_raw_extraction_diagnostic(
+    raw: RawDocument,
+    extraction,
+    *,
+    skip_reason: str | None = None,
+    validation_errors: list[str] | None = None,
+) -> None:
+    existing = raw.extraction_diagnostics_json if isinstance(raw.extraction_diagnostics_json, dict) else {}
+    attempts = list(existing.get("attempts") or [])
+    attempts.append({
+        "record_type": extraction.record_type,
+        "extraction_confidence": float(extraction.extraction_confidence or 0.0),
+        "field_confidences": dict(getattr(extraction, "field_confidences", None) or {}),
+        "evidence_snippets": list(getattr(extraction, "evidence_snippets", None) or []),
+        "application_url": extraction.application_url,
+        "employer": extraction.employer or extraction.organization,
+        "country": extraction.country,
+        "title": extraction.title,
+        "summary": extraction.summary,
+        "validation_errors": list(validation_errors or []),
+        "skip_reason": skip_reason,
+    })
+    raw.extraction_diagnostics_json = {
+        **existing,
+        "attempts": attempts,
+    }
+
+
+def _record_skip(
+    result: PipelineResult,
+    raw: RawDocument,
+    source_page_url: str,
+    reason: str,
+    logs: list[str],
+    *,
+    confidence: float | None = None,
+) -> None:
+    raw.skip_reason = reason
+    result.skipped += 1
+    result.skip_reasons[reason] = result.skip_reasons.get(reason, 0) + 1
+    if confidence is not None:
+        result.skipped_confidences.append(float(confidence))
+    logs.append(f"Skipped {source_page_url}: {reason}")
+
+
+def _strict_gate_skip_reason(source: Source, extraction, application_url: str | None, eligibility, category, suitability) -> str | None:
+    if not _is_strict_official_job_source(source):
+        return None
+    if extraction.record_type != "job":
+        return "strict_official_non_job"
+    if _source_setting(source, "require_application_url", False) and not application_url:
+        return "strict_missing_application_url"
+    if extraction.extraction_confidence < _OFFICIAL_STRICT_CONFIDENCE_THRESHOLD:
+        return "strict_low_ai_confidence"
+    if _source_setting(source, "require_isc_category", False) and not category.isc_category_key:
+        return "strict_missing_isc_category"
+    if suitability.bangladesh_applicability not in {"high", "medium"}:
+        return f"strict_bd_applicability_{suitability.bangladesh_applicability}"
+    if eligibility.can_apply_from_bd is False:
+        return "strict_not_open_from_bangladesh"
+    if eligibility.requires_existing_work_permit is True:
+        return "strict_requires_existing_work_permit"
+    if eligibility.open_to_authorized_workers_only is True:
+        return "strict_authorized_workers_only"
+    return None
+
+
+def _should_publish_strict_source(source: Source) -> bool:
+    return bool(_source_setting(source, "auto_publish_on_pass", False))
+
+
 def _process_extraction(
     db: Session,
     extraction,
@@ -498,10 +713,65 @@ def _process_extraction(
         detected_item_type=detected_item_type,
     )
     if not relevant:
-        raw.skip_reason = skip_reason
         raw.detected_item_type = detected_item_type
-        result.skipped += 1
-        logs.append(f"Skipped {source_page_url}: {skip_reason}")
+        final_skip_reason = skip_reason or "not_relevant_for_active_job"
+        _append_raw_extraction_diagnostic(raw, extraction, skip_reason=final_skip_reason)
+        _record_skip(
+            result,
+            raw,
+            source_page_url,
+            final_skip_reason,
+            logs,
+            confidence=extraction.extraction_confidence,
+        )
+        return
+
+    eligibility = tag_eligibility(
+        source_connector_key=source.connector_key,
+        source_trust_level=source.trust_level,
+        record_type=extraction.record_type,
+        country=extraction.country or source.country,
+        eligibility_text=extraction.eligibility_text,
+        requirements_json={"items": extraction.requirements},
+        extracted_json=extraction.model_dump(mode="json"),
+        title=extraction.title,
+        summary=extraction.summary,
+        employer=extraction.employer,
+    )
+    combined_body = " ".join(filter(None, [
+        extraction.summary,
+        extraction.eligibility_text,
+        " ".join(extraction.requirements or []),
+        raw.raw_text,
+    ]))
+    category = classify_category(title=extraction.title, body=combined_body, sector=extraction.sector)
+    suitability = classify_bangladesh_suitability(
+        title=extraction.title,
+        body=combined_body,
+        apply_url=application_url,
+        source_trust_level=source.trust_level,
+        source_connector_key=source.connector_key,
+        extraction_confidence=extraction.extraction_confidence,
+        detected_item_type=detected_item_type,
+    )
+    strict_skip_reason = _strict_gate_skip_reason(
+        source,
+        extraction,
+        application_url,
+        eligibility,
+        category,
+        suitability,
+    )
+    if strict_skip_reason:
+        _append_raw_extraction_diagnostic(raw, extraction, skip_reason=strict_skip_reason)
+        _record_skip(
+            result,
+            raw,
+            source_page_url,
+            strict_skip_reason,
+            logs,
+            confidence=extraction.extraction_confidence,
+        )
         return
 
     opp_hash = _content_hash(
@@ -535,8 +805,6 @@ def _process_extraction(
         content_hash=opp_hash,
     )
 
-    # Embedding for semantic cross-source dedup. Computed lazily — only when
-    # there's no exact hash match (otherwise we already know it's a dupe).
     extraction_embedding: list[float] | None = None
     semantic_match: Opportunity | None = None
     if existing is None:
@@ -558,8 +826,6 @@ def _process_extraction(
                     country=extraction.country or source.country,
                     embedding=extraction_embedding,
                 )
-                # Only treat as duplicate if it's from a *different* source (otherwise
-                # find_existing_opportunity would have caught it via content_hash).
                 if semantic_match and semantic_match.source_id == source.id:
                     semantic_match = None
         except Exception as exc:
@@ -567,43 +833,12 @@ def _process_extraction(
             semantic_match = None
 
     if semantic_match is not None:
-        # Same job listed on a new source. Don't create a draft — just record the
-        # mirror URL on the canonical row so the public page can deep-link both.
         if merge_mirror_url(semantic_match, source_page_url):
             logs.append(
                 f"Semantic dedup: merged {source_page_url} into canonical opportunity #{semantic_match.id}"
             )
         result.duplicates += 1
         return
-
-    eligibility = tag_eligibility(
-        source_connector_key=source.connector_key,
-        source_trust_level=source.trust_level,
-        record_type=extraction.record_type,
-        country=extraction.country or source.country,
-        eligibility_text=extraction.eligibility_text,
-        requirements_json={"items": extraction.requirements},
-        extracted_json=extraction.model_dump(mode="json"),
-        title=extraction.title,
-        summary=extraction.summary,
-        employer=extraction.employer,
-    )
-    combined_body = " ".join(filter(None, [
-        extraction.summary,
-        extraction.eligibility_text,
-        " ".join(extraction.requirements or []),
-        raw.raw_text,
-    ]))
-    category = classify_category(title=extraction.title, body=combined_body, sector=extraction.sector)
-    suitability = classify_bangladesh_suitability(
-        title=extraction.title,
-        body=combined_body,
-        apply_url=application_url,
-        source_trust_level=source.trust_level,
-        source_connector_key=source.connector_key,
-        extraction_confidence=extraction.extraction_confidence,
-        detected_item_type=detected_item_type,
-    )
 
     ocr_used = getattr(page, "ocr_used", False)
     force_review = bool(ocr_used or source.requires_admin_review)
@@ -625,18 +860,27 @@ def _process_extraction(
             now=now,
             category=category,
             suitability=suitability,
+            force_review=force_review,
         )
         if old_source_hash == raw.content_hash:
             result.unchanged += 1
         else:
             result.draft_updated += 1
         result.duplicates += 1
+        result.accepted += 1
+        if existing.status == "published":
+            result.published += 1
         result.pending_translation_ids.append(existing.id)
         logs.append(f"Draft updated: id={existing.id} title='{(existing.title or '')[:60]}'")
         return
 
-    admin_status = "needs_review" if (force_review or suitability.needs_review or suitability.bangladesh_applicability != "high") else "auto_approved"
-    initial_status = "published" if admin_status == "auto_approved" and source.auto_publish else "pending"
+    strict_source = _is_strict_official_job_source(source)
+    if strict_source and _should_publish_strict_source(source):
+        admin_status = "auto_approved"
+        initial_status = "published"
+    else:
+        admin_status = "needs_review" if (force_review or suitability.needs_review or suitability.bangladesh_applicability != "high") else "auto_approved"
+        initial_status = "published" if admin_status == "auto_approved" and source.auto_publish else "pending"
     draft = Opportunity(
         source_id=source.id,
         source_name=source.name,
@@ -657,6 +901,7 @@ def _process_extraction(
         employer=extraction.employer,
         organization=extraction.organization,
         sector=extraction.sector,
+        isc_category_key=category.isc_category_key,
         platform_category_bn=category.platform_category_bn,
         platform_category_en=category.platform_category_en,
         occupation_family=category.occupation_family,
@@ -723,6 +968,8 @@ def _process_extraction(
         last_seen_at=now,
         missing_count=0,
     )
+    _populate_opportunity_detail_fields(draft, extraction, page, source)
+    _enrich_official_bilingual_fields(db, draft, source, logs)
     draft.actionability_score = suitability.actionability_score
     draft.overall_rank_score = _overall_score(draft)
 
@@ -730,13 +977,13 @@ def _process_extraction(
     db.flush()
 
     result.draft_created += 1
+    result.accepted += 1
+    if draft.status == "published":
+        result.published += 1
     if draft.needs_admin_review:
         result.manual_review += 1
     result.pending_translation_ids.append(draft.id)
 
-    # Persist the embedding alongside the draft so semantic dedup catches
-    # future duplicates (and so the RAG copilot can retrieve over the corpus
-    # once the draft is approved).
     if extraction_embedding is not None:
         try:
             from app.services.embedding_service import EMBEDDING_MODEL as _EMB_MODEL
@@ -767,6 +1014,7 @@ def _apply_extraction_to_draft(
     now: datetime,
     category,
     suitability,
+    force_review: bool,
 ) -> None:
     application_url = extraction.application_url or getattr(page, "original_apply_url", None) or page.document_url
     draft.source_name = source.name
@@ -786,6 +1034,7 @@ def _apply_extraction_to_draft(
     draft.employer = extraction.employer
     draft.organization = extraction.organization
     draft.sector = extraction.sector
+    draft.isc_category_key = category.isc_category_key
     draft.platform_category_bn = category.platform_category_bn
     draft.platform_category_en = category.platform_category_en
     draft.occupation_family = category.occupation_family
@@ -848,15 +1097,118 @@ def _apply_extraction_to_draft(
         has_apply=bool(application_url),
         has_req=bool(extraction.requirements),
     )
+    _populate_opportunity_detail_fields(draft, extraction, page, source)
+    _enrich_official_bilingual_fields(db, draft, source, [])
     draft.actionability_score = suitability.actionability_score
     draft.overall_rank_score = _overall_score(draft)
     draft.last_seen_at = now
     draft.first_seen_at = draft.first_seen_at or now
     draft.missing_count = 0
-    if draft.admin_status in {"inactive"} and draft.status != "published":
-        draft.admin_status = "needs_review"
+    if _is_strict_official_job_source(source) and _should_publish_strict_source(source):
+        draft.needs_admin_review = False
+        draft.review_status = "approved"
+        draft.admin_status = "auto_approved"
+        draft.status = "published"
+        draft.is_active = True
+        draft.published_at = draft.published_at or now
+    else:
+        if draft.admin_status in {"inactive"} and draft.status != "published":
+            draft.admin_status = "needs_review"
+        if draft.status != "published":
+            draft.needs_admin_review = bool(force_review or suitability.needs_review or suitability.bangladesh_applicability != "high")
+            draft.review_status = "approved" if (not draft.needs_admin_review and source.auto_publish) else "pending"
+            draft.admin_status = "auto_approved" if not draft.needs_admin_review else "needs_review"
+            draft.status = "published" if draft.review_status == "approved" else "pending"
+            draft.is_active = draft.status == "published"
+            if draft.status == "published":
+                draft.published_at = draft.published_at or now
     draft.updated_at = now
     _refresh_search_tsv(db, draft.id)
+
+
+def _populate_opportunity_detail_fields(draft: Opportunity, extraction, page, source: Source) -> None:
+    metadata = page.metadata or {}
+    location_text = metadata.get("location_raw") or ", ".join(filter(None, [extraction.city, extraction.country or source.country])) or None
+    draft.title_en = draft.title_en or (_clean_latin_text(extraction.title) if extraction.title else None)
+    draft.job_title = extraction.title or draft.job_title
+    draft.salary_text = _format_salary_text(extraction.salary_min, extraction.salary_max, extraction.salary_currency)
+    draft.location_text = location_text
+    draft.eligibility_text = extraction.eligibility_text
+    draft.required_documents = _list_to_text(extraction.documents_needed)
+    draft.application_process = _list_to_text(extraction.journey_steps, separator="\n")
+    draft.education_requirement = extraction.degree_level
+    draft.experience_requirement = _pick_requirement_line(extraction.requirements, ("experience", "year", "yrs"))
+    draft.language_requirement = ", ".join(extraction.language_requirements) if extraction.language_requirements else None
+    draft.visa_or_work_permit_info = _extract_visa_info(extraction.eligibility_text, page.raw_text or "")
+    if _is_strict_official_job_source(source) and not draft.journey_steps and (application_url := (extraction.application_url or getattr(page, "original_apply_url", None) or page.document_url)):
+        draft.journey_steps = _default_journey_steps(application_url)
+        draft.application_steps = list(draft.journey_steps)
+    if _is_strict_official_job_source(source) and not draft.documents_needed:
+        draft.documents_needed = _default_documents_needed()
+        draft.documents_required = list(draft.documents_needed)
+    draft.posted_date = parse_deadline((page.metadata or {}).get("posting_date_text"))
+
+
+def _enrich_official_bilingual_fields(db: Session, draft: Opportunity, source: Source, logs: list[str]) -> None:
+    if not _is_strict_official_job_source(source):
+        return
+    try:
+        changes = enrich_bilingual_record(db, draft)
+        if changes and logs is not None:
+            logs.append(f"Bilingual enrichment applied: {len(changes)} fields")
+    except Exception as exc:
+        if logs is not None:
+            logs.append(f"Bilingual enrichment skipped: {exc}")
+
+
+def _format_salary_text(salary_min: float | None, salary_max: float | None, salary_currency: str | None) -> str | None:
+    if salary_min is None and salary_max is None:
+        return None
+    if salary_min is not None and salary_max is not None and salary_min != salary_max:
+        return f"{salary_currency or ''} {salary_min:g} - {salary_max:g}".strip()
+    value = salary_max if salary_max is not None else salary_min
+    return f"{salary_currency or ''} {value:g}".strip() if value is not None else None
+
+
+def _list_to_text(values: list[str] | None, *, separator: str = ", ") -> str | None:
+    cleaned = [item.strip() for item in (values or []) if item and item.strip()]
+    return separator.join(cleaned) if cleaned else None
+
+
+def _pick_requirement_line(requirements: list[str] | None, terms: tuple[str, ...]) -> str | None:
+    for requirement in requirements or []:
+        lowered = requirement.lower()
+        if any(term in lowered for term in terms):
+            return requirement
+    return None
+
+
+def _extract_visa_info(*texts: str | None) -> str | None:
+    for text in texts:
+        if not text:
+            continue
+        lowered = text.lower()
+        if any(term in lowered for term in ("visa", "iqama", "work permit", "sponsorship")):
+            return text[:500]
+    return None
+
+
+def _default_journey_steps(application_url: str) -> list[str]:
+    return [
+        "চাকরির যোগ্যতা ও শর্তগুলো ভালোভাবে দেখুন",
+        "পাসপোর্ট, সিভি ও প্রয়োজনীয় কাগজপত্র প্রস্তুত করুন",
+        f"আবেদনের লিংকে গিয়ে আবেদন করুন: {application_url}",
+    ]
+
+
+def _default_documents_needed() -> list[str]:
+    return ["পাসপোর্ট", "সিভি", "শিক্ষাগত সনদ", "অভিজ্ঞতার সনদ"]
+
+
+def _clean_latin_text(value: str | None) -> str | None:
+    if not value:
+        return None
+    return value if re.search(r"[A-Za-z]", value) else None
 
 
 def cleaned_text(value: str | None) -> str:

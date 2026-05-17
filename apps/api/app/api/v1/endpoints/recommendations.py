@@ -28,6 +28,7 @@ def recommendations(
             employer=opp.employer,
             country=opp.country,
             city=opp.city,
+            experience_min_years=opp.experience_min_years,
             deadline=opp.deadline,
             salary_min=float(opp.salary_min) if opp.salary_min is not None else None,
             salary_max=float(opp.salary_max) if opp.salary_max is not None else None,

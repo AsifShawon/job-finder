@@ -1,4 +1,9 @@
-import type { OpportunityDetail, SearchResponse, SimilarOpportunityResponse } from "@/lib/types";
+import type {
+  OpportunityCategorySummary,
+  OpportunityDetail,
+  SearchResponse,
+  SimilarOpportunityResponse,
+} from "@/lib/types";
 
 import { API_BASE } from "@/lib/api-base";
 
@@ -24,6 +29,14 @@ export async function getSimilar(id: string): Promise<SimilarOpportunityResponse
   const response = await fetch(`${API_BASE}/api/v1/opportunities/${id}/similar`, { cache: "no-store" });
   if (!response.ok) {
     return { items: [] };
+  }
+  return response.json();
+}
+
+export async function getOpportunityCategories(): Promise<OpportunityCategorySummary[]> {
+  const response = await fetch(`${API_BASE}/api/v1/opportunities/categories`, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error("Failed to fetch opportunity categories");
   }
   return response.json();
 }

@@ -10,27 +10,42 @@ from app.models.entities import (
     Source,
 )
 from app.schemas.opportunity import (
+    OpportunityCategorySummary,
     PublishedOpportunityCard,
     PublishedSearchQuery,
     PublishedSearchResponse,
 )
 from app.services.embedding_service import embed_query
+from app.services.isc_taxonomy import ISC_CATEGORY_DEFINITIONS
+
+JOB_OPPORTUNITY_TYPES = ("overseas_job", "local_job")
 
 
-def _apply_filters(stmt: Select, q: PublishedSearchQuery, user_id: int | None) -> Select:
-    # Always filter to published opportunities only
-    stmt = stmt.where(
+def _published_visible_constraints() -> tuple:
+    return (
         Opportunity.status == "published",
         Opportunity.is_active.is_(True),
         Opportunity.admin_status.notin_(["hidden", "archived", "inactive", "rejected"]),
     )
+
+
+def _parse_csv_values(value: str | None) -> list[str]:
+    return [item.strip() for item in (value or "").split(",") if item.strip()]
+
+
+def _apply_filters(stmt: Select, q: PublishedSearchQuery, user_id: int | None) -> Select:
+    stmt = stmt.where(*_published_visible_constraints())
 
     if q.q:
         stmt = stmt.where(
             Opportunity.search_tsv.op("@@")(func.websearch_to_tsquery("simple", q.q))
         )
     if q.opportunity_type:
-        stmt = stmt.where(Opportunity.opportunity_type == q.opportunity_type)
+        opportunity_types = _parse_csv_values(q.opportunity_type)
+        if len(opportunity_types) > 1:
+            stmt = stmt.where(Opportunity.opportunity_type.in_(opportunity_types))
+        elif opportunity_types:
+            stmt = stmt.where(Opportunity.opportunity_type == opportunity_types[0])
     if q.country:
         stmt = stmt.where(
             or_(
@@ -64,6 +79,8 @@ def _apply_filters(stmt: Select, q: PublishedSearchQuery, user_id: int | None) -
             stmt = stmt.where(or_(*sector_conditions))
         else:
             stmt = stmt.where(Opportunity.sector.ilike(f"%{q.sector}%"))
+    if getattr(q, "isc_category_key", None):
+        stmt = stmt.where(Opportunity.isc_category_key == q.isc_category_key)
     if q.skill_level:
         stmt = stmt.where(Opportunity.skill_level.ilike(f"%{q.skill_level}%"))
     if q.education_level:
@@ -170,7 +187,7 @@ def search_opportunities(
         stmt = stmt.order_by(desc(Opportunity.published_at))
     elif query.sort == "deadline":
         stmt = stmt.order_by(Opportunity.deadline.asc().nulls_last())
-    elif query.sort == "official":
+    elif query.sort in {"official", "trust"}:
         stmt = stmt.order_by(desc(Opportunity.trust_score), desc(final_score))
     elif query.sort == "salary":
         stmt = stmt.order_by(desc(func.coalesce(Opportunity.salary_max, 0)))
@@ -196,17 +213,22 @@ def search_opportunities(
             id=opp.id,
             title=opp.title,
             title_bn=opp.title_bn,
+            title_en=opp.title_en,
             opportunity_type=opp.opportunity_type,
             country=opp.country,
             destination_country=opp.destination_country,
             employer_or_organization=opp.employer_or_organization,
             sector=opp.sector,
+            isc_category_key=opp.isc_category_key,
             platform_category_bn=opp.platform_category_bn,
             platform_category_en=opp.platform_category_en,
             salary_min=float(opp.salary_min) if opp.salary_min is not None else None,
             salary_max=float(opp.salary_max) if opp.salary_max is not None else None,
             salary_currency=opp.salary_currency,
             salary_text=opp.salary_text,
+            salary_text_bn=opp.salary_text_bn,
+            salary_text_en=opp.salary_text_en,
+            experience_min_years=opp.experience_min_years,
             deadline=opp.deadline,
             source_page_url=opp.source_page_url or "",
             document_url=opp.document_url,
@@ -247,9 +269,7 @@ def get_similar_opportunities(
     base = db.scalar(
         select(Opportunity).where(
             Opportunity.id == opportunity_id,
-            Opportunity.status == "published",
-            Opportunity.is_active.is_(True),
-            Opportunity.admin_status.notin_(["hidden", "archived", "inactive", "rejected"]),
+            *_published_visible_constraints(),
         )
     )
     if not base:
@@ -269,9 +289,7 @@ def get_similar_opportunities(
                 OpportunityEmbedding.opportunity_id == Opportunity.id,
             )
             .where(Opportunity.id != opportunity_id)
-            .where(Opportunity.status == "published")
-            .where(Opportunity.is_active.is_(True))
-            .where(Opportunity.admin_status.notin_(["hidden", "archived", "inactive", "rejected"]))
+            .where(*_published_visible_constraints())
             .order_by(OpportunityEmbedding.embedding.cosine_distance(base_emb.embedding))
             .limit(limit)
         )
@@ -279,9 +297,7 @@ def get_similar_opportunities(
         stmt = (
             select(Opportunity)
             .where(Opportunity.id != opportunity_id)
-            .where(Opportunity.status == "published")
-            .where(Opportunity.is_active.is_(True))
-            .where(Opportunity.admin_status.notin_(["hidden", "archived", "inactive", "rejected"]))
+            .where(*_published_visible_constraints())
             .where(Opportunity.opportunity_type == base.opportunity_type)
             .order_by(desc(Opportunity.overall_rank_score))
             .limit(limit)
@@ -290,16 +306,19 @@ def get_similar_opportunities(
     rows = db.scalars(stmt).all()
     return [
         PublishedOpportunityCard(
-            id=p.id, title=p.title, title_bn=p.title_bn,
+            id=p.id, title=p.title, title_bn=p.title_bn, title_en=p.title_en,
             opportunity_type=p.opportunity_type, country=p.country,
             destination_country=p.destination_country,
             employer_or_organization=p.employer_or_organization,
             sector=p.sector,
+            isc_category_key=p.isc_category_key,
             platform_category_bn=p.platform_category_bn,
             platform_category_en=p.platform_category_en,
             salary_min=float(p.salary_min) if p.salary_min is not None else None,
             salary_max=float(p.salary_max) if p.salary_max is not None else None,
             salary_currency=p.salary_currency, salary_text=p.salary_text,
+            salary_text_bn=p.salary_text_bn, salary_text_en=p.salary_text_en,
+            experience_min_years=p.experience_min_years,
             deadline=p.deadline, source_page_url=p.source_page_url or "",
             document_url=p.document_url, original_apply_url=p.original_apply_url,
             content_type=p.content_type, source_name=p.source_name,
@@ -322,6 +341,34 @@ def get_similar_opportunities(
         )
         for p in rows
     ]
+
+
+def get_opportunity_categories(db: Session) -> list[OpportunityCategorySummary]:
+    rows = db.execute(
+        select(
+            Opportunity.isc_category_key,
+            func.count(Opportunity.id).label("job_count"),
+        )
+        .where(
+            *_published_visible_constraints(),
+            Opportunity.opportunity_type.in_(JOB_OPPORTUNITY_TYPES),
+            Opportunity.isc_category_key.is_not(None),
+        )
+        .group_by(Opportunity.isc_category_key)
+    ).all()
+    counts = {row[0]: int(row[1]) for row in rows if row[0]}
+
+    items = [
+        OpportunityCategorySummary(
+            key=definition.key,
+            label_bn=definition.bn,
+            label_en=definition.en,
+            job_count=counts.get(definition.key, 0),
+        )
+        for definition in ISC_CATEGORY_DEFINITIONS
+    ]
+    items.sort(key=lambda item: (-item.job_count, item.label_en))
+    return items
 
 
 def _why_matches(opp: Opportunity, q: str | None) -> str:

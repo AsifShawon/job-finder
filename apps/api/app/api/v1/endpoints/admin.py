@@ -60,6 +60,7 @@ from app.schemas.admin import (
 from app.schemas.common import MessageResponse
 from app.schemas.opportunity import RawDocumentOut, RawDocumentPage
 from app.schemas.source import SourceCreate, SourceOut, SourceUpdate
+from app.services.isc_taxonomy import determine_isc_category_key
 from app.services.runtime_settings_service import (
     AI_API_KEY,
     AI_MODEL,
@@ -185,6 +186,20 @@ def _clean_manual_list(values: list[str] | None) -> list[str] | None:
     return cleaned
 
 
+def _assign_manual_isc_category(draft: Opportunity) -> None:
+    draft.isc_category_key = determine_isc_category_key(
+        draft.title,
+        draft.summary,
+        draft.summary_bn,
+        draft.summary_en,
+        draft.sector,
+        draft.platform_category_bn,
+        draft.platform_category_en,
+        draft.occupation_family,
+        draft.eligibility_text,
+    )
+
+
 def _apply_manual_optional_fields(draft: Opportunity, payload: ManualJobEntryRequest) -> None:
     title_bn = _clean_manual_text(payload.title_bn)
     summary_bn = _clean_manual_text(payload.summary_bn)
@@ -301,6 +316,7 @@ def _run_manual_extraction(db: Session, draft: Opportunity, requested_opportunit
         requested_opportunity_type=requested_opportunity_type,
         extracted_json=extraction.model_dump(mode="json"),
     )
+    _assign_manual_isc_category(draft)
 
 
 def _manual_bulk_bool(value: str | None) -> bool | None:
@@ -540,6 +556,7 @@ def _save_manual_entry(
             manual_can_apply_from_bd=payload.can_apply_from_bd,
         )
 
+    _assign_manual_isc_category(draft)
     _refresh_draft_search_tsv(db, draft.id)
     return draft, created
 
@@ -1107,29 +1124,9 @@ async def probe_source(
             error=str(exc)[:300],
         )
 
-    # --- ISC sector suggestion via keyword matching ---
-    suggested_isc_sector: str | None = None
-    isc_keyword_map = {
-        "construction_isc":    ["construction", "civil", "mason", "welder", "carpenter", "plumber"],
-        "ict_isc":             ["software", "developer", "IT", "tech", "digital", "programmer"],
-        "agrofood_isc":        ["food", "agriculture", "farm", "fishery", "dairy"],
-        "tourism_isc":         ["hotel", "hospitality", "restaurant", "tourism", "chef"],
-        "rgt_isc":             ["garments", "textile", "sewing", "fabric", "apparel"],
-        "leather_isc":         ["leather", "footwear", "tannery", "shoe"],
-        "light_eng_isc":       ["engineering", "mechanic", "machinist", "fitter"],
-        "pharma_isc":          ["pharmaceutical", "medicine", "laboratory", "pharmacy"],
-        "furniture_isc":       ["furniture", "carpentry", "wood", "cabinet"],
-        "agriculture_isc":     ["agriculture", "farming", "crop", "livestock", "poultry"],
-        "informal_isc":        ["general labor", "helper", "driver", "cleaner", "domestic"],
-    }
-    if suggested_name or sample_titles:
-        combined_probe_text = " ".join(filter(None, [suggested_name] + sample_titles)).lower()
-        best_sector_hits = 0
-        for sector_key, kws in isc_keyword_map.items():
-            hits = sum(1 for kw in kws if kw.lower() in combined_probe_text)
-            if hits > best_sector_hits:
-                best_sector_hits = hits
-                suggested_isc_sector = sector_key
+    suggested_isc_sector = determine_isc_category_key(
+        *(filter(None, [suggested_name] + sample_titles))
+    )
 
     # --- Estimated opportunities count (links found, max 10) ---
     estimated_opportunities_per_crawl: int | None = None
@@ -1199,7 +1196,9 @@ def crawl_runs(
                 unchanged_count=r.unchanged_count, skipped_count=r.skipped_count,
                 failed_count=r.failed_count, manual_review_count=r.manual_review_count,
                 started_at=r.started_at, finished_at=r.finished_at,
-                error_message=r.error_message, logs=r.logs,
+                error_message=r.error_message,
+                diagnostics=(r.logs or {}).get("diagnostics") if isinstance(r.logs, dict) else None,
+                logs=r.logs,
             )
             for r, n in items
         ],
@@ -2005,11 +2004,40 @@ def re_extract_manual_entry(
     draft.published_at = None
 
     _run_manual_extraction(db, draft, draft.opportunity_type or "overseas_job")
+    _assign_manual_isc_category(draft)
     _refresh_draft_search_tsv(db, draft.id)
     db.commit()
     db.refresh(draft)
     logger.info("admin_manual_entry_reextracted", extra={"draft_id": draft.id})
     return _draft_to_review_out(draft, draft.source_name)
+
+
+@router.post("/backfill-isc-categories", response_model=dict)
+def backfill_isc_categories(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_admin_user),
+) -> dict[str, int]:
+    opportunities = db.scalars(select(Opportunity)).all()
+    updated = 0
+
+    for opportunity in opportunities:
+        next_key = determine_isc_category_key(
+            opportunity.title,
+            opportunity.summary,
+            opportunity.summary_bn,
+            opportunity.summary_en,
+            opportunity.sector,
+            opportunity.platform_category_bn,
+            opportunity.platform_category_en,
+            opportunity.occupation_family,
+            opportunity.eligibility_text,
+        )
+        if opportunity.isc_category_key != next_key:
+            opportunity.isc_category_key = next_key
+            updated += 1
+
+    db.commit()
+    return {"updated": updated, "total": len(opportunities)}
 
 
 # ── Published opportunities ────────────────────────────────────────────────────
@@ -2194,6 +2222,7 @@ def raw_documents(
     page_size: int = 20,
     source_id: int | None = None,
     crawl_run_id: int | None = None,
+    skip_reason: str | None = None,
     db: Session = Depends(get_db),
     _: User = Depends(get_admin_user),
 ) -> RawDocumentPage:
@@ -2202,6 +2231,8 @@ def raw_documents(
         stmt = stmt.where(RawDocument.source_id == source_id)
     if crawl_run_id:
         stmt = stmt.where(RawDocument.crawl_run_id == crawl_run_id)
+    if skip_reason:
+        stmt = stmt.where(RawDocument.skip_reason == skip_reason)
     total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
     items = db.scalars(stmt.offset((page - 1) * page_size).limit(page_size)).all()
     return RawDocumentPage(items=items, total=total, page=page, page_size=page_size)

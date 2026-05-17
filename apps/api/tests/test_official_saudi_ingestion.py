@@ -5,7 +5,11 @@ from app.ingestion.connectors.official_saudi import (
     parse_successfactors_listing,
     parse_tamimi_listing,
 )
-from app.ingestion.job_classification import classify_bangladesh_suitability, classify_category, is_relevant_for_active_job
+from app.ingestion.job_classification import (
+    classify_bangladesh_suitability,
+    classify_category,
+    is_relevant_for_active_job,
+)
 
 
 def test_alfanar_successfactors_listing_parse():
@@ -16,7 +20,11 @@ def test_alfanar_successfactors_listing_parse():
     </table>
     <a href="?startrow=16">2</a>
     """
-    jobs, next_pages = parse_successfactors_listing(html, "https://jobs.alfanar.com/alfanar/go/All-Openings/4442101/", flavor="alfanar")
+    jobs, next_pages = parse_successfactors_listing(
+        html,
+        "https://jobs.alfanar.com/alfanar/go/All-Openings/4442101/",
+        flavor="alfanar",
+    )
     assert jobs[0].title == "Maintenance Technician"
     assert jobs[0].location == "Saudi Arabia"
     assert jobs[0].experience_level == "Professional"
@@ -30,7 +38,11 @@ def test_aramco_successfactors_listing_parse_req_id():
       <td>17685</td><td>SA</td><td>Maintenance Dept</td></tr>
     </table>
     """
-    jobs, _ = parse_successfactors_listing(html, "https://careers.aramco.com/expat_uk/go/For-European-Candidates/7717923", flavor="aramco")
+    jobs, _ = parse_successfactors_listing(
+        html,
+        "https://careers.aramco.com/expat_uk/go/For-European-Candidates/7717923",
+        flavor="aramco",
+    )
     assert jobs[0].source_job_id == "17685"
     assert jobs[0].location == "Saudi Arabia"
     assert "Maintenance" in (jobs[0].department or "")
@@ -45,7 +57,11 @@ def test_successfactors_detail_parse_apply_url():
     page = parse_successfactors_detail(
         html,
         "https://example.test/job/123",
-        ListingJob(title="Welder Technician", detail_url="https://example.test/job/123", source_job_id="123"),
+        ListingJob(
+            title="Welder Technician",
+            detail_url="https://example.test/job/123",
+            source_job_id="123",
+        ),
         company="Example",
         flavor="alfanar",
     )
@@ -55,31 +71,42 @@ def test_successfactors_detail_parse_apply_url():
 
 
 def test_tamimi_listing_parse_worker_role():
-    html = '<div><h3>Electrical Supervisor</h3><p>Location: Dammam</p><a href="/job/electrical-supervisor">View & Apply</a></div>'
-    jobs, _ = parse_tamimi_listing(html, "https://tamimi.sa/careers.php")
+    html = '<div><h3>Electrical Supervisor</h3><p>Location: Dammam</p><a href="/job/electrical-supervisor">View & Apply</a></div><a href="?page=2">2</a>'
+    jobs, next_pages = parse_tamimi_listing(html, "https://tamimi.sa/careers.php")
     assert jobs
     assert jobs[0].detail_url == "https://tamimi.sa/job/electrical-supervisor"
+    assert next_pages == ["https://tamimi.sa/careers.php?page=2"]
 
 
 def test_maharah_post_handling_worker_intelligence():
-    html = '<article><a href="/en/post/waiter-workers">Waiter workers in Saudi Arabia</a><p>Hospitality worker guide</p></article>'
-    posts, _ = parse_maharah_posts(html, "https://maharah.com/en/post/")
-    assert posts[0].title == "Waiter workers in Saudi Arabia"
+    html = (
+        '<section>'
+        '<a href="/jobs/apply/direct-sales-representative-15">Direct Sales Representative</a>'
+        '<p>Department: Sales</p>'
+        '<a href="/web/login">Login</a>'
+        "</section>"
+    )
+    posts, _ = parse_maharah_posts(html, "https://careers.maharah.com/jobs")
+    assert posts[0].title == "Direct Sales Representative"
+    assert posts[0].detail_url == "https://careers.maharah.com/jobs/apply/direct-sales-representative-15"
     relevant, reason = is_relevant_for_active_job(
         title=posts[0].title,
-        body="Guide for waiter workers",
-        apply_url=None,
-        detected_item_type="occupation_intelligence",
+        body="Apply now for a direct sales role.",
+        apply_url=posts[0].apply_url,
+        detected_item_type="job",
     )
-    assert relevant is False
-    assert reason == "occupation_intelligence_without_apply_path"
+    assert relevant is True
+    assert reason is None
 
 
 def test_category_classifier_worker_categories():
     category = classify_category(title="Hotel waiter", body="Restaurant worker", sector=None)
-    assert category.platform_category_bn == "ট্যুরিজম ও হসপিটালিটি"
+    assert category.platform_category_en == "Tourism & Hospitality"
+    assert category.isc_category_key == "tourism_isc"
+
     category = classify_category(title="Civil foreman", body="Construction scaffolding", sector=None)
-    assert category.platform_category_bn == "কনস্ট্রাকশন"
+    assert category.platform_category_en == "Construction"
+    assert category.isc_category_key == "construction_isc"
 
 
 def test_bangladesh_suitability_no_guessing_and_review():

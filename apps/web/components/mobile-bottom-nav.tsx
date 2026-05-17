@@ -2,48 +2,63 @@
 
 import type { Route } from "next";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useLocale } from "next-intl";
 import {
   Bell,
   Bookmark,
+  ChevronDown,
   Home,
   LayoutDashboard,
   Menu,
   Search,
   Sparkles,
-  UserPlus,
   X,
 } from "lucide-react";
 import { useState } from "react";
 
-import { getISCSectorSearchParam, ISC_SECTORS } from "@/lib/isc-sectors";
+import type { OpportunityCategorySummary } from "@/lib/types";
+import {
+  ALL_JOBS_OPPORTUNITY_TYPES,
+  buildAllJobsHref,
+  buildISCCategoryHref,
+  getDefaultOpportunityCategories,
+} from "@/lib/isc-sectors";
 import { cn } from "@/lib/utils";
 
 const BOTTOM_NAV = [
   { icon: Home, label: "হোম", labelEn: "Home", href: "/" },
-  { icon: Search, label: "চাকরি", labelEn: "Jobs", href: "/search?record_type=job" },
-  { icon: Bookmark, label: "সংরক্ষিত", labelEn: "Saved", href: "/saved" },
-  { icon: Sparkles, label: "সুদক্ষ AI", labelEn: "Sudokkho AI", href: "/copilot" },
+  { icon: Search, label: "চাকরি", labelEn: "Jobs", href: buildAllJobsHref() },
+  { icon: Bookmark, label: "সংরক্ষিত", labelEn: "Saved", href: "/saved" as Route },
+  { icon: Sparkles, label: "সুদক্ষ AI", labelEn: "Sudokkho AI", href: "/copilot" as Route },
 ] as const;
 
-const NAV_LINKS = [
-  { href: "/", label: "হোম", labelEn: "Home", icon: Home },
-  { href: "/search?record_type=job", label: "চাকরি খুঁজুন", labelEn: "Find Jobs", icon: Search },
-  { href: "/search?record_type=scholarship", label: "স্কলারশিপ", labelEn: "Scholarships", icon: Sparkles },
-  { href: "/search?trust_tier=official_gov", label: "সরকারি নোটিশ", labelEn: "Official Notices", icon: LayoutDashboard },
-  { href: "/saved", label: "সংরক্ষিত", labelEn: "Saved", icon: Bookmark },
-  { href: "/alerts", label: "সতর্কতা", labelEn: "Alerts", icon: Bell },
-  { href: "/copilot", label: "সুদক্ষ AI", labelEn: "Sudokkho AI", icon: Sparkles },
-  { href: "/help", label: "সাহায্য", labelEn: "Help", icon: Sparkles },
+const SECONDARY_LINKS = [
+  { href: "/" as Route, label: "হোম", labelEn: "Home", icon: Home },
+  { href: "/saved" as Route, label: "সংরক্ষিত", labelEn: "Saved", icon: Bookmark },
+  { href: "/alerts" as Route, label: "সতর্কতা", labelEn: "Alerts", icon: Bell },
+  { href: "/copilot" as Route, label: "সুদক্ষ AI", labelEn: "Sudokkho AI", icon: Sparkles },
+  { href: "/help" as Route, label: "সাহায্য", labelEn: "Help", icon: LayoutDashboard },
 ] as const;
 
-export function MobileBottomNav() {
+function isAllJobsActive(pathname: string, opportunityType: string | null, categoryKey: string | null) {
+  return pathname.startsWith("/search") && opportunityType === ALL_JOBS_OPPORTUNITY_TYPES && !categoryKey;
+}
+
+export function MobileBottomNav({
+  categories,
+}: {
+  categories: OpportunityCategorySummary[];
+}) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const locale = useLocale();
   const isEn = locale === "en";
   const [open, setOpen] = useState(false);
-  const [categoriesOpen, setCategoriesOpen] = useState(false);
+  const [categoriesOpen, setCategoriesOpen] = useState(Boolean(searchParams.get("isc_category_key")));
+  const items = categories.length > 0 ? categories : getDefaultOpportunityCategories();
+  const activeCategoryKey = searchParams.get("isc_category_key");
+  const activeOpportunityType = searchParams.get("opportunity_type");
 
   return (
     <>
@@ -53,11 +68,16 @@ export function MobileBottomNav() {
       >
         <div className="grid grid-cols-5 pb-[env(safe-area-inset-bottom)]">
           {BOTTOM_NAV.map(({ icon: Icon, label, labelEn, href }) => {
-            const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
+            const active =
+              href === "/"
+                ? pathname === "/"
+                : String(href).startsWith("/search")
+                  ? isAllJobsActive(pathname, activeOpportunityType, activeCategoryKey)
+                  : pathname.startsWith(String(href));
 
             return (
               <Link
-                key={href}
+                key={String(href)}
                 href={href}
                 aria-label={isEn ? labelEn : label}
                 className={cn(
@@ -92,16 +112,16 @@ export function MobileBottomNav() {
           onClick={() => setOpen(false)}
         >
           <div
-            className="absolute inset-y-0 left-0 flex h-full w-[85vw] flex-col border-r border-border bg-white shadow-2xl rounded-r-[2.5rem] overflow-hidden"
+            className="absolute inset-y-0 left-0 flex h-full w-[85vw] flex-col overflow-hidden rounded-r-[2.5rem] border-r border-border bg-white shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-border px-4 py-4">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">
-                  {isEn ? "Menu" : "মেনু"}
+                  {isEn ? "Browse" : "ব্রাউজ"}
                 </p>
                 <h2 className="text-lg font-bold text-foreground">
-                  {isEn ? "Browse navigation" : "নেভিগেশন দেখুন"}
+                  {isEn ? "Jobs navigation" : "চাকরি নেভিগেশন"}
                 </h2>
               </div>
               <button
@@ -117,16 +137,84 @@ export function MobileBottomNav() {
             <div className="flex-1 space-y-5 overflow-y-auto px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-4">
               <div className="space-y-3">
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                  {isEn ? "Navigation" : "নেভিগেশন"}
+                  {isEn ? "Browse jobs" : "চাকরি ব্রাউজ"}
+                </p>
+
+                <Link
+                  href={buildAllJobsHref()}
+                  onClick={() => setOpen(false)}
+                  className={cn(
+                    "flex items-center gap-3 rounded-2xl border px-4 py-3 text-sm font-semibold transition-colors",
+                    isAllJobsActive(pathname, activeOpportunityType, activeCategoryKey)
+                      ? "border-primary bg-primary/5 text-primary"
+                      : "border-border bg-background text-foreground hover:border-primary hover:text-primary",
+                  )}
+                >
+                  <Search className="h-4 w-4" />
+                  <span>{isEn ? "All Jobs" : "সব চাকরি"}</span>
+                </Link>
+
+                <div className="rounded-2xl border border-border bg-background">
+                  <button
+                    type="button"
+                    onClick={() => setCategoriesOpen((current) => !current)}
+                    className="flex w-full items-center justify-between px-4 py-3 text-left text-sm font-semibold text-foreground"
+                  >
+                    <span>{isEn ? "Category" : "ক্যাটাগরি"}</span>
+                    <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", categoriesOpen && "rotate-180")} />
+                  </button>
+
+                  {categoriesOpen && (
+                    <div className="max-h-80 space-y-1 overflow-y-auto border-t border-border p-2">
+                      {items.map((category) => {
+                        const href = buildISCCategoryHref(category.key);
+                        const active = activeCategoryKey === category.key;
+
+                        return (
+                          <Link
+                            key={category.key}
+                            href={href}
+                            onClick={() => setOpen(false)}
+                            className={cn(
+                              "flex items-center justify-between rounded-2xl px-3 py-3 text-sm transition-colors",
+                              active
+                                ? "bg-primary/8 text-primary"
+                                : "text-foreground hover:bg-muted/60 hover:text-primary",
+                            )}
+                          >
+                            <span>
+                              <span className="block font-semibold">
+                                {isEn ? category.label_en : category.label_bn}
+                              </span>
+                              <span className="block text-xs text-muted-foreground">
+                                {isEn ? category.label_bn : category.label_en}
+                              </span>
+                            </span>
+                            <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground">
+                              {category.job_count}
+                            </span>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="h-px bg-border" />
+
+              <div className="space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                  {isEn ? "More" : "আরও"}
                 </p>
                 <div className="grid gap-2">
-                  {NAV_LINKS.map(({ href, label, labelEn, icon: Icon }) => {
-                    const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
+                  {SECONDARY_LINKS.map(({ href, label, labelEn, icon: Icon }) => {
+                    const active = href === "/" ? pathname === "/" : pathname.startsWith(String(href));
 
                     return (
                       <Link
-                        key={href}
-                        href={href as any}
+                        key={String(href)}
+                        href={href}
                         onClick={() => setOpen(false)}
                         className={cn(
                           "flex items-center gap-3 rounded-2xl border px-4 py-3 text-sm font-semibold transition-colors",
@@ -141,60 +229,6 @@ export function MobileBottomNav() {
                     );
                   })}
                 </div>
-              </div>
-
-              <div className="h-px bg-border" />
-
-              <div className="space-y-3">
-                {!categoriesOpen ? (
-                  <button
-                    type="button"
-                    onClick={() => setCategoriesOpen(true)}
-                    className="flex w-full items-center justify-between rounded-2xl border border-border bg-background px-4 py-3 text-left text-sm font-semibold text-foreground transition-colors hover:border-primary hover:text-primary"
-                    aria-label={isEn ? "Show more categories" : "আরও ক্যাটাগরি দেখুন"}
-                  >
-                    <span className="flex items-center gap-3">
-                      <Search className="h-4 w-4 shrink-0" />
-                      <span>{isEn ? "More categories →" : "আরও ক্যাটাগরি →"}</span>
-                    </span>
-                  </button>
-                ) : (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                        {isEn ? "Categories" : "ক্যাটাগরি"}
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => setCategoriesOpen(false)}
-                        className="text-xs font-semibold text-primary"
-                        aria-label={isEn ? "Hide categories" : "ক্যাটাগরি লুকান"}
-                      >
-                        {isEn ? "Show less" : "কম দেখুন"}
-                      </button>
-                    </div>
-                    <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
-                      {ISC_SECTORS.map((sector) => {
-                        const href = `/search?sector=${encodeURIComponent(getISCSectorSearchParam(sector.key))}` as Route;
-
-                        return (
-                          <Link
-                            key={sector.key}
-                            href={href}
-                            onClick={() => setOpen(false)}
-                            className="flex items-center gap-3 rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground transition-colors hover:border-primary hover:text-primary"
-                          >
-                            <Search className="h-4 w-4 shrink-0" />
-                            <span>
-                              <span className="block font-semibold">{sector.bn}</span>
-                              <span className="block text-xs text-muted-foreground">{sector.en}</span>
-                            </span>
-                          </Link>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
           </div>

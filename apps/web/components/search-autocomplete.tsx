@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Search } from "lucide-react";
 
 import { API_BASE } from "@/lib/api-base";
-import { getISCSectorSearchParam, ISC_SECTORS } from "@/lib/isc-sectors";
+import { buildAllJobsHref, buildISCCategoryHref, ISC_SECTORS } from "@/lib/isc-sectors";
 import { cn } from "@/lib/utils";
 
 const MIN_QUERY_LENGTH = 2;
@@ -32,6 +32,7 @@ const COUNTRY_SUGGESTIONS = [
 ];
 
 const TYPE_SUGGESTIONS = [
+  { value: "overseas_job,local_job", bn: "সব চাকরি", en: "All jobs" },
   { value: "overseas_job", bn: "প্রবাস চাকরি", en: "Overseas jobs" },
   { value: "local_job", bn: "স্থানীয় চাকরি", en: "Local jobs" },
   { value: "scholarship", bn: "স্কলারশিপ", en: "Scholarships" },
@@ -74,7 +75,6 @@ export function SearchAutocomplete({ isEn }: { isEn: boolean }) {
   const placeholder = isEn
     ? "Search jobs, scholarships, countries, or visa updates"
     : "চাকরি, স্কলারশিপ, দেশ বা ভিসা আপডেট খুঁজুন";
-
   const queryLabel = isEn ? "Search for" : "খুঁজুন";
 
   const staticSuggestions = useMemo(() => {
@@ -84,23 +84,22 @@ export function SearchAutocomplete({ isEn }: { isEn: boolean }) {
     }
 
     const normalized = normalizeText(trimmed);
-    const startsWith = (value: string) => normalizeText(value).includes(normalized);
+    const matches = (value: string) => normalizeText(value).includes(normalized);
 
     const list: Suggestion[] = [
       {
         key: `query-${trimmed}`,
-        label: `${queryLabel} “${trimmed}”`,
+        label: `${queryLabel} "${trimmed}"`,
         href: buildSearchHref(trimmed),
         kind: "query",
       },
     ];
 
     COUNTRY_SUGGESTIONS.forEach((country) => {
-      const label = isEn ? country.en : country.bn;
-      if (startsWith(country.en) || startsWith(country.bn)) {
+      if (matches(country.en) || matches(country.bn)) {
         list.push({
           key: `country-${country.en}`,
-          label,
+          label: isEn ? country.en : country.bn,
           sublabel: isEn ? "Country" : "দেশ",
           href: `/search?country=${encodeURIComponent(country.en)}` as Route,
           kind: "country",
@@ -109,25 +108,26 @@ export function SearchAutocomplete({ isEn }: { isEn: boolean }) {
     });
 
     ISC_SECTORS.forEach((sector) => {
-      if (startsWith(sector.en) || startsWith(sector.bn)) {
+      if (matches(sector.en) || matches(sector.bn)) {
         list.push({
           key: `sector-${sector.key}`,
           label: isEn ? sector.en : sector.bn,
           sublabel: isEn ? "Category" : "ক্যাটাগরি",
-          href: `/search?sector=${encodeURIComponent(getISCSectorSearchParam(sector.key))}` as Route,
+          href: buildISCCategoryHref(sector.key),
           kind: "sector",
         });
       }
     });
 
     TYPE_SUGGESTIONS.forEach((option) => {
-      const label = isEn ? option.en : option.bn;
-      if (startsWith(option.en) || startsWith(option.bn)) {
+      if (matches(option.en) || matches(option.bn)) {
         list.push({
           key: `type-${option.value}`,
-          label,
+          label: isEn ? option.en : option.bn,
           sublabel: isEn ? "Type" : "ধরন",
-          href: `/search?opportunity_type=${option.value}` as Route,
+          href: option.value === "overseas_job,local_job"
+            ? buildAllJobsHref()
+            : `/search?opportunity_type=${option.value}` as Route,
           kind: "type",
         });
       }
@@ -168,28 +168,32 @@ export function SearchAutocomplete({ isEn }: { isEn: boolean }) {
       setActiveIndex(-1);
       try {
         const params = new URLSearchParams({ q: debouncedQuery, page_size: "5" });
-        const response = await fetch(`${API_BASE}/api/v1/opportunities/search?${params.toString()}`,
-          { signal: controller.signal },
-        );
+        const response = await fetch(`${API_BASE}/api/v1/opportunities/search?${params.toString()}`, {
+          signal: controller.signal,
+        });
         if (!response.ok) {
           return;
         }
-        const data = await response.json() as { items?: Array<{ id: number; title: string; title_bn?: string | null; country?: string | null; destination_country?: string | null; opportunity_type?: string | null; }> };
+        const data = await response.json() as {
+          items?: Array<{
+            id: number;
+            title: string;
+            title_bn?: string | null;
+            country?: string | null;
+            destination_country?: string | null;
+          }>;
+        };
         if (cancelled) {
           return;
         }
 
-        const results = (data.items ?? []).map((item) => {
-          const title = isEn ? item.title : item.title_bn || item.title;
-          const location = item.destination_country || item.country || "";
-          return {
-            key: `result-${item.id}`,
-            label: title,
-            sublabel: location ? location : (isEn ? "Opportunity" : "সুযোগ"),
-            href: `/opportunity/${item.id}` as Route,
-            kind: "result" as const,
-          };
-        });
+        const results = (data.items ?? []).map((item) => ({
+          key: `result-${item.id}`,
+          label: isEn ? item.title : item.title_bn || item.title,
+          sublabel: item.destination_country || item.country || (isEn ? "Opportunity" : "সুযোগ"),
+          href: `/opportunity/${item.id}` as Route,
+          kind: "result" as const,
+        }));
 
         const merged = [...results, ...staticSuggestions].reduce<Suggestion[]>((acc, current) => {
           if (!acc.find((item) => item.key === current.key)) {
@@ -199,6 +203,11 @@ export function SearchAutocomplete({ isEn }: { isEn: boolean }) {
         }, []);
 
         setSuggestions(merged.slice(0, MAX_SUGGESTIONS));
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
+        throw error;
       } finally {
         if (!cancelled) {
           setLoading(false);
@@ -206,7 +215,7 @@ export function SearchAutocomplete({ isEn }: { isEn: boolean }) {
       }
     };
 
-    load();
+    void load();
 
     return () => {
       cancelled = true;
@@ -235,11 +244,7 @@ export function SearchAutocomplete({ isEn }: { isEn: boolean }) {
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const trimmed = query.trim();
-    if (trimmed.length === 0) {
-      router.push("/search");
-      return;
-    }
-    router.push(buildSearchHref(trimmed));
+    router.push(trimmed ? buildSearchHref(trimmed) : "/search");
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -269,65 +274,57 @@ export function SearchAutocomplete({ isEn }: { isEn: boolean }) {
   };
 
   return (
-    <div ref={containerRef} className="relative flex flex-1">
-      <form action="/search" onSubmit={handleSubmit} className="flex w-full">
-        <label className="flex w-full items-center gap-2 rounded-full border border-border bg-background px-4 py-3 text-sm transition-colors focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/30">
-          <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <input
-            name="q"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            onFocus={() => {
-              if (query.trim().length >= MIN_QUERY_LENGTH) {
-                setOpen(true);
-              }
-            }}
-            onKeyDown={handleKeyDown}
-            placeholder={placeholder}
-            className="flex-1 bg-transparent text-base text-foreground outline-none placeholder:text-muted-foreground/80"
-            autoComplete="off"
-            aria-label={isEn ? "Search opportunities" : "সুযোগ খুঁজুন"}
-            aria-expanded={open}
-            aria-controls="search-suggestion-list"
-            role="combobox"
-          />
-        </label>
+    <div ref={containerRef} className="relative">
+      <form
+        onSubmit={handleSubmit}
+        className="flex h-12 items-center gap-3 rounded-full border border-border bg-white px-4 shadow-sm"
+      >
+        <Search className="h-5 w-5 text-muted-foreground" />
+        <input
+          type="text"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          onFocus={() => {
+            if (suggestions.length > 0) {
+              setOpen(true);
+            }
+          }}
+          onKeyDown={handleKeyDown}
+          placeholder={placeholder}
+          className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+          aria-label={placeholder}
+        />
       </form>
 
-      {open && suggestions.length > 0 && (
-        <div className="absolute left-0 top-full z-50 mt-2 w-full rounded-2xl border border-border bg-card p-2 shadow-xl">
-          <div className="mb-2 flex items-center justify-between px-2 text-xs font-semibold text-muted-foreground">
-            <span>{isEn ? "Suggestions" : "সাজেশন"}</span>
-            {loading && <span>{isEn ? "Searching..." : "খুঁজছে..."}</span>}
-          </div>
-          <ul id="search-suggestion-list" role="listbox" className="grid gap-1">
+      {open && (
+        <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-50 overflow-hidden rounded-3xl border border-border bg-white shadow-2xl">
+          <div className="max-h-[24rem] overflow-y-auto p-2">
             {suggestions.map((suggestion, index) => (
-              <li key={suggestion.key} role="option" aria-selected={index === activeIndex}>
-                <button
-                  type="button"
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => handleSelect(suggestion)}
-                  className={cn(
-                    "w-full rounded-xl px-3 py-2 text-left text-sm transition-colors",
-                    index === activeIndex
-                      ? "bg-primary/10 text-primary"
-                      : "hover:bg-muted",
-                  )}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-semibold text-foreground">
-                      {suggestion.label}
-                    </span>
-                    {suggestion.sublabel && (
-                      <span className="text-xs text-muted-foreground">
-                        {suggestion.sublabel}
-                      </span>
-                    )}
-                  </div>
-                </button>
-              </li>
+              <button
+                key={suggestion.key}
+                type="button"
+                onClick={() => handleSelect(suggestion)}
+                className={cn(
+                  "flex w-full items-start gap-3 rounded-2xl px-4 py-3 text-left transition-colors",
+                  index === activeIndex ? "bg-primary/8 text-primary" : "text-foreground hover:bg-muted/60",
+                )}
+              >
+                <Search className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-semibold">{suggestion.label}</span>
+                  {suggestion.sublabel ? (
+                    <span className="block truncate text-xs text-muted-foreground">{suggestion.sublabel}</span>
+                  ) : null}
+                </span>
+              </button>
             ))}
-          </ul>
+
+            {loading && (
+              <div className="px-4 py-3 text-xs font-medium text-muted-foreground">
+                {isEn ? "Loading..." : "লোড হচ্ছে..."}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

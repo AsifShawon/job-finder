@@ -4,8 +4,12 @@ import { X } from "lucide-react";
 import { OpportunityCard } from "@/components/opportunity-card";
 import { SearchFilters } from "@/components/search-filters";
 import { Card } from "@/components/ui/card";
-import { searchOpportunities } from "@/lib/api";
-import { getISCSectorFromSearchParam } from "@/lib/isc-sectors";
+import { getOpportunityCategories, searchOpportunities } from "@/lib/api";
+import {
+  ALL_JOBS_OPPORTUNITY_TYPES,
+  getISCSectorByKey,
+  getISCSectorFromSearchParam,
+} from "@/lib/isc-sectors";
 import { getLocale } from "@/lib/i18n";
 
 interface SearchPageProps {
@@ -17,6 +21,7 @@ const FILTER_LABELS = {
   opportunity_type: { bn: "ধরন", en: "Type" },
   country: { bn: "দেশ", en: "Country" },
   sector: { bn: "ক্যাটাগরি", en: "Category" },
+  isc_category_key: { bn: "ক্যাটাগরি", en: "Category" },
   official_sources_only: { bn: "সরকারি উৎস", en: "Official only" },
   can_apply_from_bd: { bn: "বাংলাদেশ থেকে আবেদন", en: "Apply from BD" },
   deadline_within: { bn: "শেষ সময়", en: "Deadline" },
@@ -38,7 +43,40 @@ const SORT_SUBMIT_LABEL = {
   en: "Apply",
 } as const;
 
-function getFilterValueLabel(key: string, value: string, isEn: boolean): string {
+const OPPORTUNITY_TYPE_LABELS: Record<string, { bn: string; en: string }> = {
+  [ALL_JOBS_OPPORTUNITY_TYPES]: { bn: "সব চাকরি", en: "All Jobs" },
+  overseas_job: { bn: "প্রবাস চাকরি", en: "Overseas Jobs" },
+  local_job: { bn: "স্থানীয় চাকরি", en: "Local Jobs" },
+  scholarship: { bn: "স্কলারশিপ", en: "Scholarships" },
+  migration_policy: { bn: "ভিসা নীতি", en: "Visa Policy" },
+};
+
+function getCategoryLabel(
+  value: string,
+  isEn: boolean,
+  categoryLabels: Map<string, { bn: string; en: string }>,
+): string | null {
+  const category = categoryLabels.get(value);
+  if (category) {
+    return isEn ? category.en : category.bn;
+  }
+  const sector = getISCSectorByKey(value);
+  if (sector) {
+    return isEn ? sector.en : sector.bn;
+  }
+  return null;
+}
+
+function getFilterValueLabel(
+  key: string,
+  value: string,
+  isEn: boolean,
+  categoryLabels: Map<string, { bn: string; en: string }>,
+): string {
+  if (key === "isc_category_key") {
+    return getCategoryLabel(value, isEn, categoryLabels) ?? value;
+  }
+
   if (key === "sector") {
     const sector = getISCSectorFromSearchParam(value);
     if (sector) {
@@ -46,11 +84,22 @@ function getFilterValueLabel(key: string, value: string, isEn: boolean): string 
     }
   }
 
+  if (key === "opportunity_type") {
+    const label = OPPORTUNITY_TYPE_LABELS[value];
+    if (label) {
+      return isEn ? label.en : label.bn;
+    }
+  }
+
   return value;
 }
 
 export default async function SearchPage({ searchParams }: SearchPageProps) {
-  const [locale, params] = await Promise.all([getLocale(), searchParams]);
+  const [locale, params, categories] = await Promise.all([
+    getLocale(),
+    searchParams,
+    getOpportunityCategories().catch(() => []),
+  ]);
   const isEn = locale === "en";
   const query = new URLSearchParams();
 
@@ -63,7 +112,6 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
   if (!query.has("page")) {
     query.set("page", "1");
   }
-
   if (!query.has("page_size")) {
     query.set("page_size", "20");
   }
@@ -81,19 +129,33 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
     }
   })();
 
+  const legacySector = getISCSectorFromSearchParam(query.get("sector"));
+  const selectedCategoryKey = query.get("isc_category_key") ?? legacySector?.key ?? "";
+  const resolvedOpportunityType =
+    query.get("opportunity_type") ?? (selectedCategoryKey ? ALL_JOBS_OPPORTUNITY_TYPES : "");
+  const categoryLabels = new Map(
+    categories.map((category) => [
+      category.key,
+      { bn: category.label_bn, en: category.label_en },
+    ]),
+  );
   const filterEntries = Array.from(query.entries()).filter(([key]) => !["page", "page_size"].includes(key));
-  const selectedSector = getISCSectorFromSearchParam(query.get("sector")) ?? getISCSectorFromSearchParam(query.get("isc_sector"));
   const typeCounts = data.items.reduce(
     (acc, item) => {
       const type = item.opportunity_type ?? "";
       if (type) {
         acc[type] = (acc[type] ?? 0) + 1;
       }
+      if (type === "overseas_job" || type === "local_job") {
+        acc.all_jobs += 1;
+      }
       return acc;
     },
     {
       all: data.total,
+      all_jobs: 0,
       overseas_job: 0,
+      local_job: 0,
       scholarship: 0,
       migration_policy: 0,
     } as Record<string, number>,
@@ -101,8 +163,8 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
   const hasFilters = filterEntries.length > 0;
 
   return (
-    <main className="bg-background min-h-screen">
-      <section className="bg-white border-b border-border">
+    <main className="min-h-screen bg-background">
+      <section className="border-b border-border bg-white">
         <div className="mx-auto max-w-7xl px-4 py-12">
           <div className="max-w-3xl space-y-4">
             <h1 className="text-3xl font-extrabold text-foreground sm:text-4xl lg:text-5xl">
@@ -131,24 +193,21 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
                         className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/5 px-3 py-1.5 text-xs font-bold text-primary"
                       >
                         <span>
-                          {label ? (isEn ? label.en : label.bn) : key}: {getFilterValueLabel(key, value, isEn)}
+                          {label ? (isEn ? label.en : label.bn) : key}: {getFilterValueLabel(key, value, isEn, categoryLabels)}
                         </span>
                         <X className="h-3 w-3" />
                       </a>
                     );
                   })}
-                  <Link
-                    href="/search"
-                    className="text-xs font-bold text-muted-foreground hover:text-primary transition-colors"
-                  >
+                  <Link href="/search" className="text-xs font-bold text-muted-foreground transition-colors hover:text-primary">
                     {isEn ? "Clear all" : "সব মুছুন"}
                   </Link>
                 </>
               )}
             </div>
 
-            <div className="flex items-center gap-4 bg-muted/30 p-1.5 rounded-2xl border border-border">
-              <span className="hidden sm:inline text-sm font-bold text-muted-foreground px-2">
+            <div className="flex items-center gap-4 rounded-2xl border border-border bg-muted/30 p-1.5">
+              <span className="hidden px-2 text-sm font-bold text-muted-foreground sm:inline">
                 {isEn ? "Sort by:" : "সাজানো:"}
               </span>
               <form action="/search" className="flex items-center gap-2">
@@ -160,20 +219,17 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
                 <select
                   name="sort"
                   defaultValue={query.get("sort") ?? "relevance"}
-                  className="bg-transparent border-none focus:ring-0 text-sm font-bold text-foreground cursor-pointer"
+                  className="cursor-pointer border-none bg-transparent text-sm font-bold text-foreground focus:ring-0"
                 >
                   <option value="relevance">{isEn ? SORT_OPTIONS.relevance.en : SORT_OPTIONS.relevance.bn}</option>
                   <option value="newest">{isEn ? SORT_OPTIONS.newest.en : SORT_OPTIONS.newest.bn}</option>
                   <option value="deadline">{isEn ? SORT_OPTIONS.deadline.en : SORT_OPTIONS.deadline.bn}</option>
                   <option value="trust">{isEn ? SORT_OPTIONS.trust.en : SORT_OPTIONS.trust.bn}</option>
-	                </select>
-	                <button
-	                  type="submit"
-	                  className="rounded-full bg-primary px-3 py-1.5 text-xs font-bold text-white"
-	                >
-	                  {isEn ? SORT_SUBMIT_LABEL.en : SORT_SUBMIT_LABEL.bn}
-	                </button>
-	              </form>
+                </select>
+                <button type="submit" className="rounded-full bg-primary px-3 py-1.5 text-xs font-bold text-white">
+                  {isEn ? SORT_SUBMIT_LABEL.en : SORT_SUBMIT_LABEL.bn}
+                </button>
+              </form>
             </div>
           </div>
         </div>
@@ -184,11 +240,12 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
           <SearchFilters
             isEn={isEn}
             typeCounts={typeCounts}
+            categories={categories}
             initialValues={{
               q: query.get("q") ?? "",
-              opportunity_type: query.get("opportunity_type") ?? "",
+              opportunity_type: resolvedOpportunityType,
               country: query.get("country") ?? "",
-              isc_sector: selectedSector?.key ?? "",
+              isc_category_key: selectedCategoryKey,
               official_sources_only: query.get("official_sources_only") === "true",
               can_apply_from_bd: query.get("can_apply_from_bd") === "true",
               deadline_within: query.get("deadline_within") ?? "",
@@ -219,13 +276,12 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
                 <Link
                   href="/search"
                   className="mt-4 inline-flex items-center gap-2 rounded-full bg-primary px-5 py-3 text-sm font-bold text-white"
-                  aria-label={isEn ? "Clear all filters" : "সব ফিল্টার সরান"}
                 >
                   <span>{isEn ? "Clear all filters" : "সব ফিল্টার সরান"}</span>
                 </Link>
               </Card>
             ) : (
-              data.items.map((item) => <OpportunityCard key={item.id} item={item} />)
+              data.items.map((item) => <OpportunityCard key={item.id} item={item} variant="large" />)
             )}
           </section>
         </div>

@@ -5,7 +5,7 @@ Covers four critical invariants:
   1. SourceRouter routing — correct connector per key/compliance
   2. Deduplication — same content_hash not double-ingested
   3. Eligibility engine — BOESL gets can_apply_from_bd=True + gov badge
-  4. Review gate — pipeline NEVER sets is_active=True or review_status='approved'
+  4. Review gate — only strict official Saudi sources may auto-publish
 """
 from __future__ import annotations
 
@@ -176,27 +176,17 @@ def test_eligibility_unknown_source_gets_unclear_status() -> None:
     assert result.source_trust_badge is None
 
 
-# ── 4. Review gate — pipeline never auto-publishes ────────────────────────────
+# ── 4. Review gate — auto-publish is source-scoped ────────────────────────────
 
-def test_pipeline_source_sets_is_active_false_in_code() -> None:
-    """The pipeline source code must never set is_active=True for drafts."""
+def test_pipeline_auto_publish_is_limited_to_strict_official_sources() -> None:
+    """Auto-publish should be guarded by the strict official-source helpers."""
     import inspect
     import app.ingestion.pipeline as pipeline_module
 
-    source_lines = inspect.getsource(pipeline_module._process_page)
+    source_lines = inspect.getsource(pipeline_module._process_extraction)
 
-    # Must contain is_active=False
-    assert "is_active=False" in source_lines, (
-        "_process_page must set is_active=False on every created draft"
-    )
-    # Must contain review_status='pending'
-    assert 'review_status="pending"' in source_lines or "review_status='pending'" in source_lines, (
-        "_process_page must set review_status='pending'"
-    )
-    # Must contain needs_admin_review=True
-    assert "needs_admin_review=True" in source_lines, (
-        "_process_page must set needs_admin_review=True"
-    )
+    assert "_is_strict_official_job_source" in source_lines
+    assert "_should_publish_strict_source" in source_lines
 
 
 def test_pipeline_does_not_create_published_opportunity() -> None:

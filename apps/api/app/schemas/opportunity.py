@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.enums import RecordType, SourceClass, TrustTier
 from app.schemas.common import Page
@@ -22,6 +22,7 @@ class PublishedOpportunityCard(BaseModel):
     destination_country: str | None = None
     employer_or_organization: str | None = None
     sector: str | None = None
+    isc_category_key: str | None = None
     platform_category_bn: str | None = None
     platform_category_en: str | None = None
     salary_min: float | None = None
@@ -30,6 +31,7 @@ class PublishedOpportunityCard(BaseModel):
     salary_text: str | None = None
     salary_text_bn: str | None = None
     salary_text_en: str | None = None
+    experience_min_years: float | None = None
     deadline: date | None = None
     source_page_url: str = ""
     document_url: str | None = None
@@ -128,6 +130,13 @@ class PublishedSearchResponse(Page[PublishedOpportunityCard]):
     pass
 
 
+class OpportunityCategorySummary(BaseModel):
+    key: str
+    label_bn: str
+    label_en: str
+    job_count: int
+
+
 # ── Search query ──────────────────────────────────────────────────────────────
 
 class PublishedSearchQuery(BaseModel):
@@ -142,6 +151,7 @@ class PublishedSearchQuery(BaseModel):
     official_sources_only: bool = False
     source_type: str | None = None
     sector: str | None = None
+    isc_category_key: str | None = None
     skill_level: str | None = None
     education_level: str | None = None
     experience_max: float | None = None
@@ -218,6 +228,7 @@ class OpportunityCard(BaseModel):
     employer: str | None = None
     country: str | None = None
     city: str | None = None
+    experience_min_years: float | None = None
     deadline: date | None = None
     salary_min: float | None = None
     salary_max: float | None = None
@@ -261,6 +272,7 @@ class OpportunitySearchQuery(BaseModel):
     country: str | None = None
     city: str | None = None
     sector: str | None = None
+    isc_category_key: str | None = None
     source_class: SourceClass | None = None
     trust_tier: TrustTier | None = None
     deadline_from: date | None = None
@@ -304,7 +316,11 @@ class ReindexResponse(BaseModel):
 
 
 class RawDocumentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
+    source_id: int
+    crawl_run_id: int | None = None
     source_url: str
     canonical_url: str | None = None
     content_type: str | None = None
@@ -315,7 +331,8 @@ class RawDocumentOut(BaseModel):
     raw_text: str | None = None
     raw_html_snapshot: str | None = None
     raw_html_path: str | None = None
-    metadata_json: dict[str, Any] = {}
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
+    extraction_diagnostics_json: dict[str, Any] = Field(default_factory=dict)
     fetched_at: datetime | None = None
 
 

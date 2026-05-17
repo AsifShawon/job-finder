@@ -9,6 +9,8 @@ import { MobileBottomNav } from "@/components/mobile-bottom-nav";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { ThemeProvider } from "@/components/theme-provider";
+import { getOpportunityCategories } from "@/lib/api";
+import { getDefaultOpportunityCategories } from "@/lib/isc-sectors";
 import { getLocale, getMessages } from "@/lib/i18n";
 import Script from "next/script";
 
@@ -42,6 +44,9 @@ export default async function RootLayout({
     cookies(),
   ]);
   const defaultTheme = cookieStore.get("THEME_PREF")?.value === "dark" ? "dark" : "light";
+  const categories = await getOpportunityCategories()
+    .then((items) => (items.length > 0 ? items : getDefaultOpportunityCategories()))
+    .catch(() => getDefaultOpportunityCategories());
 
   return (
     <html
@@ -71,11 +76,11 @@ export default async function RootLayout({
         />
         <ThemeProvider defaultTheme={defaultTheme}>
           <NextIntlClientProvider locale={locale} messages={messages}>
-            <SiteHeader />
+            <SiteHeader categories={categories} />
             <main className="min-h-screen">
               <div className="pb-16 md:pb-0">{children}</div>
             </main>
-            <MobileBottomNav />
+            <MobileBottomNav categories={categories} />
             <SiteFooter locale={locale} />
           </NextIntlClientProvider>
         </ThemeProvider>

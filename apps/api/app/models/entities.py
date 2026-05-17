@@ -212,6 +212,7 @@ class RawDocument(Base):
     raw_html_path: Mapped[str | None] = mapped_column(String(2048))
     raw_html_snapshot: Mapped[str | None] = mapped_column(Text)
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    extraction_diagnostics_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False, server_default="{}")
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     content_hash: Mapped[str] = mapped_column(String(128), nullable=False)
     crawl_run_id: Mapped[int | None] = mapped_column(ForeignKey("crawl_runs.id", ondelete="SET NULL"))
@@ -238,6 +239,7 @@ class Opportunity(Base):
         Index("ix_opportunity_deadline", "deadline"),
         Index("ix_opportunity_review_status", "review_status"),
         Index("ix_opportunity_needs_review", "needs_admin_review"),
+        Index("ix_opportunity_isc_category_listing", "isc_category_key", "status", "is_active", "opportunity_type"),
         Index("ix_opportunity_search_tsv", "search_tsv", postgresql_using="gin"),
         UniqueConstraint("source_id", "source_item_key", name="uq_opportunity_source_item_key"),
     )
@@ -265,6 +267,7 @@ class Opportunity(Base):
     job_title_bn: Mapped[str | None] = mapped_column(String(255))
     job_title_en: Mapped[str | None] = mapped_column(String(255))
     sector: Mapped[str | None] = mapped_column(String(120))
+    isc_category_key: Mapped[str | None] = mapped_column(String(64))
     platform_category_bn: Mapped[str | None] = mapped_column(String(120))
     platform_category_en: Mapped[str | None] = mapped_column(String(120))
     occupation_family: Mapped[str | None] = mapped_column(String(120))

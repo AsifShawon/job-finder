@@ -46,6 +46,7 @@ from app.ingestion.validators import (
     validate_extraction,
 )
 from app.models.entities import Opportunity, Source
+from app.services.isc_taxonomy import determine_isc_category_key
 from app.services.runtime_settings_service import (
     get_ai_api_key,
     get_ai_model,
@@ -368,6 +369,13 @@ def _ingest_one(
         existing.deadline = parse_deadline(extraction.deadline_text) or existing.deadline
         existing.eligibility_text = extraction.eligibility_text or existing.eligibility_text
         existing.application_url = extraction.application_url or existing.application_url
+        existing.isc_category_key = determine_isc_category_key(
+            extraction.title,
+            extraction.summary,
+            extraction.summary_en,
+            extraction.sector,
+            extraction.eligibility_text,
+        )
         existing.extracted_json = extraction.model_dump(mode="json")
         existing.extraction_confidence = float(extraction.extraction_confidence or 0.0)
         existing.connector_key = _DISCOVERY_CONNECTOR_KEY
@@ -393,6 +401,13 @@ def _ingest_one(
         organization=extraction.organization,
         employer_or_organization=extraction.employer or extraction.organization,
         sector=extraction.sector,
+        isc_category_key=determine_isc_category_key(
+            extraction.title,
+            extraction.summary,
+            extraction.summary_en,
+            extraction.sector,
+            extraction.eligibility_text,
+        ),
         salary_min=extraction.salary_min,
         salary_max=extraction.salary_max,
         salary_currency=extraction.salary_currency,

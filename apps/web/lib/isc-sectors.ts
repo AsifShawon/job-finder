@@ -1,3 +1,6 @@
+import type { Route } from "next";
+import type { OpportunityCategorySummary } from "@/lib/types";
+
 export const ISC_SECTORS = [
   {
     key: "informal_isc",
@@ -92,9 +95,17 @@ export const ISC_SECTORS = [
 ] as const;
 
 export type ISCSectorKey = (typeof ISC_SECTORS)[number]["key"];
+export const ALL_JOBS_OPPORTUNITY_TYPES = "overseas_job,local_job";
+
+export function getISCSectorByKey(key: string | null | undefined) {
+  if (!key) {
+    return undefined;
+  }
+  return ISC_SECTORS.find((item) => item.key === key);
+}
 
 export function getISCSectorSearchParam(key: string): string {
-  const sector = ISC_SECTORS.find((item) => item.key === key);
+  const sector = getISCSectorByKey(key);
   return sector ? sector.searchTerms.join(",") : "";
 }
 
@@ -121,4 +132,28 @@ export function getISCSectorFromSearchParam(value: string | null | undefined) {
     }
     return item.searchTerms.join(",") === value;
   });
+}
+
+export function buildAllJobsHref(): Route {
+  const params = new URLSearchParams({
+    opportunity_type: ALL_JOBS_OPPORTUNITY_TYPES,
+  });
+  return `/search?${params.toString()}` as Route;
+}
+
+export function buildISCCategoryHref(key: string): Route {
+  const params = new URLSearchParams({
+    opportunity_type: ALL_JOBS_OPPORTUNITY_TYPES,
+    isc_category_key: key,
+  });
+  return `/search?${params.toString()}` as Route;
+}
+
+export function getDefaultOpportunityCategories(): OpportunityCategorySummary[] {
+  return ISC_SECTORS.map((sector) => ({
+    key: sector.key,
+    label_bn: sector.bn,
+    label_en: sector.en,
+    job_count: 0,
+  }));
 }

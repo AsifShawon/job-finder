@@ -9,6 +9,15 @@ from app.schemas.common import Page
 
 # ── CrawlRun (new) ────────────────────────────────────────────────────────────
 
+class CrawlRunDiagnostics(BaseModel):
+    accepted_count: int = 0
+    published_count: int = 0
+    skipped_count: int = 0
+    dominant_skip_reason: str | None = None
+    confidence_summary: dict[str, float | int] = Field(default_factory=dict)
+    skip_reasons: dict[str, int] = Field(default_factory=dict)
+
+
 class CrawlRunOut(BaseModel):
     id: int
     source_id: int
@@ -30,6 +39,7 @@ class CrawlRunOut(BaseModel):
     started_at: datetime | None = None
     finished_at: datetime | None = None
     error_message: str | None = None
+    diagnostics: CrawlRunDiagnostics | None = None
     logs: dict[str, Any] | None = None
 
 

@@ -5,12 +5,17 @@ from sqlalchemy.orm import Session
 from app.core.deps import get_current_user_optional, get_db
 from app.models.entities import Opportunity, Source, User
 from app.schemas.opportunity import (
+    OpportunityCategorySummary,
     PublishedOpportunityDetail,
     PublishedSearchQuery,
     PublishedSearchResponse,
     SimilarOpportunityResponse,
 )
-from app.services.search_service import get_similar_opportunities, search_opportunities
+from app.services.search_service import (
+    get_opportunity_categories,
+    get_similar_opportunities,
+    search_opportunities,
+)
 
 router = APIRouter(prefix="/opportunities", tags=["opportunities"])
 
@@ -28,6 +33,7 @@ def search(
     official_sources_only: bool = False,
     source_type: str | None = None,
     sector: str | None = None,
+    isc_category_key: str | None = None,
     skill_level: str | None = None,
     education_level: str | None = None,
     experience_max: float | None = None,
@@ -65,6 +71,7 @@ def search(
         official_sources_only=official_sources_only,
         source_type=source_type,
         sector=sector,
+        isc_category_key=isc_category_key,
         skill_level=skill_level,
         education_level=education_level,
         experience_max=experience_max,
@@ -84,6 +91,11 @@ def search(
     return search_opportunities(db, query, user_id=user.id if user else None)
 
 
+@router.get("/categories", response_model=list[OpportunityCategorySummary])
+def categories(db: Session = Depends(get_db)) -> list[OpportunityCategorySummary]:
+    return get_opportunity_categories(db)
+
+
 @router.get("/{opportunity_id}", response_model=PublishedOpportunityDetail)
 def get_opportunity(opportunity_id: int, db: Session = Depends(get_db)) -> PublishedOpportunityDetail:
     opp = db.scalar(
@@ -100,17 +112,21 @@ def get_opportunity(opportunity_id: int, db: Session = Depends(get_db)) -> Publi
         id=opp.id,
         title=opp.title,
         title_bn=opp.title_bn,
+        title_en=opp.title_en,
         opportunity_type=opp.opportunity_type,
         country=opp.country,
         destination_country=opp.destination_country,
         employer_or_organization=opp.employer_or_organization,
         sector=opp.sector,
+        isc_category_key=opp.isc_category_key,
         platform_category_bn=opp.platform_category_bn,
         platform_category_en=opp.platform_category_en,
         salary_min=float(opp.salary_min) if opp.salary_min is not None else None,
         salary_max=float(opp.salary_max) if opp.salary_max is not None else None,
         salary_currency=opp.salary_currency,
         salary_text=opp.salary_text,
+        salary_text_bn=opp.salary_text_bn,
+        salary_text_en=opp.salary_text_en,
         deadline=opp.deadline,
         source_page_url=opp.source_page_url or "",
         document_url=opp.document_url,
@@ -146,18 +162,38 @@ def get_opportunity(opportunity_id: int, db: Session = Depends(get_db)) -> Publi
         experience_min_years=opp.experience_min_years,
         extraction_warnings=opp.extraction_warnings or [],
         location_text=opp.location_text,
+        location_text_bn=opp.location_text_bn,
+        location_text_en=opp.location_text_en,
         posted_date=opp.posted_date,
         eligibility_text=opp.eligibility_text,
+        eligibility_text_bn=opp.eligibility_text_bn,
+        eligibility_text_en=opp.eligibility_text_en,
         required_documents=opp.required_documents,
+        required_documents_bn=opp.required_documents_bn,
+        required_documents_en=opp.required_documents_en,
         application_process=opp.application_process,
+        application_process_bn=opp.application_process_bn,
+        application_process_en=opp.application_process_en,
         education_requirement=opp.education_requirement,
+        education_requirement_bn=opp.education_requirement_bn,
+        education_requirement_en=opp.education_requirement_en,
         experience_requirement=opp.experience_requirement,
+        experience_requirement_bn=opp.experience_requirement_bn,
+        experience_requirement_en=opp.experience_requirement_en,
         language_requirement=opp.language_requirement,
+        language_requirement_bn=opp.language_requirement_bn,
+        language_requirement_en=opp.language_requirement_en,
         age_requirement=opp.age_requirement,
         gender_requirement=opp.gender_requirement,
         visa_or_work_permit_info=opp.visa_or_work_permit_info,
+        visa_or_work_permit_info_bn=opp.visa_or_work_permit_info_bn,
+        visa_or_work_permit_info_en=opp.visa_or_work_permit_info_en,
         journey_steps=opp.journey_steps or [],
+        journey_steps_bn=opp.journey_steps_bn or [],
+        journey_steps_en=opp.journey_steps_en or [],
         documents_needed=opp.documents_needed or [],
+        documents_needed_bn=opp.documents_needed_bn or [],
+        documents_needed_en=opp.documents_needed_en or [],
         typical_salary_bdt=opp.typical_salary_bdt,
         extraction_confidence=opp.extraction_confidence,
         connector_key=opp.connector_key,
@@ -176,6 +212,7 @@ def get_opportunity(opportunity_id: int, db: Session = Depends(get_db)) -> Publi
         requirements_json=opp.requirements_json,
         benefits_json=opp.benefits_json,
         language_requirements_json=opp.language_requirements_json,
+        mirror_urls=opp.mirror_urls or [],
     )
 
 
