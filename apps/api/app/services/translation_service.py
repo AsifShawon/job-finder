@@ -18,7 +18,6 @@ import json
 import logging
 from typing import Any, Iterable
 
-import httpx
 from langchain_groq import ChatGroq
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -383,22 +382,16 @@ def _invoke_mistral_structured(
     prompt: str,
     output_model: type[BaseModel],
 ) -> BaseModel:
-    response = httpx.post(
-        "https://api.mistral.ai/v1/chat/completions",
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json={
-            "model": model,
-            "temperature": 0.0,
-            "messages": [
-                {"role": "system", "content": "Return only valid JSON matching the requested schema."},
-                {"role": "user", "content": prompt},
-            ],
-        },
-        timeout=60,
+    from app.services.mistral_client import mistral_chat_json
+    return mistral_chat_json(
+        api_key,
+        model,
+        [
+            {"role": "system", "content": "Return only valid JSON matching the requested schema."},
+            {"role": "user", "content": prompt},
+        ],
+        output_model,
     )
-    response.raise_for_status()
-    content = response.json()["choices"][0]["message"]["content"]
-    return output_model.model_validate(json.loads(_strip_code_fences(content)))
 
 
 def _invoke_llm_text(db: Session, api_key: str, prompt: str) -> str:
@@ -406,18 +399,8 @@ def _invoke_llm_text(db: Session, api_key: str, prompt: str) -> str:
     provider = get_ai_provider(db)
     model_name = get_ai_model(db)
     if provider == "mistral":
-        response = httpx.post(
-            "https://api.mistral.ai/v1/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={
-                "model": model_name,
-                "temperature": 0.0,
-                "messages": [{"role": "user", "content": prompt}],
-            },
-            timeout=60,
-        )
-        response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"]
+        from app.services.mistral_client import mistral_chat_text
+        return mistral_chat_text(api_key, model_name, prompt, temperature=0.0)
     model = ChatGroq(model=model_name, api_key=api_key, temperature=0.0)
     return str(model.invoke(prompt).content)
 

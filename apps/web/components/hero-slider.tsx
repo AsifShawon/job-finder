@@ -106,29 +106,29 @@ export function HeroSlider() {
                 </div>
                 
                 {isActive && (
-                  <div className="absolute inset-x-0 bottom-0 z-20 p-5 sm:p-8 lg:p-10">
-                    <div className="grid gap-5 fade-up lg:grid-cols-[minmax(0,1fr)_520px] lg:items-end">
-                      <div className="max-w-2xl space-y-4">
+                  <div className="absolute inset-x-0 bottom-0 z-20 p-4 sm:p-8 lg:p-10">
+                    <div className="grid gap-3 fade-up sm:gap-5 lg:grid-cols-[minmax(0,1fr)_520px] lg:items-end">
+                      <div className="max-w-2xl space-y-3 sm:space-y-4">
                       <span className="inline-flex rounded-full border border-white/25 bg-white/10 px-3 py-1 text-xs font-semibold backdrop-blur">
                         {isEn ? "Verified Opportunity Platform" : "যাচাই করা সুযোগের প্ল্যাটফর্ম"}
                       </span>
-                      <h1 className="max-w-xl text-3xl font-bold leading-tight sm:text-4xl lg:text-5xl">
+                      <h1 className="line-clamp-2 max-w-xl text-3xl font-bold leading-tight sm:text-4xl lg:text-5xl">
                         {isEn ? slide.titleEn : slide.titleBn}
                       </h1>
-                      <p className="max-w-xl text-base text-slate-100 sm:text-lg">
+                      <p className="hidden max-w-xl text-base text-slate-100 sm:block sm:text-lg">
                         {isEn ? slide.subtitleEn : slide.subtitleBn}
                       </p>
-                      <div className="flex flex-wrap items-center gap-3">
+                      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                         <Link
                           href={slide.cta}
-                          className="inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-bold text-white transition-opacity hover:opacity-90"
+                          className="inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-bold text-white transition-opacity hover:opacity-90 sm:px-6 sm:py-3"
                         >
                           <span>{isEn ? "Explore Opportunities" : "সুযোগ খুঁজুন"}</span>
                           <ArrowRight className="h-4 w-4" />
                         </Link>
                         <Link
                           href="/auth/register"
-                          className="inline-flex items-center rounded-full border border-white/40 bg-white/10 px-6 py-3 text-sm font-bold text-white backdrop-blur transition-colors hover:bg-white/20"
+                          className="inline-flex items-center rounded-full border border-white/40 bg-white/10 px-5 py-2.5 text-sm font-bold text-white backdrop-blur transition-colors hover:bg-white/20 sm:px-6 sm:py-3"
                         >
                           {isEn ? "Free Account" : "ফ্রি অ্যাকাউন্ট"}
                         </Link>

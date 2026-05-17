@@ -1,7 +1,6 @@
 import json
 from typing import Any
 
-import httpx
 from langchain_groq import ChatGroq
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -114,6 +113,87 @@ def _fallback_extract(cleaned: dict[str, Any]) -> ExtractionBase:
         extraction_confidence=0.45,
         extraction_method="fallback_extract",
         evidence_snippets=[title, body[:200]],
+    )
+
+
+def extract_official_job_fallback(
+    cleaned: dict[str, Any], page_metadata: dict[str, Any]
+) -> JobOpportunityExtraction:
+    """Heuristic extraction for official job pages when AI is unavailable or fails.
+
+    Parses the content that appears AFTER the 'Job detail page content:' marker so the
+    'Official listing metadata:' header is never used as summary text.
+    """
+    import re as _re
+
+    body_text = cleaned.get("body_text") or ""
+    # Strip our own injected header so it never leaks into user-visible fields.
+    marker = "Job detail page content:"
+    if marker in body_text:
+        body_text = body_text[body_text.index(marker) + len(marker):].strip()
+
+    title = cleaned.get("title") or page_metadata.get("title") or "Untitled"
+    employer = (
+        page_metadata.get("company")
+        or cleaned.get("company")
+        or cleaned.get("employer")
+        or ""
+    )
+    location_raw = (
+        page_metadata.get("location_raw")
+        or cleaned.get("location_raw")
+        or ""
+    )
+    country = page_metadata.get("country_hint") or ""
+    city = ""
+    if "," in location_raw:
+        parts = [p.strip() for p in location_raw.split(",")]
+        city = parts[0]
+        if not country:
+            country = parts[-1]
+    elif location_raw:
+        city = location_raw
+
+    # Extract bullet-style requirements/responsibilities from body
+    bullet_lines: list[str] = []
+    for line in body_text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(("-", "•", "*", "·")) and len(stripped) > 3:
+            bullet_lines.append(stripped.lstrip("-•*· ").strip())
+        elif _re.match(r"^\d+[\.\)]\s+\S", stripped):
+            bullet_lines.append(_re.sub(r"^\d+[\.\)]\s+", "", stripped))
+
+    requirements = bullet_lines[:20] if bullet_lines else []
+
+    # Build a minimal but correct summary_en — never copy raw header text
+    location_phrase = f" in {location_raw}" if location_raw else ""
+    if employer:
+        summary_en = f"{employer} is hiring a {title}{location_phrase}."
+    else:
+        summary_en = f"{title} position available{location_phrase}."
+
+    application_url = (
+        page_metadata.get("apply_url")
+        or cleaned.get("apply_url")
+        or cleaned.get("apply_link")
+        or cleaned.get("application_url")
+        or None
+    )
+
+    return JobOpportunityExtraction(
+        record_type="job",
+        title=title,
+        summary=summary_en,
+        summary_en=summary_en,
+        summary_bn=None,
+        country=country or None,
+        city=city or None,
+        employer=employer or None,
+        requirements=requirements,
+        application_url=application_url,
+        extraction_confidence=0.45,
+        extraction_method="heuristic_official_fallback",
+        evidence_snippets=[title, body_text[:200]],
     )
 
 
@@ -334,7 +414,8 @@ _OFFICIAL_JOB_PROMPT_TEMPLATE = (
     "- journey_steps must be simple Bangla practical next steps for applying safely.\n"
     "- documents_needed must be Bangla document names only when supported or generally necessary for an online job application.\n\n"
     "OUTPUT SCHEMA:\n"
-    "Return ONLY a JSON object for JobOpportunityExtraction, with every known field present where possible:\n"
+    "Return only valid JSON matching the JobOpportunityExtraction schema. No markdown, no wrapping object.\n"
+    "Include every known field where possible:\n"
     "record_type, title, title_bn, summary, summary_bn, summary_en, country, city, employer, organization, sector,\n"
     "degree_level, salary_min, salary_max, salary_currency, deadline_text, application_url, eligibility_text,\n"
     "visa_support, can_apply_from_bd, requirements, benefits, language_requirements, job_purpose, responsibilities,\n"
@@ -385,60 +466,42 @@ def _strip_code_fences(text: str) -> str:
 
 
 def _invoke_mistral(model: str, api_key: str, prompt: str) -> ExtractionEnvelope:
-    response = httpx.post(
-        "https://api.mistral.ai/v1/chat/completions",
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json={
-            "model": model,
-            "temperature": 0.0,
-            "messages": [
-                {"role": "system", "content": "Return only valid JSON that matches the requested schema."},
-                {"role": "user", "content": prompt},
-            ],
-        },
-        timeout=60,
+    from app.services.mistral_client import mistral_chat_json
+    return mistral_chat_json(
+        api_key,
+        model,
+        [
+            {"role": "system", "content": "Return only valid JSON that matches the requested schema."},
+            {"role": "user", "content": prompt},
+        ],
+        ExtractionEnvelope,
     )
-    response.raise_for_status()
-    content = response.json()["choices"][0]["message"]["content"]
-    return ExtractionEnvelope.model_validate(json.loads(_strip_code_fences(content)))
 
 
 def _invoke_mistral_jobs(model: str, api_key: str, prompt: str) -> PageJobsExtraction:
-    response = httpx.post(
-        "https://api.mistral.ai/v1/chat/completions",
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json={
-            "model": model,
-            "temperature": 0.0,
-            "messages": [
-                {"role": "system", "content": "Return only valid JSON matching the requested jobs schema."},
-                {"role": "user", "content": prompt},
-            ],
-        },
-        timeout=60,
+    from app.services.mistral_client import mistral_chat_json
+    return mistral_chat_json(
+        api_key,
+        model,
+        [
+            {"role": "system", "content": "Return only valid JSON matching the requested jobs schema."},
+            {"role": "user", "content": prompt},
+        ],
+        PageJobsExtraction,
     )
-    response.raise_for_status()
-    content = response.json()["choices"][0]["message"]["content"]
-    return PageJobsExtraction.model_validate(json.loads(_strip_code_fences(content)))
 
 
 def _invoke_mistral_job(model: str, api_key: str, prompt: str) -> JobOpportunityExtraction:
-    response = httpx.post(
-        "https://api.mistral.ai/v1/chat/completions",
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json={
-            "model": model,
-            "temperature": 0.0,
-            "messages": [
-                {"role": "system", "content": "Return only valid JSON matching the requested job schema."},
-                {"role": "user", "content": prompt},
-            ],
-        },
-        timeout=60,
+    from app.services.mistral_client import mistral_chat_json
+    return mistral_chat_json(
+        api_key,
+        model,
+        [
+            {"role": "system", "content": "Return only valid JSON matching the requested job schema."},
+            {"role": "user", "content": prompt},
+        ],
+        JobOpportunityExtraction,
     )
-    response.raise_for_status()
-    content = response.json()["choices"][0]["message"]["content"]
-    return JobOpportunityExtraction.model_validate(json.loads(_strip_code_fences(content)))
 
 
 def extract_structured(db: Session, cleaned: dict[str, Any]) -> ExtractionBase:
@@ -510,18 +573,18 @@ def extract_official_job_structured(db: Session, cleaned: dict[str, Any]) -> Ext
     provider = get_ai_provider(db)
     api_key = get_ai_api_key(db)
     if not api_key:
-        fallback = _fallback_extract(cleaned)
+        fallback = extract_official_job_fallback(cleaned, {})
         fallback.fallback_reason = "no_ai_api_key"
         return _ensure_fields(fallback)
 
     body_text = (cleaned.get("body_text") or "")[:14000]
     prompt = _OFFICIAL_JOB_PROMPT_TEMPLATE.format(title=cleaned.get("title") or "", body=body_text)
     try:
-        result = _invoke_for_extraction(db, provider, api_key, prompt)
-        extraction = _ensure_fields(result.data)
+        result = _invoke_for_official_extraction(db, provider, api_key, prompt)
+        extraction = _ensure_fields(result)
         extraction.extraction_method = "llm_official_rich"
     except Exception as exc:
-        fallback = _fallback_extract(cleaned)
+        fallback = extract_official_job_fallback(cleaned, {})
         fallback.fallback_reason = f"official_llm_error:{type(exc).__name__}"
         return _ensure_fields(fallback)
 
@@ -546,6 +609,15 @@ def _invoke_for_extraction(db: Session, provider: str, api_key: str, prompt: str
         return _invoke_mistral(get_ai_model(db), api_key, prompt)
     model = ChatGroq(model=get_ai_model(db), api_key=api_key, temperature=0.0)
     structured = model.with_structured_output(ExtractionEnvelope)
+    return structured.invoke(prompt)  # type: ignore[return-value]
+
+
+def _invoke_for_official_extraction(db: Session, provider: str, api_key: str, prompt: str) -> JobOpportunityExtraction:
+    """Invoke LLM for official job extraction, expecting JobOpportunityExtraction directly (no envelope wrapper)."""
+    if provider == "mistral":
+        return _invoke_mistral_job(get_ai_model(db), api_key, prompt)
+    model = ChatGroq(model=get_ai_model(db), api_key=api_key, temperature=0.0)
+    structured = model.with_structured_output(JobOpportunityExtraction)
     return structured.invoke(prompt)  # type: ignore[return-value]
 
 
@@ -736,21 +808,8 @@ def _self_correct(
     )
 
     if provider == "mistral":
-        response = httpx.post(
-            "https://api.mistral.ai/v1/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={
-                "model": get_ai_model(db),
-                "temperature": 0.0,
-                "messages": [
-                    {"role": "system", "content": "Return only valid JSON for the requested fields."},
-                    {"role": "user", "content": prompt},
-                ],
-            },
-            timeout=45,
-        )
-        response.raise_for_status()
-        content = response.json()["choices"][0]["message"]["content"]
+        from app.services.mistral_client import mistral_chat_text
+        content = mistral_chat_text(api_key, get_ai_model(db), prompt, temperature=0.0)
         return _json.loads(_strip_code_fences(content))
 
     model = ChatGroq(model=get_ai_model(db), api_key=api_key, temperature=0.0)

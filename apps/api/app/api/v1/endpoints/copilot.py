@@ -141,13 +141,28 @@ def stream_copilot_message(
     user: User = Depends(get_current_user),
 ) -> StreamingResponse:
     enforce_copilot_rate_limit(request)
-    _, assistant = add_message_pair(
-        db,
-        user_id=user.id,
-        conversation_id=conversation_id,
-        question=payload.question,
-        locale=payload.locale,
-    )
+
+    try:
+        _, assistant = add_message_pair(
+            db,
+            user_id=user.id,
+            conversation_id=conversation_id,
+            question=payload.question,
+            locale=payload.locale,
+        )
+    except Exception as exc:
+        import logging as _log
+        _log.getLogger(__name__).error("stream_copilot_message_failed", exc_info=True)
+        detail = str(exc)[:300]
+
+        def error_stream() -> Iterator[str]:
+            yield _sse_event("error", {"detail": detail})
+
+        return StreamingResponse(
+            error_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     def events() -> Iterator[str]:
         yield _sse_event("start", {"conversation_id": conversation_id})

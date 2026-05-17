@@ -80,6 +80,47 @@ _NEWS_REJECT_PATTERNS = [
     r"labour market (data|analysis|report|trend)",
 ]
 _OFFICIAL_STRICT_CONFIDENCE_THRESHOLD = 0.65
+_OFFICIAL_JOB_CONNECTOR_KEYS = frozenset({
+    "tamimi_careers",
+    "successfactors_alfanar",
+    "successfactors_aramco",
+    "maharah_posts",
+})
+_RAW_METADATA_SIGNALS = (
+    "Official listing metadata:",
+    "Job detail page content:",
+    "Source job ID:",
+    "Apply URL:",
+)
+
+
+def _is_raw_metadata_text(text: str | None) -> bool:
+    if not text:
+        return False
+    head = text[:400]
+    return any(sig in head for sig in _RAW_METADATA_SIGNALS)
+
+
+def _scrub_raw_metadata(extraction) -> None:
+    """Clear summary fields that contain our own AI-prompt header text."""
+    if _is_raw_metadata_text(getattr(extraction, "summary_en", None)):
+        extraction.summary_en = None
+    if _is_raw_metadata_text(getattr(extraction, "summary_bn", None)):
+        extraction.summary_bn = None
+    if _is_raw_metadata_text(getattr(extraction, "summary", None)):
+        extraction.summary = None
+    if (
+        not getattr(extraction, "summary_en", None)
+        and not getattr(extraction, "summary_bn", None)
+        and not getattr(extraction, "summary", None)
+    ):
+        warnings = list(getattr(extraction, "extraction_warnings", None) or [])
+        if "summary_recovered_from_raw_payload" not in warnings:
+            warnings.append("summary_recovered_from_raw_payload")
+        try:
+            extraction.extraction_warnings = warnings
+        except Exception:
+            pass
 
 
 @dataclass
@@ -591,7 +632,10 @@ def _is_strict_official_job_source(source: Source) -> bool:
 
 
 def _force_ai_detail_extraction(source: Source, page) -> bool:
-    return bool(_source_setting(source, "force_ai_detail_extraction", False) and (page.metadata or {}).get("structured_job"))
+    is_official = source.connector_key in _OFFICIAL_JOB_CONNECTOR_KEYS
+    has_structured_job = bool((page.metadata or {}).get("structured_job"))
+    force_setting = bool(_source_setting(source, "force_ai_detail_extraction", False))
+    return has_structured_job and (force_setting or is_official)
 
 
 def _official_ai_cleaned_payload(source: Source, page, cleaned: dict) -> dict:
@@ -614,6 +658,9 @@ def _official_ai_cleaned_payload(source: Source, page, cleaned: dict) -> dict:
     return {
         **cleaned,
         "title": page.title or cleaned.get("title"),
+        "company": metadata.get("company") or source.name,
+        "location_raw": metadata.get("location_raw") or "",
+        "apply_url": getattr(page, "original_apply_url", None),
         "body_text": "\n".join(context_lines) + "\n\nJob detail page content:\n" + body,
     }
 
@@ -642,7 +689,11 @@ def _official_detail_body(page) -> str:
             for node in soup.select(selector):
                 node.decompose()
         container = (
-            soup.select_one(".jobDisplay")
+            soup.select_one(".career-detail-container")
+            or soup.select_one(".career-detail")
+            or soup.select_one(".job-detail-card")
+            or soup.select_one(".career-info")
+            or soup.select_one(".jobDisplay")
             or soup.select_one(".job")
             or soup.select_one("[data-automation-id*='job' i]")
             or soup.select_one("main")
@@ -1012,6 +1063,7 @@ def _process_extraction(
     else:
         admin_status = "needs_review" if (force_review or suitability.needs_review or suitability.bangladesh_applicability != "high") else "auto_approved"
         initial_status = "published" if admin_status == "auto_approved" and source.auto_publish else "pending"
+    _scrub_raw_metadata(extraction)
     draft = Opportunity(
         source_id=source.id,
         source_name=source.name,
@@ -1152,6 +1204,7 @@ def _apply_extraction_to_draft(
     force_review: bool,
     low_confidence_review: bool = False,
 ) -> None:
+    _scrub_raw_metadata(extraction)
     application_url = extraction.application_url or getattr(page, "original_apply_url", None) or page.document_url
     draft.source_name = source.name
     draft.source_page_url = page.source_page_url or page.url

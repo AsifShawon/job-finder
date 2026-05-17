@@ -193,6 +193,15 @@ export default async function OpportunityDetailPage({
   const salaryText = pickLang(opportunity, "salary_text", locale);
   const journeySteps = pickLangList(opportunity, "journey_steps", locale);
   const documentsNeeded = pickLangList(opportunity, "documents_needed", locale);
+  function isRawMetadata(text: string | null | undefined): boolean {
+    if (!text) return false;
+    const head = text.slice(0, 400);
+    return ["Official listing metadata:", "Job detail page content:", "Source job ID:", "Apply URL:"]
+      .some(s => head.includes(s));
+  }
+  const cleanSummaryBn = isRawMetadata(opportunity.summary_bn) ? null : (opportunity.summary_bn ?? null);
+  const cleanSummaryEn = isRawMetadata(opportunity.summary_en) ? null : (opportunity.summary_en ?? null);
+
   const richSections = opportunity.source_sections.length > 0
     ? opportunity.source_sections
     : [
@@ -347,15 +356,15 @@ export default async function OpportunityDetailPage({
 
 
 
-            {(opportunity.summary_bn || opportunity.summary_en || opportunity.summary) && (
+            {(cleanSummaryBn || cleanSummaryEn) && (
               <section className="space-y-4">
                 <h2 className="text-2xl font-bold text-foreground">
                   {isEn ? "Detailed Summary" : "বিস্তারিত সারসংক্ষেপ"}
                 </h2>
                 <div className="rounded-3xl border border-border bg-card p-6 shadow-sm">
                   <BilingualSummary
-                    summaryBn={opportunity.summary_bn || opportunity.summary || null}
-                    summaryEn={opportunity.summary_en || opportunity.summary || null}
+                    summaryBn={cleanSummaryBn}
+                    summaryEn={cleanSummaryEn}
                     initialLocale={locale}
                   />
                 </div>
@@ -400,6 +409,18 @@ export default async function OpportunityDetailPage({
                     )}
                   </span>
                 </div>
+                {experienceRequirementText && (
+                  <div className="flex items-start justify-between gap-3 border-t border-blue-100 pt-3 dark:border-blue-800">
+                    <span>{isEn ? "Experience required" : "অভিজ্ঞতা"}</span>
+                    <span className="max-w-[60%] text-right font-semibold">{experienceRequirementText}</span>
+                  </div>
+                )}
+                {visaInfoText && (
+                  <div className="flex items-start justify-between gap-3 border-t border-blue-100 pt-3 dark:border-blue-800">
+                    <span>{isEn ? "Visa / Iqama" : "ভিসা / ইকামা"}</span>
+                    <span className="max-w-[60%] text-right font-semibold">{visaInfoText}</span>
+                  </div>
+                )}
               </div>
             </div>
 

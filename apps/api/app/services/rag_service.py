@@ -5,7 +5,6 @@ import json
 import logging
 from dataclasses import dataclass
 
-import httpx
 from langchain_groq import ChatGroq
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -188,18 +187,8 @@ def _generate_answer(
     )
 
     if provider == "mistral":
-        response = httpx.post(
-            "https://api.mistral.ai/v1/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={
-                "model": get_ai_model(db),
-                "temperature": 0.2,
-                "messages": [{"role": "user", "content": prompt}],
-            },
-            timeout=60,
-        )
-        response.raise_for_status()
-        raw = str(response.json()["choices"][0]["message"]["content"]).strip()
+        from app.services.mistral_client import mistral_chat_text
+        raw = mistral_chat_text(api_key, get_ai_model(db), prompt, temperature=0.2)
     else:
         model = ChatGroq(model=get_ai_model(db), api_key=api_key, temperature=0.2)
         raw = str(model.invoke(prompt).content).strip()

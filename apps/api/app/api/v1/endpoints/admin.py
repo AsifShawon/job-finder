@@ -970,6 +970,88 @@ def trigger_crawl(
     return MessageResponse(message=f"Crawl queued for source {source_id}")
 
 
+@router.get("/sources/{source_id}/crawl-diagnostics")
+def get_crawl_diagnostics(
+    source_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_admin_user),
+) -> dict:
+    """Return extraction diagnostics for the most recent crawl run of a source."""
+    source = db.get(Source, source_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    crawl_run = db.scalar(
+        select(CrawlRun)
+        .where(CrawlRun.source_id == source_id)
+        .order_by(CrawlRun.started_at.desc())
+        .limit(1)
+    )
+
+    raw_docs = db.scalars(
+        select(RawDocument)
+        .where(RawDocument.source_id == source_id)
+        .order_by(RawDocument.fetched_at.desc())
+        .limit(200)
+    ).all()
+
+    ai_count = 0
+    fallback_count = 0
+    heuristic_count = 0
+    failed_examples: list[dict] = []
+    fallback_reasons: dict[str, int] = {}
+
+    for doc in raw_docs:
+        diag = doc.extraction_diagnostics_json or {}
+        method = diag.get("extraction_method") or ""
+        skip = diag.get("skip_reason") or doc.skip_reason or ""
+        fallback_reason = diag.get("fallback_reason") or ""
+
+        if method == "llm_official_rich":
+            ai_count += 1
+        elif method in ("heuristic_official_fallback", "heuristic_structured"):
+            heuristic_count += 1
+        elif method in ("fallback_extract",):
+            fallback_count += 1
+        elif skip:
+            if len(failed_examples) < 10:
+                failed_examples.append({
+                    "raw_document_id": doc.id,
+                    "skip_reason": skip,
+                    "title": doc.raw_title or "",
+                    "url": doc.source_url or "",
+                })
+
+        if fallback_reason:
+            fallback_reasons[fallback_reason] = fallback_reasons.get(fallback_reason, 0) + 1
+
+    return {
+        "source_id": source_id,
+        "connector_key": source.connector_key,
+        "crawl_run": {
+            "id": crawl_run.id if crawl_run else None,
+            "status": str(crawl_run.status) if crawl_run else None,
+            "started_at": crawl_run.started_at.isoformat() if crawl_run and crawl_run.started_at else None,
+            "finished_at": crawl_run.finished_at.isoformat() if crawl_run and crawl_run.finished_at else None,
+            "pages_discovered": crawl_run.discovered_count if crawl_run else 0,
+            "pages_parsed": crawl_run.parsed_count if crawl_run else 0,
+            "draft_created": crawl_run.draft_created_count if crawl_run else 0,
+            "draft_updated": crawl_run.draft_updated_count if crawl_run else 0,
+            "skipped": crawl_run.skipped_count if crawl_run else 0,
+            "failed": crawl_run.failed_count if crawl_run else 0,
+            "manual_review": crawl_run.manual_review_count if crawl_run else 0,
+        } if crawl_run else None,
+        "extraction_breakdown": {
+            "ai_official_rich": ai_count,
+            "heuristic_official": heuristic_count,
+            "generic_fallback": fallback_count,
+        },
+        "fallback_reasons": fallback_reasons,
+        "failed_examples": failed_examples,
+        "raw_documents_sampled": len(raw_docs),
+    }
+
+
 @router.post("/sources/{source_id}/test", response_model=SourceTestResult)
 def test_source(source_id: int, db: Session = Depends(get_db), _: User = Depends(get_admin_user)) -> SourceTestResult:
     from app.ingestion.compliance_guard import ComplianceError, check_before_crawl

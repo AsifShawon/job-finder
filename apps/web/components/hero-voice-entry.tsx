@@ -68,34 +68,35 @@ export function HeroVoiceEntry({ isEn }: { isEn: boolean }) {
     : "";
 
   return (
-    <div className="w-full max-w-xl rounded-2xl border border-white/20 bg-white/95 p-4 text-slate-950 shadow-2xl backdrop-blur md:p-5">
-      <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-teal-700">
+    <div className="w-full rounded-[28px] border border-white/70 bg-white/95 p-3.5 text-slate-950 shadow-xl backdrop-blur-md md:max-w-xl md:rounded-2xl md:border-white/20 md:p-5 md:shadow-2xl">
+      <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-teal-700 md:text-sm">
         <Sparkles className="h-4 w-4" />
-        <span>{isEn ? "Sudokkho AI voice assistant" : "সুদক্ষ AI ভয়েস সহকারী"}</span>
+        <span className="md:hidden">{isEn ? "Ask Sudokkho AI" : "সুদক্ষ AI কে বলুন"}</span>
+        <span className="hidden md:inline">{isEn ? "Sudokkho AI voice assistant" : "সুদক্ষ AI ভয়েস সহকারী"}</span>
       </div>
 
       <form onSubmit={submit} className="mt-3 space-y-3">
-        <div className="flex gap-3">
+        <div className="flex items-center gap-2 md:items-start md:gap-3">
           <button
             type="button"
             onClick={toggleListening}
             aria-label={speech.isListening ? (isEn ? "Stop listening" : "শোনা বন্ধ করুন") : (isEn ? "Start voice input" : "ভয়েস ইনপুট শুরু করুন")}
             className={cn(
-              "relative flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl text-white shadow-lg transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-300",
+              "relative flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-white shadow-md transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-300 md:h-16 md:w-16 md:shadow-lg",
               speech.isListening ? "bg-rose-600" : "bg-teal-600 hover:bg-teal-700",
             )}
           >
             {speech.isListening ? (
               <>
-                <span className="absolute h-10 w-10 animate-ping rounded-full bg-white/30" />
-                <span className="h-4 w-4 rounded-full bg-white" />
+                <span className="absolute h-8 w-8 animate-ping rounded-full bg-white/30 md:h-10 md:w-10" />
+                <span className="h-3.5 w-3.5 rounded-full bg-white md:h-4 md:w-4" />
               </>
             ) : (
-              <Mic2 className="h-7 w-7" />
+              <Mic2 className="h-5 w-5 md:h-7 md:w-7" />
             )}
           </button>
 
-          <div className="min-w-0 flex-1 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+          <div className="flex h-12 min-w-0 flex-1 flex-col justify-center rounded-2xl border border-slate-200 bg-slate-50 px-3 md:h-auto md:px-4 md:py-3">
             <label className="sr-only" htmlFor="hero-ai-question">
               {isEn ? "Ask Sudokkho AI" : "সুদক্ষ AI কে বলুন"}
             </label>
@@ -103,10 +104,10 @@ export function HeroVoiceEntry({ isEn }: { isEn: boolean }) {
               id="hero-ai-question"
               value={text}
               onChange={(event) => setText(event.target.value)}
-              placeholder={speech.isListening ? (isEn ? "Listening..." : "শুনছি...") : (isEn ? "Ask about jobs abroad" : "বিদেশের চাকরি নিয়ে বলুন")}
+              placeholder={speech.isListening ? (isEn ? "Listening..." : "শুনছি...") : (isEn ? "Ask about overseas jobs" : "বিদেশের চাকরি নিয়ে বলুন")}
               className="w-full bg-transparent text-sm font-semibold text-slate-950 outline-none placeholder:text-slate-500 md:text-base"
             />
-            <p className="mt-1 min-h-5 text-xs text-slate-500">
+            <p className="mt-1 hidden min-h-5 text-xs text-slate-500 md:block">
               {speech.isListening
                 ? isEn
                   ? "Speak naturally. We will open Sudokkho AI when you finish."
@@ -121,9 +122,9 @@ export function HeroVoiceEntry({ isEn }: { isEn: boolean }) {
             type="submit"
             disabled={!text.trim()}
             aria-label={isEn ? "Send to Sudokkho AI" : "সুদক্ষ AI তে পাঠান"}
-            className="flex h-16 w-14 shrink-0 items-center justify-center rounded-2xl bg-navy text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-navy text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300 md:h-16 md:w-14"
           >
-            <SendHorizontal className="h-6 w-6" />
+            <SendHorizontal className="h-5 w-5 md:h-6 md:w-6" />
           </button>
         </div>
 
@@ -132,7 +133,7 @@ export function HeroVoiceEntry({ isEn }: { isEn: boolean }) {
             {[0, 1, 2, 3, 4].map((item) => (
               <span
                 key={item}
-                className="h-5 w-1.5 animate-pulse rounded-full bg-teal-500"
+                className="h-4 w-1.5 animate-pulse rounded-full bg-teal-500 md:h-5"
                 style={{ animationDelay: `${item * 90}ms` }}
               />
             ))}
@@ -149,7 +150,7 @@ export function HeroVoiceEntry({ isEn }: { isEn: boolean }) {
         ) : null}
       </form>
 
-      <div className="mt-4 flex flex-wrap gap-2">
+      <div className="mt-3 flex gap-2 overflow-x-auto pb-1 md:mt-4 md:flex-wrap md:overflow-visible">
         {PROMPTS.map((prompt) => {
           const label = isEn ? prompt.en : prompt.bn;
           return (
@@ -157,7 +158,8 @@ export function HeroVoiceEntry({ isEn }: { isEn: boolean }) {
               key={prompt.en}
               type="button"
               onClick={() => openCopilot(label, "text", false)}
-              className="rounded-full border border-teal-100 bg-teal-50 px-3 py-1.5 text-xs font-semibold text-teal-800 transition hover:border-teal-300 hover:bg-teal-100"
+              aria-label={isEn ? `Ask: ${label}` : `প্রশ্ন করুন: ${label}`}
+              className="shrink-0 whitespace-nowrap rounded-full border border-teal-100 bg-teal-50 px-3 py-2 text-xs font-semibold text-teal-800 transition hover:border-teal-300 hover:bg-teal-100 md:whitespace-normal md:py-1.5"
             >
               {label}
             </button>

@@ -193,18 +193,8 @@ def _plan_variants(db: Session, query: str, target_country: str | None, api_key:
 
     raw: str
     if provider == "mistral":
-        response = httpx.post(
-            "https://api.mistral.ai/v1/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={
-                "model": get_ai_model(db),
-                "temperature": 0.1,
-                "messages": [{"role": "user", "content": prompt}],
-            },
-            timeout=30,
-        )
-        response.raise_for_status()
-        raw = response.json()["choices"][0]["message"]["content"]
+        from app.services.mistral_client import mistral_chat_text
+        raw = mistral_chat_text(api_key, get_ai_model(db), prompt, temperature=0.1)
     else:
         model = ChatGroq(model=get_ai_model(db), api_key=api_key, temperature=0.1)
         raw = str(model.invoke(prompt).content)

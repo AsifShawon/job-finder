@@ -26,6 +26,37 @@ const CONNECTOR_OPTIONS = [
   { value: "boesl_brms", label: "BOESL BRMS" },
 ];
 
+const OFFICIAL_CONNECTOR_SETTINGS: Record<string, Record<string, boolean | string>> = {
+  tamimi_careers: {
+    force_ai_detail_extraction: true,
+    strict_bd_job_filter: true,
+    require_application_url: true,
+    auto_publish_on_pass: true,
+    low_confidence_to_review: true,
+  },
+  successfactors_alfanar: {
+    force_ai_detail_extraction: true,
+    strict_bd_job_filter: true,
+    require_application_url: true,
+    auto_publish_on_pass: true,
+    low_confidence_to_review: true,
+  },
+  successfactors_aramco: {
+    force_ai_detail_extraction: true,
+    strict_bd_job_filter: true,
+    require_application_url: true,
+    auto_publish_on_pass: true,
+    low_confidence_to_review: true,
+  },
+  maharah_posts: {
+    force_ai_detail_extraction: true,
+    strict_bd_job_filter: true,
+    require_application_url: true,
+    auto_publish_on_pass: true,
+    low_confidence_to_review: true,
+  },
+};
+
 const TRUST_LEVELS = [
   { value: "government_official", label: "সরকারি উৎস", en: "Government official" },
   { value: "verified_source", label: "যাচাইকৃত উৎস", en: "Verified source" },
@@ -615,6 +646,25 @@ export function AdminSourceManager({ initialSources }: { initialSources: AdminSo
                 : "সম্ভব হলে site-specific connector বেছে নিন। বড় পরিসরের search-driven discovery-এর জন্য শুধু Search HTML Jobs ব্যবহার করুন।"}
             </p>
           </label>
+
+          {/* Official connector settings info panel */}
+          {form.connector_key && OFFICIAL_CONNECTOR_SETTINGS[form.connector_key] && (
+            <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs dark:border-blue-800 dark:bg-blue-950">
+              <p className="font-semibold text-blue-700 dark:text-blue-300 mb-1">
+                {isEn ? "Official Source — Auto-applied settings:" : "অফিশিয়াল সোর্স — স্বয়ংক্রিয় সেটিংস:"}
+              </p>
+              <ul className="space-y-0.5 text-blue-600 dark:text-blue-400">
+                {Object.entries(OFFICIAL_CONNECTOR_SETTINGS[form.connector_key]).map(([k, v]) => (
+                  <li key={k}><span className="font-mono">{k}</span>: <span className="font-semibold">{String(v)}</span></li>
+                ))}
+              </ul>
+              <p className="mt-1 text-blue-500 dark:text-blue-400">
+                {isEn
+                  ? "These settings are enforced by the backend for this connector."
+                  : "এই সেটিংসগুলো ব্যাকএন্ড স্বয়ংক্রিয়ভাবে প্রয়োগ করে।"}
+              </p>
+            </div>
+          )}
 
           {/* Trust level */}
           <label className="space-y-1">
