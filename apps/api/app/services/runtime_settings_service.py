@@ -15,6 +15,27 @@ MISTRAL_MODEL = "mistral_model"
 settings = get_settings()
 
 
+def _configured_key_for(provider: str, db: Session | None = None) -> str:
+    if provider == "mistral":
+        db_key = get_setting(db, MISTRAL_API_KEY) if db is not None else None
+        return db_key or settings.mistral_api_key or ""
+    db_key = get_setting(db, GROQ_API_KEY) if db is not None else None
+    return db_key or settings.groq_api_key or ""
+
+
+def _default_provider(db: Session | None = None) -> str:
+    configured = (settings.ai_provider or "").strip().lower()
+    if configured in {"mistral", "groq"} and _configured_key_for(configured, db):
+        return configured
+    if _configured_key_for("mistral", db):
+        return "mistral"
+    if _configured_key_for("groq", db):
+        return "groq"
+    if configured in {"mistral", "groq"}:
+        return configured
+    return "mistral"
+
+
 def get_setting(db: Session, key: str) -> str | None:
     value = db.scalar(select(AppSetting.value).where(AppSetting.key == key))
     return value.strip() if value else None
@@ -39,7 +60,15 @@ def _provider_default_model(provider: str) -> str:
 
 
 def get_ai_provider(db: Session) -> str:
-    return (get_setting(db, AI_PROVIDER) or settings.ai_provider or "groq").strip().lower()
+    configured = (get_setting(db, AI_PROVIDER) or "").strip().lower()
+    if configured in {"mistral", "groq"}:
+        if _configured_key_for(configured, db):
+            return configured
+        alternate = "groq" if configured == "mistral" else "mistral"
+        if _configured_key_for(alternate, db):
+            return alternate
+        return configured
+    return _default_provider(db)
 
 
 def get_ai_model(db: Session) -> str:

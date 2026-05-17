@@ -58,8 +58,11 @@ def test_crawl_runs_response_exposes_structured_diagnostics() -> None:
                         "accepted_count": 0,
                         "published_count": 0,
                         "skipped_count": 93,
+                        "low_confidence_review_count": 12,
+                        "high_confidence_published_count": 7,
                         "dominant_skip_reason": "strict_missing_isc_category",
                         "confidence_summary": {"count": 93, "min": 0.31, "max": 0.61, "median": 0.44},
+                        "extraction_method_counts": {"fallback_extract": 19, "llm_structured": 74},
                         "skip_reasons": {"strict_missing_isc_category": 93},
                     },
                 },
@@ -75,8 +78,11 @@ def test_crawl_runs_response_exposes_structured_diagnostics() -> None:
     assert page.items[0].skipped_count == 93
     assert page.items[0].diagnostics is not None
     assert page.items[0].diagnostics.skipped_count == 93
+    assert page.items[0].diagnostics.low_confidence_review_count == 12
+    assert page.items[0].diagnostics.high_confidence_published_count == 7
     assert page.items[0].diagnostics.dominant_skip_reason == "strict_missing_isc_category"
     assert page.items[0].diagnostics.confidence_summary["median"] == 0.44
+    assert page.items[0].diagnostics.extraction_method_counts == {"fallback_extract": 19, "llm_structured": 74}
     assert page.items[0].diagnostics.skip_reasons == {"strict_missing_isc_category": 93}
 
 
@@ -111,8 +117,11 @@ def test_raw_documents_response_includes_extraction_diagnostics() -> None:
                         "country": "Saudi Arabia",
                         "title": "Site Engineer",
                         "summary": "Engineering role.",
+                        "extraction_method": "fallback_extract",
+                        "fallback_reason": "no_ai_api_key",
                         "validation_errors": [],
                         "skip_reason": "strict_low_ai_confidence",
+                        "review_reason": None,
                     }
                 ]
             },
@@ -125,3 +134,4 @@ def test_raw_documents_response_includes_extraction_diagnostics() -> None:
     assert page.total == 1
     assert page.items[0].crawl_run_id == 34
     assert page.items[0].extraction_diagnostics_json["attempts"][0]["skip_reason"] == "strict_low_ai_confidence"
+    assert page.items[0].extraction_diagnostics_json["attempts"][0]["extraction_method"] == "fallback_extract"

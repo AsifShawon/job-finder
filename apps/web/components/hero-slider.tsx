@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { useLocale } from "next-intl";
 import { ArrowRight } from "lucide-react";
 
+import { HeroVoiceEntry } from "@/components/hero-voice-entry";
 import { cn } from "@/lib/utils";
 
 const HERO_SLIDES = [
@@ -105,8 +106,9 @@ export function HeroSlider() {
                 </div>
                 
                 {isActive && (
-                  <div className="absolute inset-x-0 bottom-0 p-6 sm:p-8 lg:p-10 z-20">
-                    <div className="max-w-2xl space-y-4 fade-up">
+                  <div className="absolute inset-x-0 bottom-0 z-20 p-5 sm:p-8 lg:p-10">
+                    <div className="grid gap-5 fade-up lg:grid-cols-[minmax(0,1fr)_520px] lg:items-end">
+                      <div className="max-w-2xl space-y-4">
                       <span className="inline-flex rounded-full border border-white/25 bg-white/10 px-3 py-1 text-xs font-semibold backdrop-blur">
                         {isEn ? "Verified Opportunity Platform" : "যাচাই করা সুযোগের প্ল্যাটফর্ম"}
                       </span>
@@ -131,6 +133,8 @@ export function HeroSlider() {
                           {isEn ? "Free Account" : "ফ্রি অ্যাকাউন্ট"}
                         </Link>
                       </div>
+                      </div>
+                      <HeroVoiceEntry isEn={isEn} />
                     </div>
                   </div>
                 )}

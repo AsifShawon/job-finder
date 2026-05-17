@@ -56,17 +56,17 @@ function StatusPill({ status, isEn }: { status: string; isEn: boolean }) {
     skipped_recently: {
       icon: Clock,
       className: "bg-muted text-muted-foreground",
-      label: isEn ? "Skipped recently" : "সম্প্রতি হয়েছে",
+      label: isEn ? "Skipped recently" : "সম্প্রতি এড়ানো",
     },
     skipped_compliance: {
       icon: AlertCircle,
       className: "bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400",
-      label: isEn ? "Compliance" : "কমপ্লায়েন্স",
+      label: isEn ? "Compliance" : "কমপ্লায়েন্স",
     },
     linkout_only_skipped: {
       icon: AlertCircle,
       className: "bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400",
-      label: isEn ? "Linkout only" : "লিংকআউট অনলি",
+      label: isEn ? "Linkout only" : "শুধু লিংকআউট",
     },
   };
 
@@ -99,7 +99,7 @@ function getMessages(run: CrawlRun): string[] {
   return Array.isArray(logs?.messages) ? logs.messages : [];
 }
 
-function formatSkipReason(reason: string) {
+function formatReason(reason: string) {
   return reason.replace(/^strict_/, "").replaceAll("_", " ");
 }
 
@@ -118,7 +118,7 @@ function DiagnosticsPanel({ run, isEn }: { run: CrawlRun; isEn: boolean }) {
   return (
     <details className="group max-w-[320px] text-xs">
       <summary className="cursor-pointer list-none text-muted-foreground underline-offset-4 group-open:text-foreground group-open:underline [&::-webkit-details-marker]:hidden">
-        {isEn ? "View diagnostics" : "ডায়াগনস্টিকস দেখুন"}
+        {isEn ? "View diagnostics" : "ডায়াগনস্টিকস দেখুন"}
       </summary>
       <div className="mt-2 space-y-3 rounded-lg border border-border bg-muted/30 p-3">
         {diagnostics ? (
@@ -128,13 +128,17 @@ function DiagnosticsPanel({ run, isEn }: { run: CrawlRun; isEn: boolean }) {
               <MetricBadge label={isEn ? "Published" : "প্রকাশিত"} value={diagnostics.published_count} />
               <MetricBadge label={isEn ? "Skipped" : "স্কিপ"} value={diagnostics.skipped_count} highlight />
             </div>
+            <div className="grid grid-cols-2 gap-2">
+              <MetricBadge label={isEn ? "Low conf review" : "লো কনফ রিভিউ"} value={diagnostics.low_confidence_review_count} highlight />
+              <MetricBadge label={isEn ? "High conf published" : "হাই কনফ প্রকাশ"} value={diagnostics.high_confidence_published_count} />
+            </div>
             {skipReasons.length > 0 ? (
               <div className="space-y-1">
                 <p className="font-semibold text-foreground">{isEn ? "Skip reasons" : "স্কিপ কারণ"}</p>
                 <div className="space-y-1">
                   {skipReasons.map(([reason, count]) => (
                     <div key={reason} className="flex items-start justify-between gap-3">
-                      <span className="text-muted-foreground">{formatSkipReason(reason)}</span>
+                      <span className="text-muted-foreground">{formatReason(reason)}</span>
                       <span className="font-semibold text-foreground">{count}</span>
                     </div>
                   ))}
@@ -144,7 +148,7 @@ function DiagnosticsPanel({ run, isEn }: { run: CrawlRun; isEn: boolean }) {
             {diagnostics.dominant_skip_reason ? (
               <div className="space-y-1">
                 <p className="font-semibold text-foreground">{isEn ? "Dominant reason" : "প্রধান কারণ"}</p>
-                <p className="text-muted-foreground">{formatSkipReason(diagnostics.dominant_skip_reason)}</p>
+                <p className="text-muted-foreground">{formatReason(diagnostics.dominant_skip_reason)}</p>
               </div>
             ) : null}
             {Object.keys(diagnostics.confidence_summary ?? {}).length > 0 ? (
@@ -158,12 +162,22 @@ function DiagnosticsPanel({ run, isEn }: { run: CrawlRun; isEn: boolean }) {
                 </div>
               </div>
             ) : null}
+            {Object.keys(diagnostics.extraction_method_counts ?? {}).length > 0 ? (
+              <div className="space-y-1">
+                <p className="font-semibold text-foreground">{isEn ? "Extraction paths" : "এক্সট্রাকশন পাথ"}</p>
+                <div className="space-y-1 text-muted-foreground">
+                  {Object.entries(diagnostics.extraction_method_counts).map(([method, count]) => (
+                    <div key={method} className="flex items-start justify-between gap-3">
+                      <span>{method.replaceAll("_", " ")}</span>
+                      <span className="font-semibold text-foreground">{count}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </>
         ) : null}
-        <a
-          href={rawItemsHref}
-          className="inline-flex text-xs font-medium text-primary hover:underline"
-        >
+        <a href={rawItemsHref} className="inline-flex text-xs font-medium text-primary hover:underline">
           {isEn ? "Inspect raw items" : "মূল আইটেম দেখুন"}
         </a>
         {messages.length > 0 ? (
@@ -211,7 +225,7 @@ export default async function AdminCrawlsPage() {
         <p className="mt-1 text-sm text-muted-foreground">
           {isEn
             ? "Monitor recent crawl results with found-item, skipped, import, and failure diagnostics."
-            : "সাম্প্রতিক ক্রল রানের found, skipped, import ও ব্যর্থতার ডায়াগনস্টিকস দেখুন।"}
+            : "সাম্প্রতিক ক্রল রানের found, skipped, import ও ব্যর্থতার ডায়াগনস্টিকস দেখুন।"}
         </p>
       </div>
 
@@ -247,7 +261,7 @@ export default async function AdminCrawlsPage() {
                   isEn ? "Dupes" : "ডুপ্লিকেট",
                   isEn ? "Skipped" : "স্কিপ",
                   isEn ? "Failed" : "ব্যর্থ",
-                  isEn ? "Diagnostics" : "ডায়াগনস্টিকস",
+                  isEn ? "Diagnostics" : "ডায়াগনস্টিকস",
                   isEn ? "Error" : "ত্রুটি",
                 ].map((header) => (
                   <th
@@ -339,7 +353,7 @@ export default async function AdminCrawlsPage() {
                 </div>
                 <DiagnosticsPanel run={run} isEn={isEn} />
                 {run.error_message ? (
-                  <p className="text-xs text-red-500">⚠ {run.error_message}</p>
+                  <p className="text-xs text-red-500">Warning: {run.error_message}</p>
                 ) : null}
               </div>
             ))

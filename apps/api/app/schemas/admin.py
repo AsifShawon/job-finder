@@ -13,8 +13,11 @@ class CrawlRunDiagnostics(BaseModel):
     accepted_count: int = 0
     published_count: int = 0
     skipped_count: int = 0
+    low_confidence_review_count: int = 0
+    high_confidence_published_count: int = 0
     dominant_skip_reason: str | None = None
     confidence_summary: dict[str, float | int] = Field(default_factory=dict)
+    extraction_method_counts: dict[str, int] = Field(default_factory=dict)
     skip_reasons: dict[str, int] = Field(default_factory=dict)
 
 
@@ -318,7 +321,7 @@ class AdminAiSettingsOut(BaseModel):
 
 
 class AdminAiSettingsUpdate(BaseModel):
-    ai_provider: str = Field(default="groq", min_length=1, max_length=20)
+    ai_provider: str = Field(default="mistral", min_length=1, max_length=20)
     ai_api_key: str | None = Field(default=None, min_length=1, max_length=255)
     ai_model: str = Field(default="", min_length=1, max_length=120)
 

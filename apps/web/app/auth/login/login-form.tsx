@@ -1,6 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import type { Route } from "next";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 
@@ -9,6 +10,7 @@ import { Input } from "@/components/ui/input";
 
 export function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const t = useTranslations("auth");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -28,7 +30,9 @@ export function LoginForm() {
         setMessage(t("loginFailed"));
         return;
       }
-      router.push("/dashboard");
+      const next = searchParams.get("next");
+      const target = next?.startsWith("/") ? next : "/dashboard";
+      router.push(target as Route);
       router.refresh();
     } finally {
       setSubmitting(false);

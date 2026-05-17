@@ -38,11 +38,18 @@ function excerpt(text: string | null | undefined, maxLength = 280) {
   return `${text.slice(0, maxLength)}…`;
 }
 
-function formatSkipReason(reason: string | null | undefined) {
+function formatReason(reason: string | null | undefined) {
   if (!reason) {
     return "—";
   }
   return reason.replace(/^strict_/, "").replaceAll("_", " ");
+}
+
+function formatExtractionMethod(method: string | null | undefined) {
+  if (!method) {
+    return "—";
+  }
+  return method.replaceAll("_", " ");
 }
 
 function ExtractionDetails({ item }: { item: RawDocument }) {
@@ -56,7 +63,7 @@ function ExtractionDetails({ item }: { item: RawDocument }) {
         <div className="grid gap-2 md:grid-cols-2">
           <div>
             <p className="font-semibold text-foreground">Skip reason</p>
-            <p className="text-muted-foreground">{formatSkipReason(item.skip_reason)}</p>
+            <p className="text-muted-foreground">{formatReason(item.skip_reason)}</p>
           </div>
           <div>
             <p className="font-semibold text-foreground">Raw excerpt</p>
@@ -75,6 +82,10 @@ function ExtractionDetails({ item }: { item: RawDocument }) {
                     <p className="text-muted-foreground">{attempt.record_type ?? "—"}</p>
                   </div>
                   <div>
+                    <p className="font-semibold text-foreground">Extraction method</p>
+                    <p className="text-muted-foreground">{formatExtractionMethod(attempt.extraction_method)}</p>
+                  </div>
+                  <div>
                     <p className="font-semibold text-foreground">Confidence</p>
                     <p className="text-muted-foreground">{attempt.extraction_confidence ?? "—"}</p>
                   </div>
@@ -85,6 +96,10 @@ function ExtractionDetails({ item }: { item: RawDocument }) {
                   <div>
                     <p className="font-semibold text-foreground">Employer / Country</p>
                     <p className="text-muted-foreground">{attempt.employer ?? "—"} / {attempt.country ?? "—"}</p>
+                  </div>
+                  <div>
+                    <p className="font-semibold text-foreground">Fallback reason</p>
+                    <p className="text-muted-foreground">{attempt.fallback_reason ?? "—"}</p>
                   </div>
                 </div>
                 <div>
@@ -97,7 +112,11 @@ function ExtractionDetails({ item }: { item: RawDocument }) {
                 </div>
                 <div>
                   <p className="font-semibold text-foreground">Skip reason</p>
-                  <p className="text-muted-foreground">{formatSkipReason(attempt.skip_reason)}</p>
+                  <p className="text-muted-foreground">{formatReason(attempt.skip_reason)}</p>
+                </div>
+                <div>
+                  <p className="font-semibold text-foreground">Review reason</p>
+                  <p className="text-muted-foreground">{formatReason(attempt.review_reason)}</p>
                 </div>
                 <div>
                   <p className="font-semibold text-foreground">Field confidences</p>
@@ -151,7 +170,7 @@ export default async function AdminRawItemsPage({ searchParams }: AdminRawItemsP
         <p className="mt-1 text-sm text-muted-foreground">
           {isEn
             ? "Inspect skipped and accepted raw crawl records, extraction attempts, and page excerpts."
-            : "স্কিপ ও গ্রহণ করা raw crawl record, extraction attempt এবং page excerpt দেখুন।"}
+            : "স্কিপ ও গৃহীত raw crawl record, extraction attempt এবং page excerpt দেখুন।"}
         </p>
       </div>
 
@@ -205,6 +224,7 @@ export default async function AdminRawItemsPage({ searchParams }: AdminRawItemsP
                   isEn ? "Title" : "শিরোনাম",
                   "URL",
                   isEn ? "Type" : "ধরণ",
+                  isEn ? "Method" : "মেথড",
                   isEn ? "Skip reason" : "স্কিপ কারণ",
                   isEn ? "Confidence" : "কনফিডেন্স",
                   isEn ? "Fetched" : "ক্রল সময়",
@@ -239,7 +259,8 @@ export default async function AdminRawItemsPage({ searchParams }: AdminRawItemsP
                       </a>
                     </td>
                     <td className="px-3 py-3 text-xs">{item.detected_item_type ?? item.content_type ?? "unknown"}</td>
-                    <td className="max-w-[220px] px-3 py-3 text-xs text-amber-700">{item.skip_reason ?? "—"}</td>
+                    <td className="px-3 py-3 text-xs text-muted-foreground">{formatExtractionMethod(firstAttempt?.extraction_method)}</td>
+                    <td className="max-w-[220px] px-3 py-3 text-xs text-amber-700">{item.skip_reason ?? firstAttempt?.review_reason ?? "—"}</td>
                     <td className="px-3 py-3 text-xs text-muted-foreground">
                       {firstAttempt?.extraction_confidence ?? "—"}
                     </td>
@@ -252,7 +273,7 @@ export default async function AdminRawItemsPage({ searchParams }: AdminRawItemsP
               })}
               {page.items.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                  <td colSpan={9} className="px-4 py-8 text-center text-sm text-muted-foreground">
                     {isEn ? "No raw crawl items found." : "কোনো মূল ক্রল আইটেম নেই।"}
                   </td>
                 </tr>

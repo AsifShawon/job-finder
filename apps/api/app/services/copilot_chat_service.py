@@ -133,6 +133,68 @@ def add_message(
     return _serialize_message(assistant_message)
 
 
+def add_message_pair(
+    db: Session,
+    *,
+    user_id: int,
+    conversation_id: int,
+    question: str,
+    locale: str | None = None,
+) -> tuple[CopilotMessageOut, CopilotMessageOut]:
+    conversation = _get_owned_conversation(db, user_id=user_id, conversation_id=conversation_id, with_messages=True)
+    question_text = question.strip()
+    if not question_text:
+        raise HTTPException(status_code=422, detail="Question cannot be empty")
+
+    effective_locale = _normalize_locale(locale or conversation.locale)
+    history = [
+        ConversationTurn(role=message.role, content=message.content)
+        for message in conversation.messages
+    ]
+
+    user_message = CopilotMessage(
+        conversation_id=conversation.id,
+        role="user",
+        content=question_text,
+        citations_json=[],
+        suggested_follow_ups_json=[],
+    )
+    db.add(user_message)
+    db.flush()
+
+    result = answer_question(
+        db,
+        question=question_text,
+        locale=effective_locale,
+        history=history,
+        user_id=user_id,
+    )
+
+    assistant_citations = [citation.model_dump() for citation in _serialize_citations(result.citations)]
+    follow_ups = [item.text for item in _serialize_follow_ups(result.suggested_follow_ups)]
+
+    assistant_message = CopilotMessage(
+        conversation_id=conversation.id,
+        role="assistant",
+        content=result.answer,
+        citations_json=assistant_citations,
+        suggested_follow_ups_json=follow_ups,
+    )
+    db.add(assistant_message)
+
+    now = datetime.now(UTC)
+    conversation.locale = effective_locale
+    if conversation.title == _DEFAULT_TITLE and not history:
+        conversation.title = _build_title(question_text)
+    conversation.last_message_at = now
+    conversation.updated_at = now
+
+    db.commit()
+    db.refresh(user_message)
+    db.refresh(assistant_message)
+    return _serialize_message(user_message), _serialize_message(assistant_message)
+
+
 def _get_owned_conversation(
     db: Session,
     *,

@@ -185,8 +185,16 @@ export interface PublishedOpportunityDetail extends PublishedOpportunityCard {
   record_type: RecordType | null;
   trust_tier: TrustTier | null;
   requirements_json?: { items?: string[] } | null;
-  benefits_json?: { items?: string[] } | null;
+  benefits_json?: { items?: string[]; work_conditions?: string[] } | null;
   language_requirements_json?: { items?: string[] } | null;
+  job_purpose: string | null;
+  responsibilities: string[];
+  key_accountabilities: string[];
+  role_accountabilities: string[];
+  qualifications: string[];
+  skills: string[];
+  work_conditions: string[];
+  source_sections: Array<{ title: string; items: string[] }>;
   mirror_urls: string[];
 }
 
@@ -438,8 +446,11 @@ export interface CrawlRunDiagnostics {
   accepted_count: number;
   published_count: number;
   skipped_count: number;
+  low_confidence_review_count: number;
+  high_confidence_published_count: number;
   dominant_skip_reason: string | null;
   confidence_summary: Record<string, number>;
+  extraction_method_counts: Record<string, number>;
   skip_reasons: Record<string, number>;
 }
 
@@ -453,8 +464,11 @@ export interface RawDocumentExtractionAttempt {
   country: string | null;
   title: string | null;
   summary: string | null;
+  extraction_method: string | null;
+  fallback_reason: string | null;
   validation_errors: string[];
   skip_reason: string | null;
+  review_reason: string | null;
 }
 
 export interface RawDocumentExtractionDiagnostics {

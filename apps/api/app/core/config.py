@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     database_url: str
     redis_url: str
 
-    ai_provider: str = "groq"
+    ai_provider: str = "mistral"
     ai_model: str = ""
     ai_api_key: str = ""
 

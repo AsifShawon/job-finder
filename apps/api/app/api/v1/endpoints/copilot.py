@@ -1,4 +1,9 @@
+import json
+import time
+from collections.abc import Iterator
+
 from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
@@ -22,6 +27,7 @@ from app.schemas.copilot import (
 )
 from app.services.copilot_chat_service import (
     add_message,
+    add_message_pair,
     create_conversation,
     delete_conversation,
     get_conversation_detail,
@@ -105,6 +111,64 @@ def send_copilot_message(
         conversation_id=conversation_id,
         question=payload.question,
         locale=payload.locale,
+    )
+
+
+def _sse_event(event: str, payload: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def _token_chunks(text: str, *, size: int = 28) -> Iterator[str]:
+    words = text.split(" ")
+    chunk = ""
+    for word in words:
+        candidate = f"{chunk} {word}".strip()
+        if len(candidate) >= size and chunk:
+            yield f"{chunk} "
+            chunk = word
+        else:
+            chunk = candidate
+    if chunk:
+        yield chunk
+
+
+@router.post("/conversations/{conversation_id}/messages/stream")
+def stream_copilot_message(
+    conversation_id: int,
+    payload: CopilotConversationMessageCreateRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> StreamingResponse:
+    enforce_copilot_rate_limit(request)
+    _, assistant = add_message_pair(
+        db,
+        user_id=user.id,
+        conversation_id=conversation_id,
+        question=payload.question,
+        locale=payload.locale,
+    )
+
+    def events() -> Iterator[str]:
+        yield _sse_event("start", {"conversation_id": conversation_id})
+        for token in _token_chunks(assistant.content):
+            yield _sse_event("token", {"text": token})
+            time.sleep(0.015)
+        citation_payload = [citation.model_dump(mode="json") for citation in assistant.citations]
+        yield _sse_event("citations", {"items": citation_payload})
+        yield _sse_event("recommendations", {"items": citation_payload})
+        yield _sse_event(
+            "done",
+            {
+                "message_id": assistant.id,
+                "assistant": assistant.model_dump(mode="json"),
+            },
+        )
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 

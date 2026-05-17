@@ -123,6 +123,14 @@ class PublishedOpportunityDetail(PublishedOpportunityCard):
     requirements_json: dict[str, Any] | None = None
     benefits_json: dict[str, Any] | None = None
     language_requirements_json: dict[str, Any] | None = None
+    job_purpose: str | None = None
+    responsibilities: list[str] = []
+    key_accountabilities: list[str] = []
+    role_accountabilities: list[str] = []
+    qualifications: list[str] = []
+    skills: list[str] = []
+    work_conditions: list[str] = []
+    source_sections: list[dict[str, Any]] = []
     mirror_urls: list[str] = []
 
 

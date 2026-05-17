@@ -35,7 +35,12 @@ from app.ingestion.cleaner import clean_page
 from app.ingestion.compliance_guard import ComplianceError, check_before_crawl
 from app.ingestion.eligibility_engine import tag_eligibility
 from app.ingestion.errors import ConnectorNotImplementedError, SourceConfigError
-from app.ingestion.extractor import extract_jobs_structured, extract_structured, summarize_linkout_job
+from app.ingestion.extractor import (
+    extract_jobs_structured,
+    extract_official_job_structured,
+    extract_structured,
+    summarize_linkout_job,
+)
 from app.ingestion.job_classification import (
     classify_bangladesh_suitability,
     classify_category,
@@ -92,6 +97,9 @@ class PipelineResult:
     error: str | None = None
     skip_reasons: dict[str, int] = None  # type: ignore[assignment]
     skipped_confidences: list[float] = None  # type: ignore[assignment]
+    extraction_method_counts: dict[str, int] = None  # type: ignore[assignment]
+    low_confidence_review_count: int = 0
+    high_confidence_published_count: int = 0
     # IDs of drafts that should be auto-translated after the pipeline commits.
     pending_translation_ids: list[int] = None  # type: ignore[assignment]
 
@@ -100,6 +108,8 @@ class PipelineResult:
             self.skip_reasons = {}
         if self.skipped_confidences is None:
             self.skipped_confidences = []
+        if self.extraction_method_counts is None:
+            self.extraction_method_counts = {}
         if self.pending_translation_ids is None:
             self.pending_translation_ids = []
 
@@ -142,8 +152,11 @@ def _build_run_diagnostics(result: PipelineResult) -> dict[str, object]:
         "accepted_count": result.accepted,
         "published_count": result.published,
         "skipped_count": result.skipped,
+        "low_confidence_review_count": result.low_confidence_review_count,
+        "high_confidence_published_count": result.high_confidence_published_count,
         "dominant_skip_reason": dominant_skip_reason,
         "confidence_summary": _build_confidence_summary(result.skipped_confidences),
+        "extraction_method_counts": dict(sorted(result.extraction_method_counts.items())),
         "skip_reasons": dict(sorted(result.skip_reasons.items())),
     }
 
@@ -466,6 +479,7 @@ def _process_page(
 
     extracted_any = False
     for extraction in extractions:
+        _track_extraction_attempt(result, extraction)
         errors = validate_extraction(extraction)
         if errors or extraction.record_type == "unknown":
             skip_reason = "; ".join(errors) if errors else "unknown_record_type"
@@ -502,7 +516,7 @@ def _process_page(
 
 def _extract_records_for_page(db: Session, source: Source, page, cleaned: dict) -> list:
     if _force_ai_detail_extraction(source, page):
-        extraction = extract_structured(db, _official_ai_cleaned_payload(source, page, cleaned))
+        extraction = extract_official_job_structured(db, _official_ai_cleaned_payload(source, page, cleaned))
         if extraction.record_type == "unknown":
             return []
         _apply_extraction_fallbacks(source, page, extraction)
@@ -548,6 +562,7 @@ def _structured_page_extraction(source: Source, page, cleaned: dict) -> JobOppor
         journey_steps=[],
         documents_needed=_extract_documents(body),
         extraction_confidence=0.72 if page.original_apply_url else 0.58,
+        extraction_method="heuristic_structured",
         evidence_snippets=[snippet for snippet in [metadata.get("location_raw"), metadata.get("experience_level")] if snippet],
         field_confidences={
             "title": 0.9,
@@ -595,12 +610,95 @@ def _official_ai_cleaned_payload(source: Source, page, cleaned: dict) -> dict:
     ):
         if value:
             context_lines.append(f"{label}: {value}")
-    body = page.raw_text or cleaned.get("body_text") or ""
+    body = _official_detail_body(page) or cleaned.get("body_text") or page.raw_text or ""
     return {
         **cleaned,
         "title": page.title or cleaned.get("title"),
         "body_text": "\n".join(context_lines) + "\n\nJob detail page content:\n" + body,
     }
+
+
+def _official_detail_body(page) -> str:
+    html = getattr(page, "raw_html", None) or ""
+    if not html:
+        return _strip_official_boilerplate(getattr(page, "raw_text", None) or "")
+    try:
+        from bs4 import BeautifulSoup
+
+        soup = BeautifulSoup(html, "html.parser")
+        for node in soup.select("script, style, noscript, nav, header, footer, iframe"):
+            node.decompose()
+        for selector in (
+            "[id*='cookie' i]",
+            "[class*='cookie' i]",
+            "[id*='onetrust' i]",
+            "[class*='onetrust' i]",
+            "[class*='profile' i]",
+            "[id*='profile' i]",
+            ".jobAlerts",
+            ".social-share",
+            ".share",
+        ):
+            for node in soup.select(selector):
+                node.decompose()
+        container = (
+            soup.select_one(".jobDisplay")
+            or soup.select_one(".job")
+            or soup.select_one("[data-automation-id*='job' i]")
+            or soup.select_one("main")
+            or soup.body
+        )
+        if not container:
+            return _strip_official_boilerplate(getattr(page, "raw_text", None) or "")
+        lines: list[str] = []
+        for node in container.find_all(["h1", "h2", "h3", "h4", "p", "li"], recursive=True):
+            text_value = re.sub(r"\s+", " ", node.get_text(" ", strip=True)).strip()
+            if not text_value or _is_official_boilerplate_line(text_value):
+                continue
+            prefix = ""
+            if node.name in {"h1", "h2", "h3", "h4"}:
+                prefix = "\n## "
+            elif node.name == "li":
+                prefix = "- "
+            lines.append(f"{prefix}{text_value}")
+        return _strip_official_boilerplate("\n".join(lines))
+    except Exception:
+        return _strip_official_boilerplate(getattr(page, "raw_text", None) or "")
+
+
+def _strip_official_boilerplate(text_value: str) -> str:
+    lines = []
+    seen: set[str] = set()
+    for raw_line in text_value.splitlines():
+        line = re.sub(r"\s+", " ", raw_line).strip()
+        if not line or _is_official_boilerplate_line(line):
+            continue
+        lowered = line.lower()
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def _is_official_boilerplate_line(line: str) -> bool:
+    lowered = line.lower()
+    noise = (
+        "by continuing to use and navigate this website",
+        "you are agreeing to the use of cookies",
+        "cookie",
+        "privacy policy",
+        "my profile",
+        "create alert",
+        "share this job",
+        "view profile",
+        "search results",
+        "careers home",
+        "already applied",
+        "login",
+        "sign in",
+    )
+    return any(term in lowered for term in noise)
 
 
 def _apply_extraction_fallbacks(source: Source, page, extraction) -> None:
@@ -627,6 +725,7 @@ def _append_raw_extraction_diagnostic(
     extraction,
     *,
     skip_reason: str | None = None,
+    review_reason: str | None = None,
     validation_errors: list[str] | None = None,
 ) -> None:
     existing = raw.extraction_diagnostics_json if isinstance(raw.extraction_diagnostics_json, dict) else {}
@@ -641,8 +740,11 @@ def _append_raw_extraction_diagnostic(
         "country": extraction.country,
         "title": extraction.title,
         "summary": extraction.summary,
+        "extraction_method": getattr(extraction, "extraction_method", None),
+        "fallback_reason": getattr(extraction, "fallback_reason", None),
         "validation_errors": list(validation_errors or []),
         "skip_reason": skip_reason,
+        "review_reason": review_reason,
     })
     raw.extraction_diagnostics_json = {
         **existing,
@@ -665,6 +767,11 @@ def _record_skip(
     if confidence is not None:
         result.skipped_confidences.append(float(confidence))
     logs.append(f"Skipped {source_page_url}: {reason}")
+
+
+def _track_extraction_attempt(result: PipelineResult, extraction) -> None:
+    method = getattr(extraction, "extraction_method", None) or "unspecified"
+    result.extraction_method_counts[method] = result.extraction_method_counts.get(method, 0) + 1
 
 
 def _strict_gate_skip_reason(source: Source, extraction, application_url: str | None, eligibility, category, suitability) -> str | None:
@@ -691,6 +798,13 @@ def _strict_gate_skip_reason(source: Source, extraction, application_url: str | 
 
 def _should_publish_strict_source(source: Source) -> bool:
     return bool(_source_setting(source, "auto_publish_on_pass", False))
+
+
+def _should_route_low_confidence_to_review(source: Source, strict_skip_reason: str | None) -> bool:
+    return bool(
+        strict_skip_reason == "strict_low_ai_confidence"
+        and _source_setting(source, "low_confidence_to_review", False)
+    )
 
 
 def _process_extraction(
@@ -732,7 +846,7 @@ def _process_extraction(
         record_type=extraction.record_type,
         country=extraction.country or source.country,
         eligibility_text=extraction.eligibility_text,
-        requirements_json={"items": extraction.requirements},
+        requirements_json=_build_requirements_json(extraction),
         extracted_json=extraction.model_dump(mode="json"),
         title=extraction.title,
         summary=extraction.summary,
@@ -762,7 +876,8 @@ def _process_extraction(
         category,
         suitability,
     )
-    if strict_skip_reason:
+    low_confidence_review = _should_route_low_confidence_to_review(source, strict_skip_reason)
+    if strict_skip_reason and not low_confidence_review:
         _append_raw_extraction_diagnostic(raw, extraction, skip_reason=strict_skip_reason)
         _record_skip(
             result,
@@ -773,6 +888,14 @@ def _process_extraction(
             confidence=extraction.extraction_confidence,
         )
         return
+    if low_confidence_review:
+        _append_raw_extraction_diagnostic(
+            raw,
+            extraction,
+            review_reason="low_confidence_official_job",
+        )
+    else:
+        _append_raw_extraction_diagnostic(raw, extraction)
 
     opp_hash = _content_hash(
         title=extraction.title,
@@ -861,6 +984,7 @@ def _process_extraction(
             category=category,
             suitability=suitability,
             force_review=force_review,
+            low_confidence_review=low_confidence_review,
         )
         if old_source_hash == raw.content_hash:
             result.unchanged += 1
@@ -868,14 +992,21 @@ def _process_extraction(
             result.draft_updated += 1
         result.duplicates += 1
         result.accepted += 1
+        if low_confidence_review:
+            result.low_confidence_review_count += 1
         if existing.status == "published":
             result.published += 1
+            if _is_strict_official_job_source(source):
+                result.high_confidence_published_count += 1
         result.pending_translation_ids.append(existing.id)
         logs.append(f"Draft updated: id={existing.id} title='{(existing.title or '')[:60]}'")
         return
 
     strict_source = _is_strict_official_job_source(source)
-    if strict_source and _should_publish_strict_source(source):
+    if low_confidence_review:
+        admin_status = "low_confidence_official_job"
+        initial_status = "pending"
+    elif strict_source and _should_publish_strict_source(source):
         admin_status = "auto_approved"
         initial_status = "published"
     else:
@@ -921,8 +1052,8 @@ def _process_extraction(
         typical_salary_bdt=extraction.typical_salary_bdt,
         language_requirements_json={"items": extraction.language_requirements},
         languages_required=extraction.language_requirements,
-        requirements_json={"items": extraction.requirements},
-        benefits_json={"items": extraction.benefits},
+        requirements_json=_build_requirements_json(extraction),
+        benefits_json=_build_benefits_json(extraction),
         posting_date=parse_deadline((page.metadata or {}).get("posting_date_text")),
         visa_or_iqama_requirement=extraction.eligibility_text if "iqama" in combined_body.lower() else None,
         lmia_status=eligibility.lmia_status,
@@ -980,8 +1111,12 @@ def _process_extraction(
     result.accepted += 1
     if draft.status == "published":
         result.published += 1
+        if strict_source:
+            result.high_confidence_published_count += 1
     if draft.needs_admin_review:
         result.manual_review += 1
+        if low_confidence_review:
+            result.low_confidence_review_count += 1
     result.pending_translation_ids.append(draft.id)
 
     if extraction_embedding is not None:
@@ -1015,6 +1150,7 @@ def _apply_extraction_to_draft(
     category,
     suitability,
     force_review: bool,
+    low_confidence_review: bool = False,
 ) -> None:
     application_url = extraction.application_url or getattr(page, "original_apply_url", None) or page.document_url
     draft.source_name = source.name
@@ -1054,8 +1190,8 @@ def _apply_extraction_to_draft(
     draft.typical_salary_bdt = extraction.typical_salary_bdt
     draft.language_requirements_json = {"items": extraction.language_requirements}
     draft.languages_required = extraction.language_requirements
-    draft.requirements_json = {"items": extraction.requirements}
-    draft.benefits_json = {"items": extraction.benefits}
+    draft.requirements_json = _build_requirements_json(extraction)
+    draft.benefits_json = _build_benefits_json(extraction)
     draft.posting_date = parse_deadline((page.metadata or {}).get("posting_date_text"))
     combined_body = " ".join(filter(None, [
         extraction.summary,
@@ -1104,7 +1240,14 @@ def _apply_extraction_to_draft(
     draft.last_seen_at = now
     draft.first_seen_at = draft.first_seen_at or now
     draft.missing_count = 0
-    if _is_strict_official_job_source(source) and _should_publish_strict_source(source):
+    if low_confidence_review:
+        draft.needs_admin_review = True
+        draft.review_status = "pending"
+        draft.admin_status = "low_confidence_official_job"
+        draft.status = "pending"
+        draft.is_active = False
+        draft.published_at = None
+    elif _is_strict_official_job_source(source) and _should_publish_strict_source(source):
         draft.needs_admin_review = False
         draft.review_status = "approved"
         draft.admin_status = "auto_approved"
@@ -1133,12 +1276,11 @@ def _populate_opportunity_detail_fields(draft: Opportunity, extraction, page, so
     draft.job_title = extraction.title or draft.job_title
     draft.salary_text = _format_salary_text(extraction.salary_min, extraction.salary_max, extraction.salary_currency)
     draft.location_text = location_text
-    draft.eligibility_text = extraction.eligibility_text
-    draft.required_documents = _list_to_text(extraction.documents_needed)
-    draft.application_process = _list_to_text(extraction.journey_steps, separator="\n")
-    draft.education_requirement = extraction.degree_level
-    draft.experience_requirement = _pick_requirement_line(extraction.requirements, ("experience", "year", "yrs"))
-    draft.language_requirement = ", ".join(extraction.language_requirements) if extraction.language_requirements else None
+    all_requirements = _clean_list(extraction.requirements) + _clean_list(getattr(extraction, "qualifications", None))
+    draft.eligibility_text = extraction.eligibility_text or _list_to_text(all_requirements, separator="\n")
+    draft.education_requirement = extraction.degree_level or _pick_requirement_line(all_requirements, ("education", "degree", "diploma", "bachelor", "ssc"))
+    draft.experience_requirement = _pick_requirement_line(all_requirements, ("experience", "year", "yrs"))
+    draft.language_requirement = ", ".join(extraction.language_requirements) if extraction.language_requirements else _pick_requirement_line(_clean_list(getattr(extraction, "skills", None)), ("english", "arabic", "language"))
     draft.visa_or_work_permit_info = _extract_visa_info(extraction.eligibility_text, page.raw_text or "")
     if _is_strict_official_job_source(source) and not draft.journey_steps and (application_url := (extraction.application_url or getattr(page, "original_apply_url", None) or page.document_url)):
         draft.journey_steps = _default_journey_steps(application_url)
@@ -1146,6 +1288,8 @@ def _populate_opportunity_detail_fields(draft: Opportunity, extraction, page, so
     if _is_strict_official_job_source(source) and not draft.documents_needed:
         draft.documents_needed = _default_documents_needed()
         draft.documents_required = list(draft.documents_needed)
+    draft.required_documents = _list_to_text(draft.documents_needed)
+    draft.application_process = _list_to_text(draft.journey_steps, separator="\n")
     draft.posted_date = parse_deadline((page.metadata or {}).get("posting_date_text"))
 
 
@@ -1173,6 +1317,55 @@ def _format_salary_text(salary_min: float | None, salary_max: float | None, sala
 def _list_to_text(values: list[str] | None, *, separator: str = ", ") -> str | None:
     cleaned = [item.strip() for item in (values or []) if item and item.strip()]
     return separator.join(cleaned) if cleaned else None
+
+
+def _clean_list(values: list[str] | None) -> list[str]:
+    return [str(item).strip() for item in (values or []) if str(item).strip()]
+
+
+def _build_requirements_json(extraction) -> dict:
+    groups = {
+        "requirements": _clean_list(extraction.requirements),
+        "qualifications": _clean_list(getattr(extraction, "qualifications", None)),
+        "responsibilities": _clean_list(getattr(extraction, "responsibilities", None)),
+        "key_accountabilities": _clean_list(getattr(extraction, "key_accountabilities", None)),
+        "role_accountabilities": _clean_list(getattr(extraction, "role_accountabilities", None)),
+        "skills": _clean_list(getattr(extraction, "skills", None)),
+        "work_conditions": _clean_list(getattr(extraction, "work_conditions", None)),
+    }
+    items: list[str] = []
+    for key in ("requirements", "qualifications", "skills"):
+        for item in groups[key]:
+            if item not in items:
+                items.append(item)
+    return {
+        "items": items,
+        "groups": {key: value for key, value in groups.items() if value},
+        "source_sections": _clean_source_sections(getattr(extraction, "source_sections", None)),
+        "job_purpose": getattr(extraction, "job_purpose", None),
+    }
+
+
+def _build_benefits_json(extraction) -> dict:
+    return {
+        "items": _clean_list(extraction.benefits),
+        "work_conditions": _clean_list(getattr(extraction, "work_conditions", None)),
+    }
+
+
+def _clean_source_sections(sections) -> list[dict[str, list[str] | str]]:
+    cleaned: list[dict[str, list[str] | str]] = []
+    for section in sections or []:
+        if not isinstance(section, dict):
+            continue
+        title = str(section.get("title") or "").strip()
+        items = section.get("items") or []
+        if isinstance(items, str):
+            items = [items]
+        clean_items = [str(item).strip() for item in items if str(item).strip()]
+        if title and clean_items:
+            cleaned.append({"title": title, "items": clean_items})
+    return cleaned
 
 
 def _pick_requirement_line(requirements: list[str] | None, terms: tuple[str, ...]) -> str | None:

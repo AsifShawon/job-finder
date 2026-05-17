@@ -1,6 +1,7 @@
 from datetime import UTC
 from typing import Any
 
+import httpx
 from langchain_groq import ChatGroq
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -8,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.models.entities import Opportunity, Source
 from app.schemas.copilot import CopilotCitation, CopilotResponse
 from app.schemas.opportunity import OpportunitySearchQuery
-from app.services.runtime_settings_service import get_groq_api_key, get_groq_model
+from app.services.runtime_settings_service import get_ai_api_key, get_ai_model, get_ai_provider
 from app.services.search_service import search_opportunities
 
 
@@ -66,23 +67,38 @@ def _build_citations(rows: list[tuple[Opportunity, Source]]) -> list[CopilotCita
 
 
 def _llm_answer(db: Session, question: str, context: list[dict[str, Any]]) -> str:
-    groq_api_key = get_groq_api_key(db)
-    if not groq_api_key:
+    api_key = get_ai_api_key(db)
+    if not api_key:
         return (
             "Based on indexed opportunities only, prioritize official sources with active deadlines, "
             "review stated eligibility, and apply through the provided source links."
         )
 
-    model = ChatGroq(
-        model=get_groq_model(db),
-        api_key=groq_api_key,
-        temperature=0.1,
-    )
     prompt = (
         "You are a strict opportunity assistant. Use only provided context. If unknown, say unknown.\n"
         f"Question: {question}\n"
         f"Context: {context}\n"
         "Respond in concise bullet-style prose without hallucinations."
+    )
+    provider = get_ai_provider(db)
+    if provider == "mistral":
+        response = httpx.post(
+            "https://api.mistral.ai/v1/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={
+                "model": get_ai_model(db),
+                "temperature": 0.1,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+            timeout=60,
+        )
+        response.raise_for_status()
+        return str(response.json()["choices"][0]["message"]["content"])
+
+    model = ChatGroq(
+        model=get_ai_model(db),
+        api_key=api_key,
+        temperature=0.1,
     )
     result = model.invoke(prompt)
     return str(result.content)

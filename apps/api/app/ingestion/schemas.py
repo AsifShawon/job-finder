@@ -110,6 +110,14 @@ class ExtractionBase(BaseModel):
     requirements: list[str] = Field(default_factory=list)
     benefits: list[str] = Field(default_factory=list)
     language_requirements: list[str] = Field(default_factory=list)
+    job_purpose: str | None = None
+    responsibilities: list[str] = Field(default_factory=list)
+    key_accountabilities: list[str] = Field(default_factory=list)
+    role_accountabilities: list[str] = Field(default_factory=list)
+    qualifications: list[str] = Field(default_factory=list)
+    skills: list[str] = Field(default_factory=list)
+    work_conditions: list[str] = Field(default_factory=list)
+    source_sections: list[dict[str, Any]] = Field(default_factory=list)
     journey_steps: list[str] = Field(default_factory=list)
     documents_needed: list[str] = Field(default_factory=list)
     typical_salary_bdt: int | None = None
@@ -118,6 +126,8 @@ class ExtractionBase(BaseModel):
     # Per-field confidence scores in [0, 1] computed by the multi-step extractor.
     # Surfaced in the admin review UI so reviewers can spot weak fields.
     field_confidences: dict[str, float] | None = None
+    extraction_method: str | None = None
+    fallback_reason: str | None = None
 
 
 class JobOpportunityExtraction(ExtractionBase):

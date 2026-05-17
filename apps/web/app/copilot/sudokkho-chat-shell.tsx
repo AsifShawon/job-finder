@@ -1,16 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocale } from "next-intl";
 import {
   AlertTriangle,
+  Bot,
+  ChevronRight,
   History,
   Loader2,
   Menu,
-  MessageSquarePlus,
   Mic2,
-  PanelLeftClose,
+  MessageSquarePlus,
   Pause,
   Play,
   SendHorizontal,
@@ -20,15 +21,11 @@ import {
   Volume2,
   VolumeX,
   X,
-  Home as HomeIcon,
-  ChevronLeft,
-  ChevronRight,
 } from "lucide-react";
 
 import { OpportunityCard } from "@/components/opportunity-card";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { useSpeechRecognition } from "@/hooks/use-speech-recognition";
+import { useVoiceOutput } from "@/hooks/use-voice-output";
 import type {
   CopilotChatCitation,
   CopilotConversationDetail,
@@ -40,18 +37,15 @@ import type {
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-// --- Constants ---
-
-const BILINGUAL_PROMPTS = [
-  { bn: "কানাডায় নার্স হিসেবে কাজ করতে কী লাগবে?", en: "What's needed to work as a nurse in Canada?" },
+const PROMPTS = [
   { bn: "SSC পাসে কোন দেশে কাজ পাবো?", en: "Which countries hire SSC-pass workers?" },
-  { bn: "জার্মানি Ausbildung-এ আবেদন কীভাবে করবো?", en: "How do I apply for German Ausbildung?" },
-  { bn: "মালয়েশিয়া যেতে কত খরচ লাগে?", en: "How much does it cost to go to Malaysia?" },
-  { bn: "সরকারি বৃত্তির জন্য কীভাবে আবেদন করবো?", en: "How do I apply for government scholarships?" },
-  { bn: "দুবাইয়ে ড্রাইভিং চাকরির জন্য কী করতে হবে?", en: "What to do for a driving job in Dubai?" },
+  { bn: "মালয়েশিয়া যেতে কত খরচ লাগবে?", en: "How much does it cost to go to Malaysia?" },
+  { bn: "জার্মানি Ausbildung কীভাবে করবো?", en: "How do I apply for German Ausbildung?" },
+  { bn: "কানাডায় নার্স হিসেবে কাজ করতে কী লাগবে?", en: "What do I need to work as a nurse in Canada?" },
 ];
 
-// --- Types ---
+type Locale = "bn" | "en";
+type EntryMode = "voice" | "text";
 
 type TimelineMessage = CopilotMessage & {
   tempKey?: string;
@@ -63,53 +57,76 @@ type ActiveConversation = Omit<CopilotConversationDetail, "messages"> & {
   messages: TimelineMessage[];
 };
 
-// --- Helper Functions ---
+type StreamEvent =
+  | { event: "start"; data: { conversation_id: number } }
+  | { event: "token"; data: { text: string } }
+  | { event: "citations"; data: { items: CopilotChatCitation[] } }
+  | { event: "recommendations"; data: { items: CopilotChatCitation[] } }
+  | { event: "done"; data: { message_id: number; assistant?: CopilotMessage } }
+  | { event: "error"; data: { detail: string } };
 
-function getErrorMessage(payload: unknown, fallback: string): string {
+interface SudokkhoChatShellProps {
+  initialQuestion?: string;
+  initialLocale?: Locale;
+  initialMode?: EntryMode;
+  initialAutoSpeak?: boolean;
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function tempMessage(role: "user" | "assistant", content: string, extra: Partial<TimelineMessage> = {}): TimelineMessage {
+  return {
+    id: -Math.floor(Math.random() * 1_000_000),
+    role,
+    content,
+    citations: [],
+    suggested_follow_ups: [],
+    created_at: nowIso(),
+    ...extra,
+  };
+}
+
+function errorText(payload: unknown, fallback: string): string {
   if (!payload) return fallback;
   if (typeof payload === "string") return payload;
-  if (Array.isArray(payload)) {
-    const parts = payload.map((entry) => getErrorMessage(entry, "")).filter(Boolean);
-    return parts.length > 0 ? parts.join(" ") : fallback;
-  }
-  if (typeof payload === "object") {
+  if (typeof payload === "object" && "detail" in payload) {
     const detail = (payload as { detail?: unknown }).detail;
-    if (detail !== undefined) return getErrorMessage(detail, fallback);
-    const msg = (payload as { msg?: unknown }).msg;
-    if (typeof msg === "string" && msg.trim()) return msg;
+    return typeof detail === "string" ? detail : fallback;
   }
   return fallback;
 }
 
-function citationToCard(c: CopilotChatCitation): PublishedOpportunityCard {
+function citationToCard(citation: CopilotChatCitation): PublishedOpportunityCard {
   return {
-    id: c.opportunity_id,
-    title: c.title,
-    title_bn: c.title_bn,
-    title_en: c.title_en,
-    opportunity_type: c.opportunity_type as OpportunityType | null,
-    country: c.country,
-    destination_country: c.destination_country,
-    employer_or_organization: c.employer_or_organization,
+    id: citation.opportunity_id,
+    title: citation.title,
+    title_bn: citation.title_bn,
+    title_en: citation.title_en,
+    opportunity_type: citation.opportunity_type as OpportunityType | null,
+    country: citation.country,
+    destination_country: citation.destination_country,
+    employer_or_organization: citation.employer_or_organization,
     sector: null,
     isc_category_key: null,
     platform_category_bn: null,
     platform_category_en: null,
-    salary_min: c.salary_min,
-    salary_max: c.salary_max,
-    salary_currency: c.salary_currency,
-    salary_text: c.salary_text,
-    salary_text_bn: c.salary_text_bn,
+    salary_min: citation.salary_min,
+    salary_max: citation.salary_max,
+    salary_currency: citation.salary_currency,
+    salary_text: citation.salary_text,
+    salary_text_bn: citation.salary_text_bn,
     salary_text_en: null,
-    experience_min_years: c.experience_min_years ?? null,
-    deadline: c.deadline,
-    source_page_url: c.source_url,
+    experience_min_years: citation.experience_min_years ?? null,
+    deadline: citation.deadline,
+    source_page_url: citation.source_url,
     document_url: null,
     original_apply_url: null,
     content_type: null,
     source_name: null,
-    source_trust_badge: c.source_trust_badge,
-    can_apply_from_bd: c.can_apply_from_bd,
+    source_trust_badge: citation.source_trust_badge,
+    can_apply_from_bd: citation.can_apply_from_bd,
     requires_existing_work_permit: null,
     open_to_international_candidates: null,
     open_to_authorized_workers_only: null,
@@ -123,64 +140,89 @@ function citationToCard(c: CopilotChatCitation): PublishedOpportunityCard {
     actionability_score: 0,
     overall_rank_score: 0,
     published_at: null,
-    is_saved: c.is_saved,
-    why_this_matches: c.why_this_matches,
-    summary: c.summary,
-    summary_bn: c.summary_bn,
-    source_url: c.source_url,
+    is_saved: citation.is_saved,
+    why_this_matches: citation.why_this_matches,
+    summary: citation.summary,
+    summary_bn: citation.summary_bn,
+    source_url: citation.source_url,
     is_active: true,
   };
 }
 
-function formatConversationTime(value: string, locale: "bn" | "en"): string {
-  const date = new Date(value);
-  return new Intl.DateTimeFormat(locale === "bn" ? "bn-BD" : "en-US", {
-    month: "short",
-    day: "numeric",
-  }).format(date);
-}
-
-function formatMessageTime(value: string, locale: "bn" | "en"): string {
-  const date = new Date(value);
+function formatMessageTime(value: string, locale: Locale): string {
   return new Intl.DateTimeFormat(locale === "bn" ? "bn-BD" : "en-US", {
     hour: "numeric",
     minute: "2-digit",
-  }).format(date);
+  }).format(new Date(value));
 }
 
-function buildTempMessage(
-  role: "user" | "assistant",
-  content: string,
-  options: Partial<TimelineMessage> = {},
-): TimelineMessage {
-  return {
-    id: -Math.floor(Math.random() * 1_000_000),
-    role,
-    content,
-    citations: [],
-    suggested_follow_ups: [],
-    created_at: new Date().toISOString(),
-    ...options,
-  };
+function formatConversationTime(value: string, locale: Locale): string {
+  return new Intl.DateTimeFormat(locale === "bn" ? "bn-BD" : "en-US", {
+    month: "short",
+    day: "numeric",
+  }).format(new Date(value));
 }
 
-// --- Components ---
+function parseStreamBlock(block: string): StreamEvent | null {
+  const eventLine = block.split("\n").find((line) => line.startsWith("event:"));
+  const dataLines = block.split("\n").filter((line) => line.startsWith("data:"));
+  const event = eventLine?.replace("event:", "").trim() as StreamEvent["event"] | undefined;
+  const rawData = dataLines.map((line) => line.replace("data:", "").trim()).join("\n");
+  if (!event || !rawData) {
+    return null;
+  }
+  try {
+    return { event, data: JSON.parse(rawData) } as StreamEvent;
+  } catch {
+    return null;
+  }
+}
 
-/**
- * Main Chat Shell that manages the layout and state
- */
+async function readSse(
+  response: Response,
+  onEvent: (event: StreamEvent) => void,
+) {
+  if (!response.body) {
+    throw new Error("No stream body");
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop() ?? "";
+    for (const part of parts) {
+      const event = parseStreamBlock(part.trim());
+      if (event) {
+        onEvent(event);
+      }
+    }
+  }
+  if (buffer.trim()) {
+    const event = parseStreamBlock(buffer.trim());
+    if (event) {
+      onEvent(event);
+    }
+  }
+}
+
 export function SudokkhoChatShell({
   initialQuestion = "",
   initialLocale = "bn",
-}: {
-  initialQuestion?: string;
-  initialLocale?: "bn" | "en";
-}) {
-  const currentLocale = useLocale() as "bn" | "en";
+  initialMode = "text",
+  initialAutoSpeak = false,
+}: SudokkhoChatShellProps) {
+  const currentLocale = useLocale() as Locale;
   const locale = currentLocale === "en" ? "en" : initialLocale;
   const isEn = locale === "en";
-  const messageEndRef = useRef<HTMLDivElement | null>(null);
-  const autoPromptRef = useRef(false);
+  const bottomRef = useRef<HTMLDivElement | null>(null);
+  const initialSendKeyRef = useRef("");
+  const streamAbortRef = useRef<AbortController | null>(null);
+  const voice = useVoiceOutput(locale);
 
   const [composer, setComposer] = useState(initialQuestion);
   const [conversations, setConversations] = useState<CopilotConversationListItem[]>([]);
@@ -189,105 +231,79 @@ export function SudokkhoChatShell({
   const [openingConversationId, setOpeningConversationId] = useState<number | null>(null);
   const [creatingConversation, setCreatingConversation] = useState(false);
   const [sending, setSending] = useState(false);
-  const [deletingConversationId, setDeletingConversationId] = useState<number | null>(null);
   const [pageError, setPageError] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [voiceOutputEnabled, setVoiceOutputEnabled] = useState(false);
+  const [voiceQuestionReceived, setVoiceQuestionReceived] = useState(initialMode === "voice" && Boolean(initialQuestion.trim()));
+  const [lastFailedQuestion, setLastFailedQuestion] = useState("");
 
-  // Use browsers Speech Recognition
-  const [isListening, setIsListening] = useState(false);
-  const [recognitionError, setRecognitionError] = useState("");
-  const recognitionRef = useRef<any>(null);
-
-  // Use browsers Speech Synthesis
-  const [speakingMessageId, setSpeakingMessageId] = useState<number | null>(null);
-  const [isPaused, setIsPaused] = useState(false);
-  const synthesisRef = useRef<SpeechSynthesisUtterance | null>(null);
-
-  const latestAssistantMessage = useMemo(() => {
-    if (!activeConversation) return null;
-    const messages = [...activeConversation.messages].reverse();
-    return messages.find((message) => message.role === "assistant") ?? null;
-  }, [activeConversation]);
-
-  const bottomSuggestions = useMemo(() => {
-    if (!latestAssistantMessage) {
-      return { followUps: [] as CopilotSuggestedFollowUp[], citations: [] as CopilotChatCitation[] };
+  useEffect(() => {
+    if (initialAutoSpeak) {
+      voice.setEnabled(true);
     }
-    return {
-      followUps: latestAssistantMessage.suggested_follow_ups ?? [],
-      citations: latestAssistantMessage.citations ?? [],
-    };
-  }, [latestAssistantMessage]);
+  }, [initialAutoSpeak, voice]);
 
-  const loadConversationList = async (options?: { preferredConversationId?: number | null; autoOpenFirst?: boolean }) => {
-    setLoadingHistory(true);
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [activeConversation?.messages, sending]);
+
+  const openConversation = useCallback(async (conversationId: number) => {
+    setOpeningConversationId(conversationId);
+    setPageError("");
     try {
-      const res = await fetch("/api/copilot/conversations", { cache: "no-store" });
-      const payload = (await res.json().catch(() => [])) as CopilotConversationListItem[] | { detail?: unknown };
-      if (!res.ok) {
-        setPageError(getErrorMessage(payload, isEn ? "Could not load chat history." : "চ্যাট হিস্টোরি লোড করা যায়নি।"));
+      const response = await fetch(`/api/copilot/conversations/${conversationId}`, { cache: "no-store" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setPageError(errorText(payload, isEn ? "Could not open this chat." : "এই চ্যাট খোলা যায়নি।"));
         return;
       }
-      const items = Array.isArray(payload) ? payload : [];
+      setActiveConversation(payload as ActiveConversation);
+      setSidebarOpen(false);
+      voice.stop();
+    } finally {
+      setOpeningConversationId(null);
+    }
+  }, [isEn, voice]);
+
+  const loadConversationList = useCallback(async (options?: { preferredConversationId?: number; autoOpenFirst?: boolean }) => {
+    setLoadingHistory(true);
+    try {
+      const response = await fetch("/api/copilot/conversations", { cache: "no-store" });
+      const payload = await response.json().catch(() => []);
+      if (!response.ok) {
+        setPageError(errorText(payload, isEn ? "Could not load chat history." : "চ্যাট ইতিহাস লোড করা যায়নি।"));
+        return;
+      }
+      const items = Array.isArray(payload) ? payload as CopilotConversationListItem[] : [];
       setConversations(items);
-
-      const preferred = options?.preferredConversationId;
-      if (preferred) {
-        const exists = items.some((item) => item.id === preferred);
-        if (exists) {
-          await openConversation(preferred);
-          return;
-        }
-      }
-
-      if (options?.autoOpenFirst !== false && !activeConversation && items.length > 0) {
+      if (options?.preferredConversationId && items.some((item) => item.id === options.preferredConversationId)) {
+        await openConversation(options.preferredConversationId);
+      } else if (options?.autoOpenFirst !== false && !activeConversation && items.length > 0) {
         await openConversation(items[0].id);
-      }
-      if (items.length === 0) {
+      } else if (items.length === 0) {
         setActiveConversation(null);
       }
     } finally {
       setLoadingHistory(false);
     }
-  };
+  }, [activeConversation, isEn, openConversation]);
 
-  const openConversation = async (conversationId: number) => {
-    setOpeningConversationId(conversationId);
-    setPageError("");
-    try {
-      const res = await fetch(`/api/copilot/conversations/${conversationId}`, { cache: "no-store" });
-      const payload = (await res.json().catch(() => ({}))) as CopilotConversationDetail | { detail?: unknown };
-      if (!res.ok) {
-        setPageError(getErrorMessage(payload, isEn ? "Could not open this chat." : "এই চ্যাট খোলা যায়নি।"));
-        return;
-      }
-      setActiveConversation(payload as ActiveConversation);
-      setSidebarOpen(false);
-      stopSpeaking();
-    } finally {
-      setOpeningConversationId(null);
-    }
-  };
-
-  const createConversation = async () => {
+  const createConversation = useCallback(async () => {
     setCreatingConversation(true);
     setPageError("");
     try {
-      const res = await fetch("/api/copilot/conversations", {
+      const response = await fetch("/api/copilot/conversations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ locale }),
       });
-      const payload = (await res.json().catch(() => ({}))) as CopilotConversationDetail | { detail?: unknown };
-      if (!res.ok) {
-        setPageError(getErrorMessage(payload, isEn ? "Could not start a new chat." : "নতুন চ্যাট শুরু করা যায়নি।"));
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setPageError(errorText(payload, isEn ? "Could not start a new chat." : "নতুন চ্যাট শুরু করা যায়নি।"));
         return null;
       }
-
       const conversation = payload as ActiveConversation;
       setActiveConversation(conversation);
-      setConversations((prev) => [
+      setConversations((current) => [
         {
           id: conversation.id,
           title: conversation.title,
@@ -296,545 +312,403 @@ export function SudokkhoChatShell({
           updated_at: conversation.updated_at,
           last_message_at: conversation.last_message_at,
         },
-        ...prev.filter((item) => item.id !== conversation.id),
+        ...current.filter((item) => item.id !== conversation.id),
       ]);
       setSidebarOpen(false);
-      stopSpeaking();
+      voice.stop();
       return conversation;
     } finally {
       setCreatingConversation(false);
     }
-  };
+  }, [isEn, locale, voice]);
 
-  const deleteCurrentConversation = async (conversationId: number) => {
-    const confirmed = window.confirm(
-      isEn
-        ? "Delete this chat history? This cannot be undone."
-        : "এই চ্যাট হিস্টোরি মুছে ফেলবেন? এটা আর ফেরত আনা যাবে না।",
-    );
-    if (!confirmed) return;
-
-    setDeletingConversationId(conversationId);
-    setPageError("");
-    try {
-      const res = await fetch(`/api/copilot/conversations/${conversationId}`, { method: "DELETE" });
-      if (!res.ok) {
-        const payload = await res.json().catch(() => ({}));
-        setPageError(getErrorMessage(payload, isEn ? "Could not delete this chat." : "এই চ্যাট মুছে ফেলা যায়নি।"));
-        return;
-      }
-      const remaining = conversations.filter((item) => item.id !== conversationId);
-      setConversations(remaining);
-
-      if (activeConversation?.id === conversationId) {
-        setActiveConversation(null);
-        if (remaining.length > 0) {
-          await openConversation(remaining[0].id);
-        }
-      }
-    } finally {
-      setDeletingConversationId(null);
+  const sendMessage = useCallback(async (overrideText?: string) => {
+    const question = (overrideText ?? composer).trim();
+    if (!question || sending) {
+      return;
     }
-  };
-
-  const sendMessage = async (overrideText?: string) => {
-    const text = (overrideText ?? composer).trim();
-    if (!text || sending) return;
 
     setPageError("");
+    setLastFailedQuestion("");
     setComposer("");
     setSending(true);
-    stopSpeaking();
+    voice.stop();
 
     let conversation = activeConversation;
     if (!conversation) {
       conversation = await createConversation();
       if (!conversation) {
-        setComposer(text);
+        setComposer(question);
         setSending(false);
         return;
       }
     }
 
-    const tempUser = buildTempMessage("user", text, { tempKey: `user-${Date.now()}` });
-    const tempAssistant = buildTempMessage("assistant", isEn ? "Thinking…" : "ভাবছি…", {
+    const userTemp = tempMessage("user", question, { tempKey: `user-${Date.now()}` });
+    const assistantTemp = tempMessage("assistant", "", {
       tempKey: `assistant-${Date.now()}`,
       pending: true,
     });
 
     setActiveConversation((current) => {
-      if (!current || current.id !== conversation!.id) return current;
-      return {
-        ...current,
-        messages: [...current.messages, tempUser, tempAssistant],
-      };
+      if (!current || current.id !== conversation.id) return current;
+      return { ...current, messages: [...current.messages, userTemp, assistantTemp] };
     });
-
-    setConversations((prev) => [
+    setConversations((current) => [
       {
         id: conversation.id,
         title: conversation.title,
         locale: conversation.locale,
-        last_message_preview: text,
-        updated_at: new Date().toISOString(),
-        last_message_at: new Date().toISOString(),
+        last_message_preview: question,
+        updated_at: nowIso(),
+        last_message_at: nowIso(),
       },
-      ...prev.filter((item) => item.id !== conversation!.id),
+      ...current.filter((item) => item.id !== conversation.id),
     ]);
 
+    const abortController = new AbortController();
+    streamAbortRef.current = abortController;
+    let streamedContent = "";
+    let latestCitations: CopilotChatCitation[] = [];
+
     try {
-      const res = await fetch(`/api/copilot/conversations/${conversation.id}/messages`, {
+      const response = await fetch(`/api/copilot/conversations/${conversation.id}/messages/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: text, locale }),
+        body: JSON.stringify({ question, locale }),
+        signal: abortController.signal,
       });
-      const payload = (await res.json().catch(() => ({}))) as CopilotMessage | { detail?: unknown };
-      if (!res.ok) {
-        const errorMessage = getErrorMessage(payload, isEn ? "Could not get an answer." : "উত্তর পাওয়া যায়নি।");
-        setPageError(errorMessage);
-        setActiveConversation((current) => {
-          if (!current || current.id !== conversation!.id) return current;
-          return {
-            ...current,
-            messages: [
-              ...current.messages.filter((message) => message.tempKey !== tempAssistant.tempKey),
-              buildTempMessage("assistant", errorMessage, { failed: true, tempKey: `error-${Date.now()}` }),
-            ],
-          };
-        });
-        return;
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(errorText(payload, isEn ? "Could not get an answer." : "উত্তর পাওয়া যায়নি।"));
       }
 
-      const finalAssistantMsg = payload as CopilotMessage;
+      await readSse(response, (event) => {
+        if (event.event === "token") {
+          streamedContent += event.data.text;
+          setActiveConversation((current) => {
+            if (!current || current.id !== conversation.id) return current;
+            return {
+              ...current,
+              messages: current.messages.map((message) =>
+                message.tempKey === assistantTemp.tempKey
+                  ? { ...message, content: streamedContent, pending: true }
+                  : message,
+              ),
+            };
+          });
+        }
+        if (event.event === "citations" || event.event === "recommendations") {
+          latestCitations = event.data.items;
+          setActiveConversation((current) => {
+            if (!current || current.id !== conversation.id) return current;
+            return {
+              ...current,
+              messages: current.messages.map((message) =>
+                message.tempKey === assistantTemp.tempKey
+                  ? { ...message, citations: latestCitations }
+                  : message,
+              ),
+            };
+          });
+        }
+        if (event.event === "done") {
+          const finalAssistant = event.data.assistant;
+          setActiveConversation((current) => {
+            if (!current || current.id !== conversation.id) return current;
+            return {
+              ...current,
+              messages: current.messages.map((message) =>
+                message.tempKey === assistantTemp.tempKey
+                  ? {
+                      ...(finalAssistant ?? message),
+                      id: event.data.message_id,
+                      content: finalAssistant?.content ?? streamedContent,
+                      citations: finalAssistant?.citations ?? latestCitations,
+                      suggested_follow_ups: finalAssistant?.suggested_follow_ups ?? message.suggested_follow_ups,
+                      pending: false,
+                    }
+                  : message,
+              ),
+            };
+          });
+        }
+        if (event.event === "error") {
+          throw new Error(event.data.detail);
+        }
+      });
 
+      if (voice.enabled && streamedContent.trim()) {
+        await voice.speak(streamedContent);
+      }
+      await loadConversationList({ preferredConversationId: conversation.id, autoOpenFirst: false });
+    } catch (error) {
+      if (abortController.signal.aborted) {
+        setPageError(isEn ? "Generation stopped." : "উত্তর তৈরি বন্ধ করা হয়েছে।");
+      } else {
+        const message = error instanceof Error ? error.message : isEn ? "Could not get an answer." : "উত্তর পাওয়া যায়নি।";
+        setPageError(message);
+        setLastFailedQuestion(question);
+      }
       setActiveConversation((current) => {
-        if (!current || current.id !== conversation!.id) return current;
+        if (!current || current.id !== conversation.id) return current;
         return {
           ...current,
-          locale,
-          messages: current.messages.map((message) =>
-            message.tempKey === tempAssistant.tempKey ? { ...finalAssistantMsg } : message,
+          messages: current.messages.map((item) =>
+            item.tempKey === assistantTemp.tempKey
+              ? { ...item, content: item.content || (isEn ? "Answer failed." : "উত্তর পাওয়া যায়নি।"), pending: false, failed: true }
+              : item,
           ),
         };
       });
-
-      // Auto-speak if enabled
-      if (voiceOutputEnabled) {
-        speakMessage(finalAssistantMsg.content, finalAssistantMsg.id);
-      }
-
-      await loadConversationList({ preferredConversationId: conversation.id });
     } finally {
       setSending(false);
+      streamAbortRef.current = null;
+      setVoiceQuestionReceived(false);
     }
-  };
+  }, [activeConversation, composer, createConversation, isEn, loadConversationList, locale, sending, voice]);
 
-  // --- Voice Input Logic ---
+  const deleteConversation = async (conversationId: number) => {
+    const response = await fetch(`/api/copilot/conversations/${conversationId}`, { method: "DELETE" });
+    if (!response.ok) {
+      setPageError(isEn ? "Could not delete this chat." : "চ্যাট মুছতে সমস্যা হয়েছে।");
+      return;
+    }
+    setConversations((current) => current.filter((item) => item.id !== conversationId));
+    setActiveConversation(null);
+    await loadConversationList();
+  };
 
   useEffect(() => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      const recognition = new SpeechRecognition();
-      recognition.continuous = false;
-      recognition.interimResults = true;
-      recognition.lang = locale === "bn" ? "bn-BD" : "en-US";
-
-      recognition.onresult = (event: any) => {
-        const transcript = Array.from(event.results)
-          .map((result: any) => result[0])
-          .map((result: any) => result.transcript)
-          .join("");
-        setComposer(transcript);
-      };
-
-      recognition.onerror = (event: any) => {
-        console.error("Speech recognition error", event.error);
-        setRecognitionError(event.error);
-        setIsListening(false);
-      };
-
-      recognition.onend = () => {
-        setIsListening(false);
-      };
-
-      recognitionRef.current = recognition;
-    }
-  }, [locale]);
-
-  const toggleListening = () => {
-    if (isListening) {
-      recognitionRef.current?.stop();
-      setIsListening(false);
-    } else {
-      setRecognitionError("");
-      try {
-        recognitionRef.current?.start();
-        setIsListening(true);
-      } catch (err) {
-        console.error("Failed to start recognition", err);
-        setRecognitionError("not-supported");
-      }
-    }
-  };
-
-  // --- Voice Output Logic ---
-
-  const speakMessage = (text: string, messageId: number) => {
-    if (!window.speechSynthesis) return;
-
-    // Stop current speech
-    window.speechSynthesis.cancel();
-
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = locale === "bn" ? "bn-BD" : "en-US";
-
-    // Try to find a better voice if possible
-    const voices = window.speechSynthesis.getVoices();
-    if (locale === "bn") {
-      const bnVoice = voices.find((v) => v.lang.includes("bn-BD") || v.lang.includes("bn-IN"));
-      if (bnVoice) utterance.voice = bnVoice;
-    } else {
-      const enVoice = voices.find((v) => v.lang.includes("en-US") || v.lang.includes("en-GB"));
-      if (enVoice) utterance.voice = enVoice;
-    }
-
-    utterance.onstart = () => {
-      setSpeakingMessageId(messageId);
-      setIsPaused(false);
-    };
-    utterance.onend = () => {
-      setSpeakingMessageId(null);
-      setIsPaused(false);
-    };
-    utterance.onerror = () => {
-      setSpeakingMessageId(null);
-      setIsPaused(false);
-    };
-
-    synthesisRef.current = utterance;
-    window.speechSynthesis.speak(utterance);
-  };
-
-  const stopSpeaking = () => {
-    window.speechSynthesis.cancel();
-    setSpeakingMessageId(null);
-    setIsPaused(false);
-  };
-
-  const pauseSpeaking = () => {
-    window.speechSynthesis.pause();
-    setIsPaused(true);
-  };
-
-  const resumeSpeaking = () => {
-    window.speechSynthesis.resume();
-    setIsPaused(false);
-  };
-
-  // --- Lifecycle ---
-
-  useEffect(() => {
-    const init = async () => {
-      if (initialQuestion.trim()) {
-        await loadConversationList({ autoOpenFirst: false });
-        await createConversation();
-        return;
-      }
-      await loadConversationList();
-    };
-    void init();
+    void loadConversationList({ autoOpenFirst: !initialQuestion.trim() });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    if (
-      !autoPromptRef.current &&
-      initialQuestion.trim() &&
-      activeConversation &&
-      activeConversation.messages.length === 0
-    ) {
-      autoPromptRef.current = true;
-      void sendMessage(initialQuestion);
+    const clean = initialQuestion.trim();
+    if (!clean || initialSendKeyRef.current === clean || !activeConversation || activeConversation.messages.length > 0) {
+      return;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialQuestion, activeConversation?.id]);
+    initialSendKeyRef.current = clean;
+    void sendMessage(clean);
+  }, [activeConversation, initialQuestion, sendMessage]);
 
-  useEffect(() => {
-    if (!messageEndRef.current) return;
-    messageEndRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [activeConversation?.messages.length, sending]);
+  const latestAssistant = useMemo(() => {
+    return [...(activeConversation?.messages ?? [])].reverse().find((message) => message.role === "assistant") ?? null;
+  }, [activeConversation]);
+
+  const stopGenerating = () => {
+    streamAbortRef.current?.abort();
+  };
 
   return (
-    <div className="fixed inset-0 z-[100] flex h-[100dvh] w-screen flex-col bg-slate-50 dark:bg-slate-950 md:flex-row overflow-hidden">
-      {/* Desktop Sidebar */}
-      <aside className={cn(
-        "hidden border-r border-slate-200 bg-white transition-all duration-300 dark:border-slate-800 dark:bg-slate-900 md:flex md:flex-col",
-        sidebarOpen ? "w-80" : "w-0 overflow-hidden border-none"
-      )}>
+    <div className="flex h-[calc(100vh-0px)] overflow-hidden bg-slate-50 text-slate-950">
+      <aside className="hidden w-72 shrink-0 border-r border-slate-200 bg-white md:block">
         <ChatHistorySidebar
           conversations={conversations}
-          activeConversationId={activeConversation?.id}
-          onOpen={openConversation}
-          onCreate={createConversation}
+          activeConversationId={activeConversation?.id ?? null}
           loading={loadingHistory}
           creating={creatingConversation}
-          isEn={isEn}
+          openingConversationId={openingConversationId}
           locale={locale}
+          isEn={isEn}
+          onOpen={openConversation}
+          onCreate={createConversation}
         />
       </aside>
 
-      {/* Mobile Sidebar / Drawer */}
-      <MobileChatHistoryDrawer
-        isOpen={sidebarOpen && !window.matchMedia('(min-width: 768px)').matches}
+      <MobileDrawer
+        open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         conversations={conversations}
-        activeConversationId={activeConversation?.id}
-        onOpen={openConversation}
-        onCreate={createConversation}
+        activeConversationId={activeConversation?.id ?? null}
         loading={loadingHistory}
         creating={creatingConversation}
-        isEn={isEn}
+        openingConversationId={openingConversationId}
         locale={locale}
+        isEn={isEn}
+        onOpen={openConversation}
+        onCreate={createConversation}
       />
 
-      {/* Main Chat Area */}
-      <main className="relative flex flex-1 flex-col overflow-hidden h-full">
-        {/* Header */}
-        <header className="flex h-16 shrink-0 items-center justify-between border-b border-slate-200 bg-white/80 px-4 backdrop-blur dark:border-slate-800 dark:bg-slate-900/80 z-20">
+      <main className="flex min-w-0 flex-1 flex-col">
+        <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center justify-between border-b border-slate-200 bg-white/95 px-4 backdrop-blur md:px-6">
           <div className="flex items-center gap-3">
             <button
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="rounded-xl p-2 hover:bg-slate-100 dark:hover:bg-slate-800"
-              aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"}
+              type="button"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-slate-600 hover:bg-slate-100 md:hidden"
+              onClick={() => setSidebarOpen(true)}
+              aria-label={isEn ? "Open history" : "ইতিহাস খুলুন"}
             >
-              <PanelLeftClose className={cn("h-5 w-5 text-slate-600 transition-transform dark:text-slate-400", !sidebarOpen && "rotate-180")} />
+              <Menu className="h-5 w-5" />
             </button>
-            
-            <Link 
-              href="/" 
-              className="flex items-center gap-2 rounded-xl px-2 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-            >
-              <HomeIcon className="h-4 w-4 text-slate-500" />
-              <div className="flex flex-col leading-none">
-                <span className="text-sm font-bold text-slate-900 dark:text-slate-100">সুদক্ষ AI</span>
-                <span className="text-[10px] text-slate-500 dark:text-slate-400">সহকারী</span>
-              </div>
+            <Link href="/" className="flex items-center gap-2 rounded-xl px-2 py-1.5 hover:bg-slate-100">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-teal-600 text-white">
+                <Bot className="h-5 w-5" />
+              </span>
+              <span>
+                <span className="block text-sm font-bold">{isEn ? "Sudokkho AI" : "সুদক্ষ AI"}</span>
+                <span className="block text-xs text-slate-500">{isEn ? "Overseas job guide" : "বিদেশের চাকরি সহকারী"}</span>
+              </span>
             </Link>
           </div>
-
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setVoiceOutputEnabled(!voiceOutputEnabled)}
+              type="button"
+              onClick={() => voice.setEnabled(!voice.enabled)}
               className={cn(
-                "flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all shadow-sm",
-                voiceOutputEnabled
-                  ? "border-teal-500 bg-teal-50 text-teal-700 dark:bg-teal-900/20 dark:text-teal-300"
-                  : "border-slate-200 bg-white text-slate-600 hover:border-teal-500 hover:text-teal-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400",
+                "inline-flex h-10 items-center gap-2 rounded-xl border px-3 text-xs font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-300",
+                voice.enabled ? "border-teal-300 bg-teal-50 text-teal-700" : "border-slate-200 bg-white text-slate-600",
               )}
+              aria-label={voice.enabled ? (isEn ? "Turn voice output off" : "ভয়েস বন্ধ করুন") : (isEn ? "Turn voice output on" : "ভয়েস চালু করুন")}
             >
-              {voiceOutputEnabled ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
-              <span className="hidden sm:inline">{voiceOutputEnabled ? (isEn ? "Voice on" : "ভয়েস চালু") : (isEn ? "Voice off" : "ভয়েস বন্ধ")}</span>
+              {voice.enabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+              <span className="hidden sm:inline">{voice.enabled ? (isEn ? "Voice on" : "ভয়েস চালু") : (isEn ? "Voice off" : "ভয়েস বন্ধ")}</span>
             </button>
-
-            {activeConversation && (
+            {activeConversation ? (
               <button
-                onClick={() => deleteCurrentConversation(activeConversation.id)}
-                disabled={deletingConversationId === activeConversation.id}
-                className="rounded-full p-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20"
-                aria-label="Delete chat"
+                type="button"
+                onClick={() => void deleteConversation(activeConversation.id)}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-rose-600 hover:bg-rose-50"
+                aria-label={isEn ? "Delete chat" : "চ্যাট মুছুন"}
               >
-                {deletingConversationId === activeConversation.id ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Trash2 className="h-4 w-4" />
-                )}
+                <Trash2 className="h-4 w-4" />
               </button>
-            )}
+            ) : null}
           </div>
         </header>
 
-        {/* Message Area - Independent Scroll */}
-        <div className="flex-1 overflow-y-auto overflow-x-hidden scroll-smooth px-4 py-6 md:px-6 lg:px-20 bg-slate-50/50 dark:bg-slate-950/50">
-          <div className="mx-auto max-w-3xl space-y-8">
-            {!activeConversation ? (
-              <EmptyState isEn={isEn} onSelectPrompt={(text: string) => void sendMessage(text)} />
-            ) : activeConversation.messages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center pt-12 md:pt-20">
-                <div className="max-w-md w-full rounded-3xl border border-dashed border-slate-200 bg-white/50 p-8 text-center backdrop-blur-sm dark:border-slate-800 dark:bg-slate-900/50">
-                  <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-teal-50 text-teal-600 dark:bg-teal-900/30">
-                    <Sparkles className="h-6 w-6" />
-                  </div>
-                  <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">
-                    {isEn ? "Ready to help" : "আমি প্রস্তুত"}
-                  </h3>
-                  <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-                    {isEn ? "How can I assist you with your career goals today?" : "আপনার ক্যারিয়ার সংক্রান্ত কীভাবে সাহায্য করতে পারি?"}
-                  </p>
-                </div>
-                
-                <div className="mt-10 grid grid-cols-1 gap-3 sm:grid-cols-2 w-full max-w-2xl">
-                  {BILINGUAL_PROMPTS.slice(0, 4).map((p) => (
-                    <button
-                      key={p.en}
-                      onClick={() => void sendMessage(isEn ? p.en : p.bn)}
-                      className="group flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition-all hover:border-teal-500 hover:shadow-md dark:border-slate-800 dark:bg-slate-900 active:scale-[0.98]"
-                    >
-                      <span className="text-sm font-semibold text-slate-700 dark:text-slate-300 group-hover:text-teal-600 dark:group-hover:text-teal-400">
-                        {isEn ? p.en : p.bn}
-                      </span>
-                      <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 group-hover:text-teal-500" />
-                    </button>
-                  ))}
-                </div>
+        <section className="min-h-0 flex-1 overflow-y-auto px-4 py-6 md:px-8">
+          <div className="mx-auto max-w-4xl space-y-6">
+            {voiceQuestionReceived ? (
+              <div className="rounded-2xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm font-medium text-teal-800">
+                {isEn ? "Voice question received. Sudokkho AI is preparing your answer." : "ভয়েস প্রশ্ন পাওয়া গেছে। সুদক্ষ AI উত্তর তৈরি করছে।"}
               </div>
+            ) : null}
+            {!activeConversation || activeConversation.messages.length === 0 ? (
+              <EmptyState isEn={isEn} onPrompt={(text) => void sendMessage(text)} />
             ) : (
-              <div className="space-y-6 pb-4">
-                {activeConversation.messages.map((message) => (
-                  <ChatMessageBubble
-                    key={message.id}
-                    message={message}
-                    isEn={isEn}
-                    locale={locale}
-                    isSpeaking={speakingMessageId === message.id}
-                    isPaused={isPaused}
-                    onSpeak={() => speakMessage(message.content, message.id)}
-                    onStop={stopSpeaking}
-                    onPause={pauseSpeaking}
-                    onResume={resumeSpeaking}
-                  />
-                ))}
-
-                {(bottomSuggestions.followUps.length > 0 || bottomSuggestions.citations.length > 0) && (
-                  <div className="mt-8 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                    {bottomSuggestions.followUps.length > 0 && (
-                      <div className="flex flex-wrap gap-2">
-                        {bottomSuggestions.followUps.map((item) => (
-                          <SuggestedPromptChips
-                            key={item.text}
-                            text={item.text}
-                            onClick={() => void sendMessage(item.text)}
-                          />
-                        ))}
-                      </div>
-                    )}
-
-                    {bottomSuggestions.citations.length > 0 && (
-                      <div className="space-y-4">
-                        <div className="flex items-center gap-2 text-slate-400">
-                          <div className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />
-                          <span className="text-[10px] font-bold uppercase tracking-widest">
-                            {isEn ? "Citations" : "তথ্যসূত্র"}
-                          </span>
-                          <div className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />
-                        </div>
-                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                          {bottomSuggestions.citations.map((citation) => (
-                            <OpportunityCard
-                              key={citation.opportunity_id}
-                              item={citationToCard(citation)}
-                              variant="compact"
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
+              activeConversation.messages.map((message) => (
+                <ChatMessageBubble
+                  key={message.tempKey ?? message.id}
+                  message={message}
+                  locale={locale}
+                  isEn={isEn}
+                  isSpeaking={voice.speakingMessageId === message.id}
+                  voiceStatus={voice.status}
+                  onSpeak={() => void voice.speak(message.content, { messageId: message.id })}
+                  onPause={voice.pause}
+                  onResume={voice.resume}
+                  onStop={voice.stop}
+                  onFollowUp={(text) => void sendMessage(text)}
+                />
+              ))
             )}
-            <div ref={messageEndRef} className="h-4" />
+            <div ref={bottomRef} className="h-2" />
           </div>
-        </div>
+        </section>
 
-        {/* Input Area - Fixed Bottom */}
-        <div className="shrink-0 border-t border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 md:px-6 md:pb-8">
-          <div className="mx-auto max-w-3xl">
-            {pageError && (
-              <div className="mb-3 flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700 dark:border-rose-900/30 dark:bg-rose-900/10 dark:text-rose-400">
-                <AlertTriangle className="h-4 w-4" />
-                {pageError}
+        <footer className="shrink-0 border-t border-slate-200 bg-white px-4 py-3 md:px-8">
+          <div className="mx-auto max-w-4xl space-y-3">
+            {pageError ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                <span className="inline-flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4" />
+                  {pageError}
+                </span>
+                {lastFailedQuestion ? (
+                  <button type="button" className="font-bold text-amber-900 underline" onClick={() => void sendMessage(lastFailedQuestion)}>
+                    {isEn ? "Retry" : "আবার চেষ্টা করুন"}
+                  </button>
+                ) : null}
               </div>
-            )}
-            <ChatComposer
+            ) : null}
+            <VoiceComposer
               value={composer}
               onChange={setComposer}
               onSend={() => void sendMessage()}
-              isSending={sending}
-              isListening={isListening}
-              onToggleVoice={toggleListening}
+              disabled={sending || creatingConversation}
+              streaming={sending}
+              onStopGenerating={stopGenerating}
+              locale={locale}
               isEn={isEn}
-              recognitionError={recognitionError}
             />
-            <p className="mt-3 text-center text-[10px] text-slate-400">
-              {isEn 
-                ? "Sudokkho AI can make mistakes. Check important info." 
-                : "সুদক্ষ AI ভুল করতে পারে। গুরুত্বপূর্ণ তথ্য যাচাই করে নিন।"}
+            <p className="text-center text-[11px] text-slate-500">
+              {isEn ? "Check important information before applying." : "গুরুত্বপূর্ণ তথ্য আবেদন করার আগে যাচাই করুন।"}
             </p>
           </div>
-        </div>
+        </footer>
       </main>
     </div>
   );
 }
 
-// --- Sub-components ---
+interface SidebarProps {
+  conversations: CopilotConversationListItem[];
+  activeConversationId: number | null;
+  loading: boolean;
+  creating: boolean;
+  openingConversationId: number | null;
+  locale: Locale;
+  isEn: boolean;
+  onOpen: (id: number) => Promise<void>;
+  onCreate: () => Promise<ActiveConversation | null>;
+}
 
 function ChatHistorySidebar({
   conversations,
   activeConversationId,
-  onOpen,
-  onCreate,
   loading,
   creating,
-  isEn,
+  openingConversationId,
   locale,
-}: any) {
+  isEn,
+  onOpen,
+  onCreate,
+}: SidebarProps) {
   return (
-    <div className="flex h-full flex-col overflow-hidden">
-      <div className="p-4 shrink-0">
+    <div className="flex h-full flex-col">
+      <div className="border-b border-slate-200 p-3">
         <button
-          onClick={() => onCreate()}
+          type="button"
+          onClick={() => void onCreate()}
           disabled={creating}
-          className="flex w-full items-center justify-center gap-2 rounded-2xl bg-teal-600 px-4 py-3.5 text-sm font-bold text-white shadow-md transition-all hover:bg-teal-700 hover:shadow-lg disabled:opacity-60 active:scale-[0.98]"
+          className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-teal-600 px-4 text-sm font-bold text-white transition hover:bg-teal-700 disabled:opacity-60"
         >
           {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageSquarePlus className="h-4 w-4" />}
           {isEn ? "New chat" : "নতুন চ্যাট"}
         </button>
       </div>
-
-      <div className="flex-1 overflow-y-auto px-2 pb-8">
-        <div className="px-3 pb-2 text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">
-          {isEn ? "Recent Conversations" : "পুরোনো কথোপকথন"}
+      <div className="flex-1 overflow-y-auto p-2">
+        <div className="mb-2 flex items-center gap-2 px-2 text-xs font-bold uppercase tracking-wide text-slate-400">
+          <History className="h-3.5 w-3.5" />
+          {isEn ? "History" : "ইতিহাস"}
         </div>
         {loading ? (
-          <div className="space-y-2 px-2">
-            {[1, 2, 3, 4, 5].map((i) => (
-              <div key={i} className="h-12 animate-pulse rounded-xl bg-slate-100 dark:bg-slate-800" />
+          <div className="space-y-2">
+            {[1, 2, 3, 4].map((item) => (
+              <div key={item} className="h-14 animate-pulse rounded-xl bg-slate-100" />
             ))}
           </div>
         ) : conversations.length === 0 ? (
-          <div className="px-4 py-12 text-center text-xs text-slate-400 italic">
-            {isEn ? "No chat history yet" : "এখনো কোনো চ্যাট নেই"}
-          </div>
+          <p className="px-3 py-10 text-center text-sm text-slate-500">{isEn ? "No chats yet" : "এখনো কোনো চ্যাট নেই"}</p>
         ) : (
           <div className="space-y-1">
-            {conversations.map((conv: any) => (
+            {conversations.map((conversation) => (
               <button
-                key={conv.id}
-                onClick={() => onOpen(conv.id)}
+                type="button"
+                key={conversation.id}
+                onClick={() => void onOpen(conversation.id)}
                 className={cn(
-                  "group flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm transition-all",
-                  activeConversationId === conv.id
-                    ? "bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300"
-                    : "text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800",
+                  "flex w-full items-center justify-between gap-3 rounded-xl px-3 py-3 text-left text-sm transition",
+                  activeConversationId === conversation.id ? "bg-teal-50 text-teal-800" : "text-slate-700 hover:bg-slate-100",
                 )}
               >
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-bold">{conv.title}</div>
-                  <div className="truncate text-[10px] opacity-60">
-                    {formatConversationTime(conv.last_message_at, locale)}
-                  </div>
-                </div>
+                <span className="min-w-0">
+                  <span className="block truncate font-bold">{conversation.title}</span>
+                  <span className="block truncate text-xs opacity-60">{formatConversationTime(conversation.last_message_at, locale)}</span>
+                </span>
+                {openingConversationId === conversation.id ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               </button>
             ))}
           </div>
@@ -844,236 +718,296 @@ function ChatHistorySidebar({
   );
 }
 
-
-function MobileChatHistoryDrawer({ isOpen, onClose, ...props }: any) {
-  if (!isOpen) return null;
+function MobileDrawer({ open, onClose, ...props }: SidebarProps & { open: boolean; onClose: () => void }) {
+  if (!open) return null;
   return (
-    <div className="fixed inset-0 z-[100] md:hidden">
-      <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="absolute inset-y-0 left-0 w-[280px] bg-white dark:bg-slate-900 shadow-2xl">
-        <div className="flex items-center justify-between border-b border-slate-100 p-4 dark:border-slate-800">
-          <h2 className="text-sm font-bold">{props.isEn ? "History" : "হিস্টোরি"}</h2>
-          <button onClick={onClose} className="rounded-full p-1 hover:bg-slate-100 dark:hover:bg-slate-800">
-            <X className="h-4 w-4" />
+    <div className="fixed inset-0 z-50 md:hidden">
+      <button type="button" aria-label="Close" className="absolute inset-0 bg-slate-950/50" onClick={onClose} />
+      <div className="absolute inset-y-0 left-0 w-80 max-w-[88vw] bg-white shadow-2xl">
+        <div className="flex h-14 items-center justify-between border-b border-slate-200 px-4">
+          <span className="font-bold">{props.isEn ? "Chat history" : "চ্যাট ইতিহাস"}</span>
+          <button type="button" onClick={onClose} aria-label={props.isEn ? "Close" : "বন্ধ করুন"} className="rounded-xl p-2 hover:bg-slate-100">
+            <X className="h-5 w-5" />
           </button>
         </div>
-        <ChatHistorySidebar {...props} onOpen={(id: number) => { props.onOpen(id); onClose(); }} onCreate={() => { props.onCreate(); onClose(); }} />
+        <ChatHistorySidebar {...props} />
       </div>
     </div>
   );
+}
+
+interface BubbleProps {
+  message: TimelineMessage;
+  locale: Locale;
+  isEn: boolean;
+  isSpeaking: boolean;
+  voiceStatus: "idle" | "loading" | "speaking" | "paused";
+  onSpeak: () => void;
+  onPause: () => void;
+  onResume: () => void;
+  onStop: () => void;
+  onFollowUp: (text: string) => void;
 }
 
 function ChatMessageBubble({
   message,
-  isEn,
   locale,
+  isEn,
   isSpeaking,
-  isPaused,
+  voiceStatus,
   onSpeak,
-  onStop,
   onPause,
   onResume,
-}: any) {
+  onStop,
+  onFollowUp,
+}: BubbleProps) {
   const assistant = message.role === "assistant";
+  const citations = message.citations ?? [];
+  const followUps = message.suggested_follow_ups ?? [];
+
   return (
-    <div className={cn("flex w-full flex-col animate-in fade-in slide-in-from-bottom-2 duration-300", assistant ? "items-start" : "items-end")}>
-      <div
-        className={cn(
-          "relative max-w-[90%] rounded-[2rem] px-5 py-4 shadow-sm transition-all md:max-w-[80%]",
-          assistant
-            ? message.failed
-              ? "border border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900/30 dark:bg-rose-900/20 dark:text-rose-200"
-              : "rounded-tl-none border border-slate-200 bg-white text-slate-800 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
-            : "rounded-tr-none bg-teal-600 text-white shadow-md shadow-teal-500/20 dark:shadow-none",
-        )}
-      >
-        <div className="mb-2 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider opacity-60">
-            {assistant ? (
-              <>
-                <Sparkles className="h-3 w-3 text-teal-500" />
-                <span>{isEn ? "Sudokkho AI" : "সুদক্ষ AI"}</span>
-              </>
-            ) : (
-              <span>{isEn ? "You" : "আপনি"}</span>
-            )}
+    <article className={cn("flex", assistant ? "justify-start" : "justify-end")}>
+      <div className={cn("max-w-[92%] space-y-3 md:max-w-[82%]", assistant && citations.length > 0 ? "w-full" : "")}>
+        <div
+          className={cn(
+            "rounded-2xl px-4 py-3 shadow-sm",
+            assistant
+              ? message.failed
+                ? "border border-rose-200 bg-rose-50 text-rose-800"
+                : "border border-slate-200 bg-white text-slate-900"
+              : "bg-teal-600 text-white",
+          )}
+        >
+          <div className="mb-2 flex items-center justify-between gap-3 text-xs opacity-70">
+            <span className="inline-flex items-center gap-1 font-bold">
+              {assistant ? <Sparkles className="h-3.5 w-3.5" /> : null}
+              {assistant ? (isEn ? "Sudokkho AI" : "সুদক্ষ AI") : isEn ? "You" : "আপনি"}
+            </span>
+            <span>{formatMessageTime(message.created_at, locale)}</span>
           </div>
-          <span className="text-[10px] opacity-40 font-mono">{formatMessageTime(message.created_at, locale)}</span>
-        </div>
-
-        <div className="prose prose-slate dark:prose-invert max-w-none text-sm leading-relaxed md:text-base font-medium">
-          {message.content}
-        </div>
-
-        {assistant && message.pending && (
-          <div className="mt-4 flex items-center gap-2 text-xs text-teal-600 dark:text-teal-400">
-            <Loader2 className="h-3 w-3 animate-spin" />
-            <span className="animate-pulse">{isEn ? "Searching opportunities..." : "তথ্য খোঁজা হচ্ছে..."}</span>
+          <div className="whitespace-pre-wrap text-sm leading-7 md:text-base">
+            {message.content || (message.pending ? (isEn ? "Thinking..." : "ভাবছি...") : "")}
           </div>
-        )}
-
-        {assistant && !message.pending && !message.failed && (
-          <div className="mt-4 flex items-center justify-end border-t border-slate-100 pt-3 dark:border-slate-800">
-            <div className="flex items-center gap-1">
+          {message.pending ? (
+            <div className="mt-3 inline-flex items-center gap-2 text-xs font-semibold text-teal-700">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              {isEn ? "Searching verified opportunities" : "যাচাই করা তথ্য খোঁজা হচ্ছে"}
+            </div>
+          ) : null}
+          {assistant && !message.pending && !message.failed ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
               {isSpeaking ? (
-                <div className="flex items-center gap-1 animate-in zoom-in duration-200">
-                  <button
-                    onClick={isPaused ? onResume : onPause}
-                    className="flex h-8 items-center gap-1.5 rounded-full bg-teal-50 px-3 text-[10px] font-bold text-teal-700 dark:bg-teal-900/30 dark:text-teal-300 transition-transform active:scale-95"
-                  >
-                    {isPaused ? <Play className="h-3 w-3" /> : <Pause className="h-3 w-3" />}
-                    {isPaused ? (isEn ? "Resume" : "চালান") : (isEn ? "Pause" : "থামান")}
+                <>
+                  <button type="button" onClick={voiceStatus === "paused" ? onResume : onPause} className="inline-flex h-8 items-center gap-1 rounded-lg bg-teal-50 px-3 text-xs font-bold text-teal-700">
+                    {voiceStatus === "paused" ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
+                    {voiceStatus === "paused" ? (isEn ? "Resume" : "চালান") : (isEn ? "Pause" : "থামান")}
                   </button>
-                  <button
-                    onClick={onStop}
-                    className="flex h-8 items-center gap-1.5 rounded-full bg-slate-100 px-3 text-[10px] font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-400 transition-transform active:scale-95"
-                  >
-                    <StopCircle className="h-3 w-3" />
-                    {isEn ? "Stop" : "বন্ধ করুন"}
+                  <button type="button" onClick={onStop} className="inline-flex h-8 items-center gap-1 rounded-lg bg-slate-100 px-3 text-xs font-bold text-slate-700">
+                    <StopCircle className="h-3.5 w-3.5" />
+                    {isEn ? "Stop" : "বন্ধ"}
                   </button>
-                </div>
+                </>
               ) : (
-                <button
-                  onClick={onSpeak}
-                  className="flex h-8 items-center gap-1.5 rounded-full border border-slate-200 px-3 text-[10px] font-bold text-slate-600 transition-all hover:border-teal-500 hover:text-teal-600 active:scale-95 dark:border-slate-800 dark:text-slate-400"
-                >
-                  <Volume2 className="h-3 w-3" />
-                  {isEn ? "Listen" : "উত্তর শুনুন"}
+                <button type="button" onClick={onSpeak} className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 px-3 text-xs font-bold text-slate-700 hover:border-teal-300 hover:text-teal-700">
+                  <Volume2 className="h-3.5 w-3.5" />
+                  {isEn ? "Listen" : "শুনুন"}
                 </button>
               )}
             </div>
+          ) : null}
+        </div>
+
+        {assistant && citations.length > 0 ? (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-slate-500">
+              <span className="h-px flex-1 bg-slate-200" />
+              {isEn ? "Related opportunities" : "সম্পর্কিত সুযোগ"}
+              <span className="h-px flex-1 bg-slate-200" />
+            </div>
+            <div className="flex gap-3 overflow-x-auto pb-2 md:grid md:grid-cols-2 md:overflow-visible">
+              {citations.slice(0, 4).map((citation) => (
+                <div key={citation.opportunity_id} className="min-w-[300px] md:min-w-0">
+                  <OpportunityCard item={citationToCard(citation)} variant="compact" />
+                </div>
+              ))}
+            </div>
           </div>
-        )}
+        ) : assistant && !message.pending && followUps.length > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {followUps.map((item) => (
+              <SuggestedPrompt key={item.text} item={item} onClick={() => onFollowUp(item.text)} />
+            ))}
+          </div>
+        ) : null}
       </div>
-    </div>
+    </article>
   );
 }
 
-function ChatComposer({
-  value,
-  onChange,
-  onSend,
-  isSending,
-  isListening,
-  onToggleVoice,
-  isEn,
-  recognitionError,
-}: any) {
+function SuggestedPrompt({ item, onClick }: { item: CopilotSuggestedFollowUp; onClick: () => void }) {
   return (
-    <div className="group relative">
-      <div className="relative flex items-end gap-2 rounded-[2rem] border border-slate-200 bg-white p-2.5 shadow-xl ring-teal-500/10 transition-all focus-within:border-teal-500 focus-within:ring-8 dark:border-slate-800 dark:bg-slate-900/90 backdrop-blur-md">
-        <button
-          onClick={onToggleVoice}
-          disabled={isSending}
-          className={cn(
-            "flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl transition-all active:scale-90",
-            isListening
-              ? "animate-pulse bg-rose-500 text-white shadow-lg shadow-rose-200 dark:shadow-none"
-              : "bg-slate-100 text-slate-600 hover:bg-teal-50 hover:text-teal-600 dark:bg-slate-800 dark:text-slate-400",
-          )}
-          title={isListening ? (isEn ? "Stop listening" : "শোনা বন্ধ করুন") : (isEn ? "Voice input" : "ভয়েস ইনপুট")}
-        >
-          {isListening ? <div className="h-4 w-4 rounded-full bg-white animate-ping" /> : <Mic2 className="h-6 w-6" />}
-        </button>
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:border-teal-300 hover:text-teal-700"
+    >
+      {item.text}
+    </button>
+  );
+}
 
+interface ComposerProps {
+  value: string;
+  onChange: (value: string) => void;
+  onSend: () => void;
+  disabled: boolean;
+  streaming: boolean;
+  onStopGenerating: () => void;
+  locale: Locale;
+  isEn: boolean;
+}
+
+function VoiceComposer({ value, onChange, onSend, disabled, streaming, onStopGenerating, locale, isEn }: ComposerProps) {
+  const speech = useSpeechRecognition(locale);
+  const [quickVoice, setQuickVoice] = useState(false);
+
+  useEffect(() => {
+    if (speech.transcript) {
+      onChange(speech.transcript);
+    }
+  }, [onChange, speech.transcript]);
+
+  useEffect(() => {
+    if (quickVoice && !speech.isListening && speech.finalTranscript.trim()) {
+      onSend();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quickVoice, speech.isListening, speech.finalTranscript]);
+
+  const toggleVoice = () => {
+    if (speech.isListening) {
+      speech.stopListening();
+      return;
+    }
+    speech.resetTranscript();
+    onChange("");
+    speech.startListening();
+  };
+
+  const voiceError = speech.error && speech.error !== "no-speech"
+    ? isEn
+      ? "Voice input is unavailable. You can type your question."
+      : "ভয়েস ইনপুট চালু হয়নি। প্রশ্ন লিখে পাঠাতে পারেন।"
+    : "";
+
+  return (
+    <div className="space-y-2">
+      {speech.isListening ? (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-semibold text-teal-800">
+          <span className="inline-flex items-center gap-2">
+            <span className="h-2.5 w-2.5 animate-ping rounded-full bg-teal-600" />
+            {isEn ? "Listening. Tap mic to stop." : "শুনছি। বন্ধ করতে মাইকে চাপুন।"}
+          </span>
+          <button type="button" onClick={() => { speech.abortListening(); speech.resetTranscript(); onChange(""); }} aria-label={isEn ? "Clear transcript" : "ট্রান্সক্রিপ্ট মুছুন"}>
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      ) : null}
+      <div className="flex items-end gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-lg focus-within:border-teal-400 focus-within:ring-4 focus-within:ring-teal-100">
+        <button
+          type="button"
+          onClick={toggleVoice}
+          disabled={disabled}
+          aria-label={speech.isListening ? (isEn ? "Stop listening" : "শোনা বন্ধ করুন") : (isEn ? "Start voice input" : "ভয়েস ইনপুট শুরু করুন")}
+          className={cn(
+            "flex h-14 w-14 shrink-0 items-center justify-center rounded-xl text-white transition disabled:opacity-50",
+            speech.isListening ? "bg-rose-600" : "bg-teal-600 hover:bg-teal-700",
+          )}
+        >
+          {speech.isListening ? <span className="h-4 w-4 rounded-full bg-white" /> : <Mic2 className="h-6 w-6" />}
+        </button>
         <textarea
           value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
+          onChange={(event) => onChange(event.target.value)}
+          disabled={disabled}
+          rows={1}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
               onSend();
             }
           }}
-          placeholder={
-            isListening
-              ? isEn
-                ? "Listening..."
-                : "শুনছি..."
-              : isEn
-                ? "Ask anything about jobs abroad..."
-                : "বিদেশের চাকরি নিয়ে যা খুশি জিজ্ঞাসা করুন..."
-          }
-          className="flex-1 resize-none bg-transparent px-3 py-3.5 text-sm font-medium focus:outline-none md:text-base"
-          rows={1}
-          style={{ minHeight: "48px", maxHeight: "160px" }}
+          placeholder={isEn ? "Ask about overseas jobs, costs, documents..." : "বিদেশের চাকরি, খরচ, কাগজপত্র নিয়ে প্রশ্ন করুন..."}
+          className="max-h-36 min-h-14 flex-1 resize-none bg-transparent px-2 py-4 text-sm font-medium outline-none placeholder:text-slate-400 md:text-base"
         />
-
-        <button
-          onClick={onSend}
-          disabled={!value.trim() || isSending}
-          className={cn(
-            "flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl transition-all active:scale-90 shadow-sm",
-            value.trim() && !isSending 
-              ? "bg-teal-600 text-white hover:bg-teal-700 shadow-teal-500/20" 
-              : "bg-slate-100 text-slate-400 dark:bg-slate-800"
-          )}
-        >
-          {isSending ? <Loader2 className="h-5 w-5 animate-spin" /> : <SendHorizontal className="h-6 w-6" />}
-        </button>
-      </div>
-
-      {isListening && (
-        <div className="absolute -top-12 left-0 right-0 flex justify-center">
-          <div className="flex items-center gap-3 rounded-full bg-teal-600 px-6 py-2 text-xs font-bold text-white shadow-xl">
-            <span className="flex h-2 w-2 animate-ping rounded-full bg-white" />
-            {isEn ? "Listening... Speak now" : "শুনছি... এখন বলুন"}
-          </div>
-        </div>
-      )}
-
-      {recognitionError && (
-        <div className="mt-2 text-center text-[10px] text-rose-500">
-          {recognitionError === "not-supported"
-            ? (isEn ? "Voice input not supported in this browser." : "এই ব্রাউজারে ভয়েস ইনপুট সাপোর্ট করে না।")
-            : (isEn ? "Voice error. Please type your question." : "ভয়েস সমস্যা। লিখে প্রশ্ন করুন।")}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function EmptyState({ isEn, onSelectPrompt }: any) {
-  return (
-    <div className="flex flex-col items-center justify-center py-8 md:py-16 text-center">
-      <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-[2.5rem] bg-gradient-to-br from-teal-50 to-teal-100 shadow-inner dark:from-teal-900/20 dark:to-teal-800/10">
-        <Sparkles className="h-10 w-10 text-teal-600" />
-      </div>
-      <h2 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white md:text-5xl leading-tight">
-        {isEn ? "How can Sudokkho AI help?" : "সুদক্ষ AI কীভাবে সাহায্য করতে পারে?"}
-      </h2>
-      <p className="mt-4 max-w-lg text-sm font-medium text-slate-500 dark:text-slate-400 md:text-base">
-        {isEn
-          ? "Ask anything about overseas careers, visa processes, or verified job opportunities."
-          : "বিদেশের চাকরি, ভিসা পদ্ধতি বা ভেরিফাইড সুযোগ নিয়ে যা খুশি জিজ্ঞাসা করুন।"}
-      </p>
-
-      <div className="mt-10 grid grid-cols-1 gap-3 sm:grid-cols-2 w-full max-w-2xl px-4">
-        {BILINGUAL_PROMPTS.slice(0, 4).map((p) => (
+        {streaming ? (
           <button
-            key={p.en}
-            onClick={() => onSelectPrompt(isEn ? p.en : p.bn)}
-            className="flex flex-col rounded-3xl border border-slate-200 bg-white/80 p-5 text-left transition-all hover:border-teal-500 hover:shadow-lg hover:translate-y-[-2px] dark:border-slate-800 dark:bg-slate-900/80 backdrop-blur-sm"
+            type="button"
+            onClick={onStopGenerating}
+            className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-white"
+            aria-label={isEn ? "Stop generating" : "উত্তর তৈরি বন্ধ করুন"}
           >
-            <span className="text-sm font-bold text-slate-800 dark:text-slate-100">{isEn ? p.en : p.bn}</span>
-            <span className="mt-1.5 flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-teal-600/70">
-              {isEn ? "Try this" : "চেষ্টা করুন"}
-              <ChevronRight className="h-3 w-3" />
-            </span>
+            <StopCircle className="h-6 w-6" />
           </button>
-        ))}
+        ) : (
+          <button
+            type="button"
+            onClick={onSend}
+            disabled={disabled || !value.trim()}
+            className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-navy text-white transition hover:bg-slate-800 disabled:bg-slate-300"
+            aria-label={isEn ? "Send message" : "বার্তা পাঠান"}
+          >
+            {disabled ? <Loader2 className="h-5 w-5 animate-spin" /> : <SendHorizontal className="h-6 w-6" />}
+          </button>
+        )}
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+        <label className="inline-flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={quickVoice}
+            onChange={(event) => setQuickVoice(event.target.checked)}
+            className="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+          />
+          {isEn ? "Quick voice send after pause" : "থামলে ভয়েস প্রশ্ন পাঠান"}
+        </label>
+        {voiceError ? <span className="text-rose-600">{voiceError}</span> : null}
       </div>
     </div>
   );
 }
 
-function SuggestedPromptChips({ text, onClick }: any) {
+function EmptyState({ isEn, onPrompt }: { isEn: boolean; onPrompt: (text: string) => void }) {
   return (
-    <button
-      onClick={onClick}
-      className="rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-600 shadow-sm transition-all hover:border-teal-500 hover:bg-teal-50 hover:text-teal-700 hover:shadow-md active:scale-95 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400"
-    >
-      {text}
-    </button>
+    <div className="mx-auto flex max-w-3xl flex-col items-center py-10 text-center md:py-16">
+      <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-teal-600 text-white shadow-lg">
+        <Sparkles className="h-9 w-9" />
+      </div>
+      <h1 className="mt-6 text-3xl font-black tracking-tight text-slate-950 md:text-4xl">
+        {isEn ? "Talk directly about overseas jobs" : "বিদেশের চাকরি নিয়ে সরাসরি কথা বলুন"}
+      </h1>
+      <p className="mt-3 max-w-xl text-base text-slate-600">
+        {isEn ? "Ask, speak by voice, and find verified opportunities." : "প্রশ্ন করুন, ভয়েসে বলুন, যাচাই করা সুযোগ খুঁজুন।"}
+      </p>
+      <div className="mt-8 grid w-full gap-3 sm:grid-cols-2">
+        {PROMPTS.map((prompt) => {
+          const text = isEn ? prompt.en : prompt.bn;
+          return (
+            <button
+              key={prompt.en}
+              type="button"
+              onClick={() => onPrompt(text)}
+              className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-left text-sm font-bold text-slate-800 shadow-sm hover:border-teal-300 hover:text-teal-700"
+            >
+              <span>{text}</span>
+              <ChevronRight className="h-4 w-4 shrink-0" />
+            </button>
+          );
+        })}
+      </div>
+      <p className="mt-6 text-xs font-medium text-slate-500">
+        {isEn ? "Sudokkho AI helps only from verified indexed information." : "সুদক্ষ AI শুধু যাচাই করা তথ্যের ভিত্তিতে সাহায্য করে।"}
+      </p>
+    </div>
   );
 }

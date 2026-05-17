@@ -108,6 +108,7 @@ def get_opportunity(opportunity_id: int, db: Session = Depends(get_db)) -> Publi
     )
     if not opp:
         raise HTTPException(status_code=404, detail="Opportunity not found")
+    extracted = opp.extracted_json if isinstance(opp.extracted_json, dict) else {}
     return PublishedOpportunityDetail(
         id=opp.id,
         title=opp.title,
@@ -212,6 +213,14 @@ def get_opportunity(opportunity_id: int, db: Session = Depends(get_db)) -> Publi
         requirements_json=opp.requirements_json,
         benefits_json=opp.benefits_json,
         language_requirements_json=opp.language_requirements_json,
+        job_purpose=extracted.get("job_purpose"),
+        responsibilities=extracted.get("responsibilities") or [],
+        key_accountabilities=extracted.get("key_accountabilities") or [],
+        role_accountabilities=extracted.get("role_accountabilities") or [],
+        qualifications=extracted.get("qualifications") or [],
+        skills=extracted.get("skills") or [],
+        work_conditions=extracted.get("work_conditions") or [],
+        source_sections=extracted.get("source_sections") or (opp.requirements_json or {}).get("source_sections") or [],
         mirror_urls=opp.mirror_urls or [],
     )
 

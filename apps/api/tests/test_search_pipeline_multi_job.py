@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from app.ingestion.pipeline import PipelineResult, _extract_records_for_page, _process_page
+from app.ingestion.extractor import extract_structured
+from app.ingestion.pipeline import (
+    PipelineResult,
+    _build_requirements_json,
+    _extract_records_for_page,
+    _official_ai_cleaned_payload,
+    _process_page,
+)
 from app.ingestion.schemas import FetchedPage, JobOpportunityExtraction
 from app.models.entities import Opportunity, RawDocument, Source
 from app.models.enums import AccessMethod, SourceClass, TrustTier
@@ -32,6 +40,7 @@ def _make_strict_source() -> Source:
         "force_ai_detail_extraction": True,
         "require_application_url": True,
         "require_isc_category": True,
+        "low_confidence_to_review": True,
         "auto_publish_on_pass": True,
     }
     return source
@@ -190,7 +199,7 @@ def test_strict_official_structured_page_uses_ai_extraction(monkeypatch) -> None
         called["structured"] = True
         raise AssertionError("_structured_page_extraction should not be used")
 
-    monkeypatch.setattr("app.ingestion.pipeline.extract_structured", fake_extract_structured)
+    monkeypatch.setattr("app.ingestion.pipeline.extract_official_job_structured", fake_extract_structured)
     monkeypatch.setattr("app.ingestion.pipeline._structured_page_extraction", fail_structured)
 
     records = _extract_records_for_page(db, source, page, {"title": page.title, "body_text": page.raw_text})
@@ -199,6 +208,66 @@ def test_strict_official_structured_page_uses_ai_extraction(monkeypatch) -> None
     assert called["structured"] is False
     assert len(records) == 1
     assert records[0].application_url == "https://tamimi.sa/job/electrical-supervisor"
+
+
+def test_official_payload_preserves_job_sections_and_removes_boilerplate() -> None:
+    source = _make_strict_source()
+    page = FetchedPage(
+        url="https://jobs.alfanar.com/alfanar/job/123",
+        title="Engineer, Design Electrical",
+        raw_html="""
+        <html><body>
+          <nav>Careers Home My Profile</nav>
+          <main class="jobDisplay">
+            <h1>ENGINEER, DESIGN ELECTRICAL</h1>
+            <p>By continuing to use and navigate this website, you are agreeing to cookies.</p>
+            <h2>Job Purpose</h2>
+            <p>To lead and manage the design and development of electrical systems.</p>
+            <h2>Key Accountability Areas</h2>
+            <ul><li>Design electrical systems and components using AutoCAD.</li></ul>
+          </main>
+        </body></html>
+        """,
+        raw_text="fallback text",
+        original_apply_url="https://jobs.alfanar.com/apply",
+        metadata={"structured_job": True, "company": "alfanar", "location_raw": "Saudi Arabia"},
+    )
+
+    payload = _official_ai_cleaned_payload(source, page, {"title": page.title, "body_text": ""})
+    body = payload["body_text"]
+
+    assert "Job Purpose" in body
+    assert "Key Accountability Areas" in body
+    assert "Design electrical systems and components using AutoCAD" in body
+    assert "By continuing to use and navigate this website" not in body
+    assert "My Profile" not in body
+
+
+def test_rich_official_requirements_json_preserves_grouped_sections() -> None:
+    extraction = JobOpportunityExtraction(
+        title="Engineer",
+        requirements=["Bachelor degree required"],
+        qualifications=["Five years of design experience"],
+        key_accountabilities=["Design electrical systems"],
+        role_accountabilities=["Create technical drawings"],
+        skills=["AutoCAD", "REVIT"],
+        job_purpose="Lead electrical design work.",
+        source_sections=[
+            {"title": "Job Purpose", "items": ["Lead electrical design work."]},
+            {"title": "Key Accountability Areas", "items": ["Design electrical systems"]},
+        ],
+    )
+
+    requirements_json = _build_requirements_json(extraction)
+
+    assert requirements_json["items"] == [
+        "Bachelor degree required",
+        "Five years of design experience",
+        "AutoCAD",
+        "REVIT",
+    ]
+    assert requirements_json["groups"]["key_accountabilities"] == ["Design electrical systems"]
+    assert requirements_json["source_sections"][0]["title"] == "Job Purpose"
 
 
 def test_strict_official_job_without_apply_url_is_skipped(monkeypatch) -> None:
@@ -243,7 +312,7 @@ def test_strict_official_job_without_apply_url_is_skipped(monkeypatch) -> None:
     assert result.skip_reasons["strict_missing_application_url"] == 1
 
 
-def test_strict_official_low_confidence_skip_persists_raw_diagnostics(monkeypatch) -> None:
+def test_strict_official_low_confidence_routes_to_review_and_persists_raw_diagnostics(monkeypatch) -> None:
     db = _make_db()
     source = _make_strict_source()
     page = _make_page()
@@ -264,11 +333,14 @@ def test_strict_official_low_confidence_skip_persists_raw_diagnostics(monkeypatc
                 application_url="https://jobs.example.com/apply/worker",
                 requirements=["Basic fitness required"],
                 extraction_confidence=0.42,
+                extraction_method="llm_structured",
                 field_confidences={"application_url": 1.0, "deadline_text": 0.0},
                 evidence_snippets=["Apply now", "General worker role"],
             )
         ],
     )
+    monkeypatch.setattr("app.ingestion.pipeline.find_existing_opportunity", lambda *args, **kwargs: None)
+    monkeypatch.setattr("app.ingestion.pipeline._enrich_official_bilingual_fields", lambda *_args, **_kwargs: None)
 
     result = PipelineResult()
     _process_page(
@@ -283,15 +355,64 @@ def test_strict_official_low_confidence_skip_persists_raw_diagnostics(monkeypatc
         logs=[],
     )
 
+    created = [call.args[0] for call in db.add.call_args_list if isinstance(call.args[0], Opportunity)]
     raws = [call.args[0] for call in db.add.call_args_list if isinstance(call.args[0], RawDocument)]
+    assert len(created) == 1
     assert len(raws) == 1
-    assert raws[0].skip_reason == "strict_low_ai_confidence"
+    assert raws[0].skip_reason is None
     attempts = raws[0].extraction_diagnostics_json["attempts"]
     assert len(attempts) == 1
     assert attempts[0]["extraction_confidence"] == 0.42
-    assert attempts[0]["skip_reason"] == "strict_low_ai_confidence"
+    assert attempts[0]["review_reason"] == "low_confidence_official_job"
+    assert attempts[0]["extraction_method"] == "llm_structured"
     assert attempts[0]["field_confidences"]["application_url"] == 1.0
-    assert result.skipped_confidences == [0.42]
+    assert created[0].status == "pending"
+    assert created[0].review_status == "pending"
+    assert created[0].needs_admin_review is True
+    assert created[0].admin_status == "low_confidence_official_job"
+    assert result.skipped_confidences == []
+    assert result.skipped == 0
+    assert result.low_confidence_review_count == 1
+
+
+def test_extract_structured_without_ai_key_uses_fallback_method(monkeypatch) -> None:
+    db = MagicMock()
+    monkeypatch.setattr("app.ingestion.extractor.get_ai_provider", lambda *_args, **_kwargs: "mistral")
+    monkeypatch.setattr("app.ingestion.extractor.get_ai_api_key", lambda *_args, **_kwargs: None)
+
+    extraction = extract_structured(db, {"title": "Worker", "body_text": "Apply now. Employer. Country. Requirements."})
+
+    assert extraction.extraction_method == "fallback_extract"
+    assert extraction.fallback_reason == "no_ai_api_key"
+    assert extraction.extraction_confidence == 0.45
+
+
+def test_extract_structured_success_marks_llm_method(monkeypatch) -> None:
+    db = MagicMock()
+    monkeypatch.setattr("app.ingestion.extractor.get_ai_provider", lambda *_args, **_kwargs: "mistral")
+    monkeypatch.setattr("app.ingestion.extractor.get_ai_api_key", lambda *_args, **_kwargs: "secret")
+    monkeypatch.setattr(
+        "app.ingestion.extractor._invoke_for_extraction",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            data=JobOpportunityExtraction(
+                title="Site Engineer",
+                summary="Engineering role in Saudi Arabia.",
+                summary_en="Engineering role in Saudi Arabia.",
+                country="Saudi Arabia",
+                employer="alfanar",
+                application_url="https://jobs.example.com/apply/1",
+                requirements=["Relevant diploma required"],
+                extraction_confidence=0.72,
+            )
+        ),
+    )
+    monkeypatch.setattr("app.ingestion.extractor._self_correct", lambda *_args, **_kwargs: {})
+
+    extraction = extract_structured(db, {"title": "Site Engineer", "body_text": "Engineering role. Apply online."})
+
+    assert extraction.extraction_method == "llm_structured"
+    assert extraction.fallback_reason is None
+    assert extraction.extraction_confidence >= 0.72
 
 
 def test_strict_official_job_is_auto_published(monkeypatch) -> None:

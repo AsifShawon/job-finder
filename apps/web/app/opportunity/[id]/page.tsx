@@ -82,6 +82,48 @@ function DetailAccordion({
   );
 }
 
+function SourceJobDetails({
+  sections,
+  isEn,
+}: {
+  sections: Array<{ title: string; items: string[] }>;
+  isEn: boolean;
+}) {
+  if (sections.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="space-y-4">
+      <div>
+        <h2 className="text-2xl font-bold text-foreground">
+          {isEn ? "Source job details" : "মূল চাকরির বিস্তারিত"}
+        </h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {isEn
+            ? "Detailed role information preserved from the official job page."
+            : "অফিশিয়াল চাকরির পেজ থেকে পাওয়া বিস্তারিত দায়িত্ব ও যোগ্যতার তথ্য।"}
+        </p>
+      </div>
+      <div className="grid gap-3">
+        {sections.map((section) => (
+          <Card key={section.title}>
+            <h3 className="text-lg font-bold text-foreground">{section.title}</h3>
+            <ul className="mt-3 space-y-2 text-sm leading-6 text-muted-foreground">
+              {section.items.map((item, index) => (
+                <li key={`${section.title}-${index}`} className="flex gap-2">
+                  <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function formatEligibilityValue(
   value: boolean | null | undefined,
   locale: "bn" | "en",
@@ -151,6 +193,17 @@ export default async function OpportunityDetailPage({
   const salaryText = pickLang(opportunity, "salary_text", locale);
   const journeySteps = pickLangList(opportunity, "journey_steps", locale);
   const documentsNeeded = pickLangList(opportunity, "documents_needed", locale);
+  const richSections = opportunity.source_sections.length > 0
+    ? opportunity.source_sections
+    : [
+        opportunity.job_purpose ? { title: isEn ? "Job Purpose" : "কাজের উদ্দেশ্য", items: [opportunity.job_purpose] } : null,
+        opportunity.responsibilities.length > 0 ? { title: isEn ? "Responsibilities" : "দায়িত্ব", items: opportunity.responsibilities } : null,
+        opportunity.key_accountabilities.length > 0 ? { title: isEn ? "Key Accountability Areas" : "মূল দায়িত্বের ক্ষেত্র", items: opportunity.key_accountabilities } : null,
+        opportunity.role_accountabilities.length > 0 ? { title: isEn ? "Role Accountability" : "পদের দায়িত্ব", items: opportunity.role_accountabilities } : null,
+        opportunity.qualifications.length > 0 ? { title: isEn ? "Qualifications" : "যোগ্যতা", items: opportunity.qualifications } : null,
+        opportunity.skills.length > 0 ? { title: isEn ? "Skills and tools" : "দক্ষতা ও টুলস", items: opportunity.skills } : null,
+        opportunity.work_conditions.length > 0 ? { title: isEn ? "Work conditions" : "কাজের পরিবেশ", items: opportunity.work_conditions } : null,
+      ].filter((section): section is { title: string; items: string[] } => Boolean(section));
 
   const documentDetails = [
     requiredDocumentsText,
@@ -364,6 +417,7 @@ export default async function OpportunityDetailPage({
                 content={requirementItems}
                 defaultOpen
               />
+              <SourceJobDetails sections={richSections} isEn={isEn} />
               {journeySteps.length > 0 && (
                 <Card>
                   <h2 className="section-underline text-xl font-bold text-foreground">

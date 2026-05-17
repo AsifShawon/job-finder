@@ -59,6 +59,7 @@ def _fallback_extract(cleaned: dict[str, Any]) -> ExtractionBase:
             record_type="unknown",
             title=title,
             extraction_confidence=0.1,
+            extraction_method="fallback_extract",
             evidence_snippets=[
                 f"Detected as news article (matched {news_signal_count} news patterns). "
                 "No actionable opportunity found."
@@ -84,6 +85,7 @@ def _fallback_extract(cleaned: dict[str, Any]) -> ExtractionBase:
             record_type="unknown",
             title=title,
             extraction_confidence=0.1,
+            extraction_method="fallback_extract",
             evidence_snippets=[
                 f"Only {opportunity_signal_count} opportunity signals found (need 3+). "
                 "Page does not appear to contain an actionable opportunity."
@@ -110,6 +112,7 @@ def _fallback_extract(cleaned: dict[str, Any]) -> ExtractionBase:
         summary=body[:400],
         application_url=cleaned.get("apply_link"),
         extraction_confidence=0.45,
+        extraction_method="fallback_extract",
         evidence_snippets=[title, body[:200]],
     )
 
@@ -120,6 +123,12 @@ def _ensure_fields(extraction: ExtractionBase) -> ExtractionBase:
         "requirements",
         "benefits",
         "language_requirements",
+        "responsibilities",
+        "key_accountabilities",
+        "role_accountabilities",
+        "qualifications",
+        "skills",
+        "work_conditions",
         "journey_steps",
         "documents_needed",
         "evidence_snippets",
@@ -129,6 +138,21 @@ def _ensure_fields(extraction: ExtractionBase) -> ExtractionBase:
             setattr(extraction, field, [])
         elif isinstance(val, list):
             setattr(extraction, field, [v for v in val if v and str(v).strip()])
+    if extraction.source_sections is None:
+        extraction.source_sections = []
+    elif isinstance(extraction.source_sections, list):
+        cleaned_sections: list[dict[str, Any]] = []
+        for section in extraction.source_sections:
+            if not isinstance(section, dict):
+                continue
+            title = str(section.get("title") or "").strip()
+            items = section.get("items") or []
+            if isinstance(items, str):
+                items = [items]
+            clean_items = [str(item).strip() for item in items if str(item).strip()]
+            if title and clean_items:
+                cleaned_sections.append({"title": title, "items": clean_items})
+        extraction.source_sections = cleaned_sections
     if extraction.summary and not extraction.summary.strip():
         extraction.summary = None
     if extraction.application_url and not extraction.application_url.strip():
@@ -280,6 +304,53 @@ _PAGE_JOBS_PROMPT_TEMPLATE = (
     '{"jobs": [{...job schema...}]}\n'
 )
 
+_OFFICIAL_JOB_PROMPT_TEMPLATE = (
+    "You extract a FULL official job detail page for a Bangladeshi overseas job platform.\n"
+    "This is not a snippet. Preserve all meaningful job detail sections from the source page.\n\n"
+    "CLASSIFICATION:\n"
+    "- Return record_type='job' when this is a real job opening from an official careers page.\n"
+    "- Return record_type='unknown' only if there is no job opening.\n\n"
+    "QUALITY RULES:\n"
+    "- Remove boilerplate such as cookies, navigation, profile menu, legal footer, and login text.\n"
+    "- Do not invent salary, deadline, visa support, documents, benefits, or Bangladesh applicability.\n"
+    "- If a fact is not explicitly stated, use null or an empty list.\n"
+    "- Preserve technical role details. Do not compress responsibilities into one sentence.\n"
+    "- summary_en and summary_bn must be useful worker-facing summaries, not metadata dumps.\n"
+    "- summary_bn must be natural Bangla script for Bangladeshi users; keep employer names and technical terms accurate.\n\n"
+    "RICH SOURCE SECTIONS:\n"
+    "- job_purpose: exact practical meaning of the source Job Purpose section, if present.\n"
+    "- responsibilities: duties from source sections like Responsibilities, Duties, Tasks.\n"
+    "- key_accountabilities: items from Key Accountability Areas.\n"
+    "- role_accountabilities: items from Role Accountability.\n"
+    "- qualifications: education, certification, experience, or eligibility requirements.\n"
+    "- skills: tools, technologies, soft skills, language skills, and role skills.\n"
+    "- work_conditions: worksite, schedule, travel, physical, or environment conditions.\n"
+    "- source_sections: an array preserving every important source heading and its bullet/list items.\n"
+    "  Use this shape: [{\"title\":\"Job Purpose\",\"items\":[\"...\"]}]\n\n"
+    "BACKWARD COMPATIBILITY FIELDS:\n"
+    "- requirements must include the applicant-facing qualifications/requirements as short separate strings.\n"
+    "- benefits must include only benefits/support explicitly stated by the page.\n"
+    "- eligibility_text should summarize who can apply, including uncertainty when nationality/work authorization is unclear.\n"
+    "- journey_steps must be simple Bangla practical next steps for applying safely.\n"
+    "- documents_needed must be Bangla document names only when supported or generally necessary for an online job application.\n\n"
+    "OUTPUT SCHEMA:\n"
+    "Return ONLY a JSON object for JobOpportunityExtraction, with every known field present where possible:\n"
+    "record_type, title, title_bn, summary, summary_bn, summary_en, country, city, employer, organization, sector,\n"
+    "degree_level, salary_min, salary_max, salary_currency, deadline_text, application_url, eligibility_text,\n"
+    "visa_support, can_apply_from_bd, requirements, benefits, language_requirements, job_purpose, responsibilities,\n"
+    "key_accountabilities, role_accountabilities, qualifications, skills, work_conditions, source_sections,\n"
+    "journey_steps, documents_needed, typical_salary_bdt, extraction_confidence, evidence_snippets.\n\n"
+    "CONFIDENCE:\n"
+    "- Missing salary or deadline should not force low confidence if the official page has title, employer, country, apply URL, and rich role details.\n"
+    "- 0.80-0.95: official job page with rich role details and apply URL, even if salary/deadline is not stated.\n"
+    "- 0.65-0.79: real job page but sparse role details or unclear eligibility.\n"
+    "- below 0.65: very sparse or ambiguous.\n\n"
+    "INPUT\n"
+    "Title: {title}\n\n"
+    "Body:\n{body}\n\n"
+    "Return only valid JSON. No markdown."
+)
+
 _LINKOUT_JOB_PROMPT_TEMPLATE = (
     "You create a conservative draft from a search-result snippet for a Bangladeshi overseas job platform.\n"
     "The source page could not be scraped, so use ONLY the title, snippet, and URL below.\n"
@@ -388,23 +459,31 @@ def extract_structured(db: Session, cleaned: dict[str, Any]) -> ExtractionBase:
     provider = get_ai_provider(db)
     api_key = get_ai_api_key(db)
     if not api_key:
-        return _ensure_fields(_fallback_extract(cleaned))
+        fallback = _fallback_extract(cleaned)
+        fallback.fallback_reason = "no_ai_api_key"
+        return _ensure_fields(fallback)
 
     body_text = (cleaned.get("body_text") or "")[:6000]
     prompt = _PROMPT_TEMPLATE.format(title=cleaned.get("title") or "", body=body_text)
     try:
         result = _invoke_for_extraction(db, provider, api_key, prompt)
         extraction = _ensure_fields(result.data)
-    except Exception:
-        return _ensure_fields(_fallback_extract(cleaned))
+        extraction.extraction_method = "llm_structured"
+    except Exception as exc:
+        fallback = _fallback_extract(cleaned)
+        fallback.fallback_reason = f"llm_error:{type(exc).__name__}"
+        return _ensure_fields(fallback)
 
     if extraction.record_type == "unknown":
         # Don't bother self-correcting unknowns; the classifier said no.
-        _annotate_field_confidence(extraction, _score_extraction_fields(extraction))
+        field_scores = _score_extraction_fields(extraction)
+        extraction.extraction_confidence = _rollup_confidence(extraction, field_scores)
+        _annotate_field_confidence(extraction, field_scores)
         return extraction
 
     field_scores = _score_extraction_fields(extraction)
     weak_fields = _select_weak_required_fields(extraction, field_scores)
+    self_corrected = False
 
     if weak_fields and body_text.strip():
         try:
@@ -413,17 +492,51 @@ def extract_structured(db: Session, cleaned: dict[str, Any]) -> ExtractionBase:
                 _apply_self_correction(extraction, patch, weak_fields)
                 # Re-score after the patch.
                 field_scores = _score_extraction_fields(extraction)
+                self_corrected = True
         except Exception:
             # Self-correction is best-effort; original extraction stands.
             pass
 
-    # Final confidence: mean of per-field confidences, but never higher than
-    # the LLM's original self-reported confidence (so we don't inflate weak runs).
-    if field_scores:
-        mean_score = sum(field_scores.values()) / len(field_scores)
-        original = float(extraction.extraction_confidence or 0.0)
-        extraction.extraction_confidence = round(min(mean_score, max(original, mean_score) ), 3)
+    if self_corrected:
+        extraction.extraction_method = "llm_structured_self_corrected"
+    extraction.extraction_confidence = _rollup_confidence(extraction, field_scores)
 
+    _annotate_field_confidence(extraction, field_scores)
+    return extraction
+
+
+def extract_official_job_structured(db: Session, cleaned: dict[str, Any]) -> ExtractionBase:
+    """Rich full-detail extraction for strict official job sources."""
+    provider = get_ai_provider(db)
+    api_key = get_ai_api_key(db)
+    if not api_key:
+        fallback = _fallback_extract(cleaned)
+        fallback.fallback_reason = "no_ai_api_key"
+        return _ensure_fields(fallback)
+
+    body_text = (cleaned.get("body_text") or "")[:14000]
+    prompt = _OFFICIAL_JOB_PROMPT_TEMPLATE.format(title=cleaned.get("title") or "", body=body_text)
+    try:
+        result = _invoke_for_extraction(db, provider, api_key, prompt)
+        extraction = _ensure_fields(result.data)
+        extraction.extraction_method = "llm_official_rich"
+    except Exception as exc:
+        fallback = _fallback_extract(cleaned)
+        fallback.fallback_reason = f"official_llm_error:{type(exc).__name__}"
+        return _ensure_fields(fallback)
+
+    field_scores = _score_extraction_fields(extraction)
+    if extraction.record_type == "job":
+        rich_score = max(
+            field_scores.get("responsibilities", 0.0),
+            field_scores.get("key_accountabilities", 0.0),
+            field_scores.get("role_accountabilities", 0.0),
+            field_scores.get("qualifications", 0.0),
+            field_scores.get("source_sections", 0.0),
+        )
+        if rich_score > 0:
+            field_scores["official_rich_details"] = rich_score
+    extraction.extraction_confidence = _rollup_confidence(extraction, field_scores)
     _annotate_field_confidence(extraction, field_scores)
     return extraction
 
@@ -441,7 +554,7 @@ def _invoke_for_extraction(db: Session, provider: str, api_key: str, prompt: str
 # Required fields per record type. Used to decide what counts as a "weak"
 # extraction worth re-prompting for.
 _REQUIRED_FIELDS_BY_TYPE: dict[str, tuple[str, ...]] = {
-    "job": ("title", "country", "employer", "deadline_text", "application_url"),
+    "job": ("title", "country", "employer", "application_url"),
     "scholarship": ("title", "country", "deadline_text", "application_url"),
     "policy_update": ("title", "summary"),
     "unknown": (),
@@ -517,10 +630,72 @@ def _score_extraction_fields(extraction: ExtractionBase) -> dict[str, float]:
     scores["eligibility_text"] = text_score(extraction.eligibility_text, min_len=15)
     scores["requirements"] = list_score(extraction.requirements)
     scores["benefits"] = list_score(extraction.benefits)
+    scores["job_purpose"] = text_score(extraction.job_purpose, min_len=20)
+    scores["responsibilities"] = list_score(extraction.responsibilities)
+    scores["key_accountabilities"] = list_score(extraction.key_accountabilities)
+    scores["role_accountabilities"] = list_score(extraction.role_accountabilities)
+    scores["qualifications"] = list_score(extraction.qualifications)
+    scores["skills"] = list_score(extraction.skills)
+    scores["work_conditions"] = list_score(extraction.work_conditions)
+    section_items: list[str] = []
+    for section in extraction.source_sections:
+        if isinstance(section, dict):
+            section_items.extend(str(item) for item in (section.get("items") or []))
+    scores["source_sections"] = list_score(section_items)
     scores["journey_steps"] = list_score(extraction.journey_steps)
     scores["documents_needed"] = list_score(extraction.documents_needed)
 
     return scores
+
+
+def _rollup_confidence(extraction: ExtractionBase, scores: dict[str, float]) -> float:
+    if not scores:
+        return round(float(extraction.extraction_confidence or 0.0), 3)
+
+    original = float(extraction.extraction_confidence or 0.0)
+    if extraction.record_type == "unknown":
+        return round(original or (sum(scores.values()) / len(scores)), 3)
+
+    if extraction.record_type == "job":
+        core_fields = ("title", "country", "employer", "application_url")
+        support_fields = (
+            "summary",
+            "summary_bn",
+            "summary_en",
+            "requirements",
+            "eligibility_text",
+            "job_purpose",
+            "responsibilities",
+            "key_accountabilities",
+            "role_accountabilities",
+            "qualifications",
+            "skills",
+            "source_sections",
+            "deadline_text",
+            "salary",
+            "journey_steps",
+            "documents_needed",
+        )
+        core_values = [scores.get(name, 0.0) for name in core_fields]
+        support_values = [scores.get(name, 0.0) for name in support_fields]
+        core_average = sum(core_values) / len(core_values) if core_values else 0.0
+        present_support = [value for value in support_values if value > 0]
+        support_average = (
+            sum(present_support) / len(present_support)
+            if present_support
+            else (sum(support_values) / len(support_values) if support_values else 0.0)
+        )
+        rolled = (core_average * 0.7) + (support_average * 0.3)
+    else:
+        rolled = sum(scores.values()) / len(scores)
+
+    if extraction.record_type != "unknown" and scores.get("application_url", 0.0) <= 0:
+        rolled = min(rolled, 0.49)
+
+    if extraction.extraction_method == "fallback_extract":
+        return round(min(rolled, original or 0.45), 3)
+    blended = (rolled * 0.75) + (max(original, 0.0) * 0.25)
+    return round(min(1.0, blended), 3)
 
 
 def _select_weak_required_fields(extraction: ExtractionBase, scores: dict[str, float]) -> list[str]:
