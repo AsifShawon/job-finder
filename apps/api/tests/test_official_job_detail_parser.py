@@ -58,6 +58,85 @@ def test_alfanar_parser_extracts_clean_section_data() -> None:
     assert parsed.parser_confidence >= 0.7
 
 
+def test_alfanar_parser_ignores_empty_anchor_text_and_keeps_apply_link() -> None:
+    html = """
+    <html>
+      <body>
+        <h1>Site Engineer - SAS | alfanar Electric</h1>
+        <div>Location: Riyadh, Saudi Arabia</div>
+        <a href="#menu"><span class="fa fa-bars"></span></a>
+        <a href="/help"><img src="/help.png" alt="" /></a>
+        <h2>Job Purpose</h2>
+        <p>Monitor site operations and coordinate field execution.</p>
+        <h2>Key Accountability Areas</h2>
+        <ul>
+          <li>Monitor day-to-day site activities to ensure alignment with project schedules.</li>
+          <li>Coordinate with engineers, supervisors, and external parties.</li>
+        </ul>
+        <h2>Role Accountability</h2>
+        <ul><li>Provide a periodic report detailing execution of planned tasks.</li></ul>
+        <h2>Technical Skills</h2>
+        <ul><li>Knowledge of technical drawings and QA processes.</li></ul>
+        <h2>Academic Qualification</h2>
+        <p>Bachelor Degree in Electrical Engineering</p>
+        <h2>Work Experience</h2>
+        <p>4 to 6 years of work experience</p>
+        <a href="/apply/1265996701">Apply Now</a>
+      </body>
+    </html>
+    """
+
+    parsed = parse_official_job_detail(
+        html,
+        "",
+        {
+            "company": "alfanar",
+            "source_job_id": "1265996701",
+            "listing_card_title": "Site Engineer - SAS | alfanar Electric",
+        },
+        "successfactors_alfanar",
+        "https://jobs.alfanar.com/alfanar/job/Riyadh-Site-Engineer-SAS-alfanar-Electric/1265996701/",
+    )
+
+    assert parsed.title == "Site Engineer - SAS | alfanar Electric"
+    assert parsed.country == "Saudi Arabia"
+    assert parsed.city == "Riyadh"
+    assert parsed.job_purpose == "Monitor site operations and coordinate field execution."
+    assert "Monitor day-to-day site activities to ensure alignment with project schedules." in parsed.key_accountabilities
+    assert "Provide a periodic report detailing execution of planned tasks." in parsed.role_accountabilities
+    assert "Knowledge of technical drawings and QA processes." in parsed.technical_skills
+    assert parsed.education == "Bachelor Degree in Electrical Engineering"
+    assert parsed.work_experience == "4 to 6 years of work experience"
+    assert parsed.apply_url == "https://jobs.alfanar.com/apply/1265996701"
+    assert parsed.parser_confidence >= 0.7
+
+
+def test_apply_url_falls_back_when_only_empty_anchors_exist() -> None:
+    html = """
+    <html>
+      <body>
+        <h1>Site Engineer - SAS | alfanar Electric</h1>
+        <a href="#menu"><span class="fa fa-bars"></span></a>
+        <a href="/help"><img src="/help.png" alt="" /></a>
+      </body>
+    </html>
+    """
+
+    parsed = parse_official_job_detail(
+        html,
+        "",
+        {
+            "company": "alfanar",
+            "original_apply_url": "https://jobs.alfanar.com/apply/fallback-1",
+            "listing_card_title": "Site Engineer - SAS | alfanar Electric",
+        },
+        "successfactors_alfanar",
+        "https://jobs.alfanar.com/alfanar/job/Riyadh-Site-Engineer-SAS-alfanar-Electric/1265996701/",
+    )
+
+    assert parsed.apply_url == "https://jobs.alfanar.com/apply/fallback-1"
+
+
 def test_tamimi_parser_filters_noise_and_detects_transferable_iqama() -> None:
     html = """
     <html>

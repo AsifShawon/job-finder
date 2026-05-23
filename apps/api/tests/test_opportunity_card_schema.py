@@ -1,6 +1,6 @@
 from app.schemas.opportunity import PublishedOpportunityCard, RecommendationCard
 from app.api.v1.endpoints.opportunities import get_opportunity
-from app.services.search_service import get_opportunity_categories
+from app.services.search_service import get_opportunity_categories, get_opportunity_quick_access
 from app.services.isc_taxonomy import ISC_CATEGORY_DEFINITIONS
 from unittest.mock import MagicMock
 
@@ -171,3 +171,73 @@ def test_get_opportunity_categories_uses_isc_taxonomy_bn_en_labels() -> None:
     assert first.label_bn == definition.bn
     assert first.label_en == definition.en
     assert first.job_count == 3
+
+
+def test_get_opportunity_quick_access_uses_taxonomy_labels_and_caps_results() -> None:
+    db = MagicMock()
+    db.execute.return_value.all.return_value = [
+        ("ict_isc", "Saudi Arabia", 4),
+        ("construction_isc", "Japan", 6),
+        ("tourism_isc", "Malaysia", 5),
+        ("light_eng_isc", "Qatar", 3),
+        ("agriculture_isc", "UAE", 2),
+        ("informal_isc", "Oman", 1),
+    ]
+
+    items = get_opportunity_quick_access(db)
+
+    assert len(items) == 5
+    assert [item.job_count for item in items] == [6, 5, 4, 3, 2]
+    assert items[0].category_key == "construction_isc"
+    assert items[0].category_label_en == "Construction"
+    assert items[0].category_label_bn
+    assert items[0].country == "Japan"
+
+
+def test_get_opportunity_quick_access_skips_unknown_or_incomplete_rows() -> None:
+    db = MagicMock()
+    db.execute.return_value.all.return_value = [
+        ("ict_isc", "Saudi Arabia", 3),
+        (None, "Malaysia", 2),
+        ("construction_isc", None, 2),
+        ("unknown_key", "Qatar", 9),
+    ]
+
+    items = get_opportunity_quick_access(db)
+
+    assert len(items) == 1
+    assert items[0].category_key == "ict_isc"
+    assert items[0].country == "Saudi Arabia"
+
+
+def test_get_opportunity_quick_access_sorts_ties_by_category_then_country() -> None:
+    db = MagicMock()
+    db.execute.return_value.all.return_value = [
+        ("tourism_isc", "Malaysia", 2),
+        ("construction_isc", "Japan", 2),
+        ("construction_isc", "Saudi Arabia", 2),
+    ]
+
+    items = get_opportunity_quick_access(db)
+
+    assert [(item.category_key, item.country) for item in items] == [
+        ("construction_isc", "Japan"),
+        ("construction_isc", "Saudi Arabia"),
+        ("tourism_isc", "Malaysia"),
+    ]
+
+
+def test_get_opportunity_quick_access_query_uses_published_constraints_and_coalesced_country() -> None:
+    db = MagicMock()
+    db.execute.return_value.all.return_value = []
+
+    get_opportunity_quick_access(db)
+
+    stmt = db.execute.call_args.args[0]
+    compiled = str(stmt)
+
+    assert "coalesce(opportunities.destination_country, opportunities.country)" in compiled
+    assert "opportunities.status = :status_1" in compiled
+    assert "opportunities.is_active IS true" in compiled
+    assert "opportunities.admin_status NOT IN" in compiled
+    assert "opportunities.opportunity_type IN" in compiled

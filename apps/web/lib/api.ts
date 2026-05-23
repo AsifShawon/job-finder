@@ -1,5 +1,6 @@
 import type {
   OpportunityCategorySummary,
+  OpportunityQuickAccessSummary,
   OpportunityDetail,
   SearchResponse,
   SimilarOpportunityResponse,
@@ -37,6 +38,14 @@ export async function getOpportunityCategories(): Promise<OpportunityCategorySum
   const response = await fetch(`${API_BASE}/api/v1/opportunities/categories`, { cache: "no-store" });
   if (!response.ok) {
     throw new Error("Failed to fetch opportunity categories");
+  }
+  return response.json();
+}
+
+export async function getQuickAccessItems(): Promise<OpportunityQuickAccessSummary[]> {
+  const response = await fetch(`${API_BASE}/api/v1/opportunities/quick-access`, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error("Failed to fetch quick access items");
   }
   return response.json();
 }

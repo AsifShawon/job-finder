@@ -1,4 +1,3 @@
-import type { Route } from "next";
 import Link from "next/link";
 import { AlertCircle, ArrowRight, ShieldCheck, Sparkles } from "lucide-react";
 
@@ -7,9 +6,10 @@ import { HomeCategoryGrid } from "@/components/home-category-grid";
 import { NewsTicker } from "@/components/news-ticker";
 import { OpportunityCard } from "@/components/opportunity-card";
 import { Card } from "@/components/ui/card";
-import { getOpportunityCategories, searchOpportunities } from "@/lib/api";
+import { getOpportunityCategories, getQuickAccessItems, searchOpportunities } from "@/lib/api";
 import { buildAllJobsHref, getDefaultOpportunityCategories } from "@/lib/isc-sectors";
 import { getLocale } from "@/lib/i18n";
+import { buildQuickAccessHref, getQuickAccessLabel } from "@/lib/quick-access";
 
 async function getFeaturedOpportunities() {
   try {
@@ -83,13 +83,14 @@ const TRUST_FEATURES = [
 export default async function HomePage() {
   const locale = await getLocale();
   const isEn = locale === "en";
-  const [featured, recent, tickerItems, categories] = await Promise.all([
+  const [featured, recent, tickerItems, categories, quickAccessItems] = await Promise.all([
     getFeaturedOpportunities(),
     getRecentOpportunities(),
     getTickerOpportunities(),
     getOpportunityCategories()
       .then((items) => (items.length > 0 ? items : getDefaultOpportunityCategories()))
       .catch(() => getDefaultOpportunityCategories()),
+    getQuickAccessItems().catch(() => []),
   ]);
 
   return (
@@ -128,7 +129,7 @@ export default async function HomePage() {
               </p>
             </div>
             <Link href={buildAllJobsHref()} className="text-sm font-semibold text-primary hover:underline">
-              {isEn ? "View all" : "সব দেখুন"} →
+              {isEn ? "View all" : "সব দেখুন"} â†’
             </Link>
           </div>
 
@@ -155,7 +156,7 @@ export default async function HomePage() {
                 </p>
               </div>
               <Link href="/search?sort=newest" className="text-sm font-semibold text-primary hover:underline">
-                {isEn ? "View all" : "সব দেখুন"} →
+                {isEn ? "View all" : "সব দেখুন"} â†’
               </Link>
             </div>
 
@@ -177,19 +178,15 @@ export default async function HomePage() {
               <h3 className="section-underline text-base font-semibold text-foreground">
                 {isEn ? "Quick Access" : "দ্রুত অ্যাক্সেস"}
               </h3>
-              <div className="mt-4 space-y-1">
-                {[
-                  { label: "কানাডার চাকরি", labelEn: "Jobs in Canada", href: "/search?country=Canada&opportunity_type=overseas_job,local_job" as Route },
-                  { label: "মালয়েশিয়া কর্মসংস্থান", labelEn: "Malaysia jobs", href: "/search?country=Malaysia&opportunity_type=overseas_job,local_job" as Route },
-                  { label: "জার্মানি চাকরি", labelEn: "Germany jobs", href: "/search?country=Germany&opportunity_type=overseas_job,local_job" as Route },
-                  { label: "সব চাকরি", labelEn: "All jobs", href: buildAllJobsHref() },
-                ].map(({ label, labelEn, href }) => (
+              <div className="mt-4 space-y-1" data-testid="home-quick-access">
+                {quickAccessItems.map((item) => (
                   <Link
-                    key={String(href)}
-                    href={href}
+                    key={`${item.category_key}-${item.country}`}
+                    href={buildQuickAccessHref(item.category_key, item.country)}
+                    data-testid="quick-access-link"
                     className="flex items-center justify-between rounded-xl px-3 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-muted hover:text-primary"
                   >
-                    <span>{isEn ? labelEn : label}</span>
+                    <span>{getQuickAccessLabel(item, isEn)}</span>
                     <ArrowRight className="h-4 w-4" />
                   </Link>
                 ))}

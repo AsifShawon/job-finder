@@ -6,6 +6,7 @@ from app.core.deps import get_current_user_optional, get_db
 from app.models.entities import Opportunity, Source, User
 from app.schemas.opportunity import (
     OpportunityCategorySummary,
+    OpportunityQuickAccessSummary,
     PublishedOpportunityDetail,
     PublishedSearchQuery,
     PublishedSearchResponse,
@@ -13,6 +14,7 @@ from app.schemas.opportunity import (
 )
 from app.services.search_service import (
     get_opportunity_categories,
+    get_opportunity_quick_access,
     get_similar_opportunities,
     search_opportunities,
 )
@@ -94,6 +96,11 @@ def search(
 @router.get("/categories", response_model=list[OpportunityCategorySummary])
 def categories(db: Session = Depends(get_db)) -> list[OpportunityCategorySummary]:
     return get_opportunity_categories(db)
+
+
+@router.get("/quick-access", response_model=list[OpportunityQuickAccessSummary])
+def quick_access(db: Session = Depends(get_db)) -> list[OpportunityQuickAccessSummary]:
+    return get_opportunity_quick_access(db)
 
 
 @router.get("/{opportunity_id}", response_model=PublishedOpportunityDetail)

@@ -414,7 +414,7 @@ def _extract_posted_date(
 
 def _extract_apply_url(soup: BeautifulSoup, url: str, metadata: dict) -> str | None:
     for anchor in soup.select("a[href]"):
-        text_value = _clean(anchor.get_text(" ", strip=True)).lower()
+        text_value = (_clean(anchor.get_text(" ", strip=True)) or "").lower()
         href = (anchor.get("href") or "").strip()
         if not href:
             continue
@@ -466,8 +466,8 @@ def _match_heading(line: str, heading_map: dict[str, str]) -> str | None:
     return None
 
 
-def _normalize_heading(value: str) -> str:
-    cleaned = re.sub(r"[\s:/|]+", " ", value.lower()).strip()
+def _normalize_heading(value: object | None) -> str:
+    cleaned = re.sub(r"[\s:/|]+", " ", (_clean(value) or "").lower()).strip()
     return re.sub(r"\s+", " ", cleaned)
 
 

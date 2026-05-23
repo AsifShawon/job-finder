@@ -28,6 +28,7 @@ import type {
 import { pickLang } from "@/lib/i18n-shared";
 import { getISCSectorByKey, ISC_SECTORS } from "@/lib/isc-sectors";
 import { cn, formatDate } from "@/lib/utils";
+import { formatVoiceDate, getVoiceField, joinVoiceParts } from "@/lib/voice-script";
 
 type AnyCard = OpportunityCardType | RecommendationCard;
 type RichCardItem = AnyCard &
@@ -161,25 +162,11 @@ function normalizeKey(value: string) {
     .replace(/\s+/g, " ");
 }
 
-function countryToFlag(country: string | null | undefined) {
-  if (!country) {
-    return "";
-  }
-
+function countryToCode(country: string | null | undefined): string | null {
+  if (!country) return null;
   const trimmed = country.trim();
-  const code =
-    (/^[A-Za-z]{2}$/.test(trimmed) ? trimmed.toUpperCase() : COUNTRY_CODE_MAP[normalizeKey(trimmed)]) ??
-    null;
-
-  if (!code) {
-    return "";
-  }
-
-  return code
-    .toUpperCase()
-    .split("")
-    .map((char) => String.fromCodePoint(127397 + char.charCodeAt(0)))
-    .join("");
+  if (/^[A-Za-z]{2}$/.test(trimmed)) return trimmed.toUpperCase();
+  return COUNTRY_CODE_MAP[normalizeKey(trimmed)] ?? null;
 }
 
 function parseDateOnlyUtc(dateString: string) {
@@ -349,6 +336,36 @@ function fallbackLocationText(item: RichCardItem) {
   return parts.length > 0 ? parts.join(", ") : null;
 }
 
+function cardVoiceText(item: RichCardItem, locale: Locale, title: string, summary: string) {
+  if (locale !== "bn") {
+    return `${title}. ${summary}`.trim();
+  }
+
+  const titleVoice = getVoiceField(item, "title", "bn");
+  const employerVoice = joinVoiceParts([
+    getVoiceField(item, "employer_or_organization", "bn") ?? getVoiceField(item, "source_name", "bn"),
+  ], "bn");
+  const locationVoice = joinVoiceParts([
+    getVoiceField(item, "location_text", "bn"),
+    getVoiceField(item, "destination_country", "bn") ?? getVoiceField(item, "country", "bn"),
+  ], "bn");
+  const deadlineVoice = formatVoiceDate(item.deadline, "bn");
+  const summaryVoice = getVoiceField(item, "summary", "bn");
+
+  return (
+    joinVoiceParts(
+      [
+        titleVoice,
+        employerVoice ? `নিয়োগকর্তা, ${employerVoice}` : null,
+        locationVoice ? `লোকেশন, ${locationVoice}` : null,
+        deadlineVoice ? `আবেদনের শেষ তারিখ, ${deadlineVoice}` : null,
+        summaryVoice ? `সারসংক্ষেপ, ${summaryVoice}` : null,
+      ],
+      "bn",
+    ) ?? ""
+  );
+}
+
 function countryText(item: RichCardItem, locale: Locale) {
   return item.destination_country ?? item.country ?? pickLang(item, "location_text", locale) ?? fallbackLocationText(item);
 }
@@ -488,14 +505,14 @@ export function OpportunityCard({
   const summary = summaryText(item, locale);
   const detailUrl = detailsHref(item);
   const country = countryText(item, locale);
-  const flag = countryToFlag(country);
+  const countryCode = countryToCode(country);
   const badges = topBadges(item, locale);
   const facts = metadataItems(item, locale);
   const compactItemFacts = compactFacts(item, locale);
   const experienceCallout = formatExperienceCallout(item.experience_min_years, locale);
   const trust = trustText(item, locale);
   const matchText = showMatchBanner ? matchReason(item, locale) : null;
-  const spokenText = `${title}. ${summary}`.trim();
+  const spokenText = cardVoiceText(item, locale, title, summary);
 
   const toggleSave = async () => {
     setSaving(true);
@@ -538,8 +555,17 @@ export function OpportunityCard({
           </div>
 
           {country ? (
-            <div className={cn("shrink-0", flagChipClasses("compact"))}>
-              <span>{flag ? `${flag} ` : ""}</span>
+            <div className={cn("shrink-0 inline-flex items-center gap-1.5", flagChipClasses("compact"))}>
+              {countryCode ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={`https://flagcdn.com/w20/${countryCode.toLowerCase()}.png`}
+                  width={16}
+                  height={12}
+                  alt=""
+                  className="rounded-[2px] object-cover"
+                />
+              ) : null}
               <span>{country}</span>
             </div>
           ) : null}
@@ -567,6 +593,7 @@ export function OpportunityCard({
               size="touch"
               ariaLabel={TEXT[locale].listen}
               className="border-border"
+              disabled={!spokenText}
             />
             <SaveButton saved={saved} saving={saving} onClick={toggleSave} locale={locale} />
           </div>
@@ -619,8 +646,17 @@ export function OpportunityCard({
           </div>
 
           {country ? (
-            <div className={cn("shrink-0", flagChipClasses("large"))}>
-              <span>{flag ? `${flag} ` : ""}</span>
+            <div className={cn("shrink-0 inline-flex items-center gap-1.5", flagChipClasses("large"))}>
+              {countryCode ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={`https://flagcdn.com/w20/${countryCode.toLowerCase()}.png`}
+                  width={20}
+                  height={15}
+                  alt=""
+                  className="rounded-[2px] object-cover"
+                />
+              ) : null}
               <span>{country}</span>
             </div>
           ) : null}
@@ -648,6 +684,7 @@ export function OpportunityCard({
               size="touch"
               ariaLabel={TEXT[locale].listen}
               className="border-border"
+              disabled={!spokenText}
             />
             <SaveButton saved={saved} saving={saving} onClick={toggleSave} locale={locale} />
           </div>

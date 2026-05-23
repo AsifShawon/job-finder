@@ -57,15 +57,20 @@ export function HeroSlider() {
   const isEn = locale === "en";
   const [activeIndex, setActiveIndex] = useState(0);
   const [prevIndex, setPrevIndex] = useState(-1);
+  const [paused, setPaused] = useState(false);
 
   useEffect(() => {
-    const timer = window.setInterval(() => {
+    if (paused) {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => {
       setPrevIndex(activeIndex);
       setActiveIndex((current) => (current + 1) % HERO_SLIDES.length);
     }, 6000);
 
-    return () => window.clearInterval(timer);
-  }, [activeIndex]);
+    return () => window.clearTimeout(timer);
+  }, [activeIndex, paused]);
 
   return (
     <section className="relative overflow-hidden bg-navy text-white">
@@ -112,7 +117,7 @@ export function HeroSlider() {
                       <span className="inline-flex rounded-full border border-white/25 bg-white/10 px-3 py-1 text-xs font-semibold backdrop-blur">
                         {isEn ? "Verified Opportunity Platform" : "যাচাই করা সুযোগের প্ল্যাটফর্ম"}
                       </span>
-                      <h1 className="line-clamp-2 max-w-xl text-3xl font-bold leading-tight sm:text-4xl lg:text-5xl">
+                      <h1 data-testid="hero-slide-title" className="line-clamp-2 max-w-xl text-3xl font-bold leading-tight sm:text-4xl lg:text-5xl">
                         {isEn ? slide.titleEn : slide.titleBn}
                       </h1>
                       <p className="hidden max-w-xl text-base text-slate-100 sm:block sm:text-lg">
@@ -134,7 +139,7 @@ export function HeroSlider() {
                         </Link>
                       </div>
                       </div>
-                      <HeroVoiceEntry isEn={isEn} />
+                      <HeroVoiceEntry isEn={isEn} onInteractionChange={setPaused} />
                     </div>
                   </div>
                 )}
@@ -151,6 +156,7 @@ export function HeroSlider() {
                   setPrevIndex(activeIndex);
                   setActiveIndex(index);
                 }}
+                aria-current={activeIndex === index ? "true" : undefined}
                 aria-label={isEn ? `View slide ${index + 1}` : `স্লাইড ${index + 1} দেখুন`}
                 className={cn(
                   "h-2.5 rounded-full transition-all",

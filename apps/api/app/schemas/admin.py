@@ -407,7 +407,12 @@ class SourceProbeResult(BaseModel):
 class CrawlInspectionPageSummary(BaseModel):
     raw_document_id: int
     opportunity_id: int | None = None
+    review_opportunity_id: int | None = None
+    review_status: str | None = None
     title: str | None = None
+    company: str | None = None
+    country: str | None = None
+    city: str | None = None
     source_url: str
     final_url: str | None = None
     raw_text_length: int = 0
@@ -416,6 +421,13 @@ class CrawlInspectionPageSummary(BaseModel):
     ai_status: str | None = None
     publish_status: str | None = None
     parser_confidence: float = 0.0
+    stage: str = "scraped"
+    status_label: str = "Waiting"
+    status_tone: str = "gray"
+    recommended_action: str = "Inspect"
+    last_result: str | None = None
+    failed_reason: str | None = None
+    key_info_flags: dict[str, str] = Field(default_factory=dict)
     warnings: list[str] = []
 
 
@@ -432,8 +444,17 @@ class CrawlRunInspectionOut(BaseModel):
     detail_pages_followed: int = 0
     parser_success_count: int = 0
     ai_success_count: int = 0
+    scraped_count: int = 0
+    parsed_count: int = 0
+    ready_for_ai_count: int = 0
+    ai_completed_count: int = 0
+    ready_to_publish_count: int = 0
+    published_count: int = 0
+    needs_review_count: int = 0
     failed_count: int = 0
     pending_admin_review_count: int = 0
+    next_action_key: str | None = None
+    next_action_count: int = 0
     run_logs: list[str] = []
     discovery_diagnostics: dict[str, Any] = Field(default_factory=dict)
     extraction_method_counts: dict[str, int] = Field(default_factory=dict)
@@ -473,12 +494,39 @@ class SaveParserEditsRequest(BaseModel):
     parsed_payload: dict[str, Any]
 
 
+class SaveAiEditsRequest(BaseModel):
+    validated_output: dict[str, Any]
+
+
 class RawDocumentActionResult(BaseModel):
     raw_document_id: int
     status: str
     message: str
     opportunity_id: int | None = None
     diagnostics: dict[str, Any] = Field(default_factory=dict)
+
+
+class RawDocumentBatchRequest(BaseModel):
+    raw_document_ids: list[int] = Field(default_factory=list)
+
+
+class RawDocumentBatchItemResult(BaseModel):
+    raw_document_id: int
+    title: str | None = None
+    before_status: str | None = None
+    after_status: str | None = None
+    success: bool = False
+    skipped: bool = False
+    message: str
+    opportunity_id: int | None = None
+
+
+class RawDocumentBatchActionResult(BaseModel):
+    total: int
+    processed: int
+    skipped: int
+    failed: int
+    results: list[RawDocumentBatchItemResult] = Field(default_factory=list)
 
 
 class FailedExtractionOut(BaseModel):

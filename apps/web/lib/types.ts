@@ -217,6 +217,14 @@ export interface OpportunityCategorySummary {
   job_count: number;
 }
 
+export interface OpportunityQuickAccessSummary {
+  category_key: string;
+  category_label_bn: string;
+  category_label_en: string;
+  country: string;
+  job_count: number;
+}
+
 export interface SimilarOpportunityResponse {
   items: PublishedOpportunityCard[];
 }
@@ -619,7 +627,12 @@ export interface RawDocumentPage {
 export interface CrawlInspectionPageSummary {
   raw_document_id: number;
   opportunity_id: number | null;
+  review_opportunity_id: number | null;
+  review_status: string | null;
   title: string | null;
+  company: string | null;
+  country: string | null;
+  city: string | null;
   source_url: string;
   final_url: string | null;
   raw_text_length: number;
@@ -628,6 +641,13 @@ export interface CrawlInspectionPageSummary {
   ai_status: string | null;
   publish_status: string | null;
   parser_confidence: number;
+  stage: string;
+  status_label: string;
+  status_tone: string;
+  recommended_action: string;
+  last_result: string | null;
+  failed_reason: string | null;
+  key_info_flags: Record<string, string>;
   warnings: string[];
 }
 
@@ -644,8 +664,17 @@ export interface CrawlRunInspection {
   detail_pages_followed: number;
   parser_success_count: number;
   ai_success_count: number;
+  scraped_count: number;
+  parsed_count: number;
+  ready_for_ai_count: number;
+  ai_completed_count: number;
+  ready_to_publish_count: number;
+  published_count: number;
+  needs_review_count: number;
   failed_count: number;
   pending_admin_review_count: number;
+  next_action_key: string | null;
+  next_action_count: number;
   run_logs: string[];
   discovery_diagnostics: Record<string, unknown>;
   extraction_method_counts: Record<string, number>;
@@ -687,4 +716,31 @@ export interface RawDocumentActionResult {
   message: string;
   opportunity_id: number | null;
   diagnostics: Record<string, unknown>;
+}
+
+export interface SaveAiEditsRequest {
+  validated_output: Record<string, unknown>;
+}
+
+export interface RawDocumentBatchRequest {
+  raw_document_ids: number[];
+}
+
+export interface RawDocumentBatchItemResult {
+  raw_document_id: number;
+  title: string | null;
+  before_status: string | null;
+  after_status: string | null;
+  success: boolean;
+  skipped: boolean;
+  message: string;
+  opportunity_id: number | null;
+}
+
+export interface RawDocumentBatchActionResult {
+  total: number;
+  processed: number;
+  skipped: number;
+  failed: number;
+  results: RawDocumentBatchItemResult[];
 }

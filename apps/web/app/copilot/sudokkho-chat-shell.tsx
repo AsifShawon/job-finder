@@ -502,7 +502,7 @@ export function SudokkhoChatShell({
   };
 
   return (
-    <div className="flex h-[calc(100vh-0px)] overflow-hidden bg-slate-50 text-slate-950">
+    <div className="fixed inset-0 z-50 flex overflow-hidden bg-slate-50 text-slate-950 dark:bg-slate-900 dark:text-slate-50">
       <aside className="hidden w-72 shrink-0 border-r border-slate-200 bg-white md:block">
         <ChatHistorySidebar
           conversations={conversations}

@@ -122,7 +122,7 @@ def parse_successfactors_detail(
         node.decompose()
     title_node = soup.select_one("h1") or soup.select_one(".jobTitle") or soup.select_one("title")
     title = _clean(title_node.get_text(" ", strip=True) if title_node else listing.title)
-    body = _clean(soup.get_text("\n", strip=True))
+    body = _clean_multiline_text(soup.get_text("\n", strip=True))
     canonical = _canonical(detail_url, soup)
     apply_url = _find_apply_url(soup, detail_url) or listing.apply_url or detail_url
     source_job_id = listing.source_job_id or _extract_req_id(body)
@@ -587,7 +587,7 @@ def _static_detail_page(
     title = _clean(title_node.get_text(" ", strip=True) if title_node else listing.title) or listing.title
     if _is_generic_detail_title(title):
         title = listing.title
-    body = _clean(soup.get_text("\n", strip=True))
+    body = _clean_multiline_text(soup.get_text("\n", strip=True))
     apply_url = _find_apply_url(soup, detail_url)
     if detected_item_type == "job" and not apply_url:
         apply_url = listing.apply_url or detail_url
@@ -865,3 +865,8 @@ def _same_host_or_relative(url: str, base_url: str) -> bool:
 
 def _clean(value: str | None) -> str:
     return re.sub(r"\s+", " ", value or "").strip()
+
+
+def _clean_multiline_text(value: str | None) -> str:
+    lines = [_clean(line) for line in (value or "").splitlines()]
+    return "\n".join(line for line in lines if line)

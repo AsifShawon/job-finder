@@ -6,7 +6,7 @@ import { Loader2, Pause, Play, Square, Volume2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
-export type VoiceSection = { label: string; text: string };
+export type VoiceSection = { label: string; text: string; spokenText?: string };
 
 type PlayerState = "idle" | "loading" | "playing" | "paused";
 
@@ -59,7 +59,7 @@ export function OpportunityVoicePlayer({
       let audio = cacheRef.current.get(i);
       if (!audio) {
         try {
-          audio = await fetchAudio(sections[i].text, lang);
+          audio = await fetchAudio(sections[i].spokenText ?? sections[i].text, lang);
           cacheRef.current.set(i, audio);
         } catch {
           if (session === sessionRef.current) setState("idle");
@@ -118,6 +118,7 @@ export function OpportunityVoicePlayer({
       <div className="mt-3 flex items-center gap-2">
         {(state === "idle" || state === "loading") && (
           <button
+            data-testid="opportunity-voice-listen"
             onClick={state === "idle" ? play : undefined}
             disabled={state === "loading"}
             className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-60"

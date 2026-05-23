@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -12,6 +13,7 @@ from app.core.deps import get_admin_user, get_db
 from app.ingestion.eligibility_engine import tag_eligibility
 from app.ingestion.extractor import (
     build_official_job_ai_input_payload,
+    is_raw_metadata_summary,
     official_parsed_payload_to_fallback_extraction,
     run_official_job_ai_extraction,
 )
@@ -24,18 +26,49 @@ from app.ingestion.pipeline import (
     _format_salary_text,
     _list_to_text,
 )
+from app.ingestion.schemas import JobOpportunityExtraction
 from app.ingestion.validators import parse_deadline
 from app.models.entities import CrawlRun, Opportunity, RawDocument, Source, User
 from app.schemas.admin import (
     CrawlInspectionPageSummary,
     CrawlRunInspectionOut,
     RawDocumentActionResult,
+    RawDocumentBatchActionResult,
+    RawDocumentBatchItemResult,
+    RawDocumentBatchRequest,
     RawDocumentInspectionOut,
+    SaveAiEditsRequest,
     SaveParserEditsRequest,
 )
 from app.services.isc_taxonomy import determine_isc_category_key
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+_PARSER_LOW_CONFIDENCE_THRESHOLD = 0.65
+_READY_FOR_AI_STATUS = "ai_pending_admin"
+_AI_READY_STATUSES = {"ai_completed_pending_publish", "fallback_ready_pending_publish"}
+_SUMMARY_FIELDS = ("summary", "summary_en", "summary_bn")
+_KEY_INFO_KEYS = (
+    "title",
+    "country",
+    "city",
+    "requirements",
+    "responsibilities",
+    "apply_link",
+    "salary",
+    "deadline",
+)
+_STATUS_LABELS = {
+    "scraped": "Scraped",
+    "parser_pending_admin": "Parsed, waiting for approval",
+    "parser_low_confidence": "Needs parser review",
+    "ai_pending_admin": "Ready for AI Brain",
+    "ai_completed_pending_publish": "AI output ready",
+    "fallback_ready_pending_publish": "Fallback output ready",
+    "published": "Published",
+    "failed": "Failed",
+    "needs_review": "Needs review",
+}
 
 
 def _diagnostics(raw: RawDocument) -> dict[str, Any]:
@@ -53,7 +86,7 @@ def _parsed_payload(raw: RawDocument) -> OfficialJobParsedPayload:
     return OfficialJobParsedPayload.model_validate(parsed)
 
 
-def _append_attempt(raw: RawDocument, extraction, *, review_reason: str | None = None) -> None:
+def _append_attempt(raw: RawDocument, extraction: JobOpportunityExtraction, *, review_reason: str | None = None) -> None:
     diagnostics = _diagnostics(raw)
     attempts = list(diagnostics.get("attempts") or [])
     attempts.append(
@@ -76,6 +109,13 @@ def _append_attempt(raw: RawDocument, extraction, *, review_reason: str | None =
     )
     diagnostics["attempts"] = attempts
     _save_diagnostics(raw, diagnostics)
+
+
+def _get_run(db: Session, run_id: int) -> CrawlRun:
+    run = db.scalar(select(CrawlRun).where(CrawlRun.id == run_id))
+    if not run:
+        raise HTTPException(status_code=404, detail="Crawl run not found")
+    return run
 
 
 def _build_inspection(raw: RawDocument, source: Source | None) -> RawDocumentInspectionOut:
@@ -110,7 +150,11 @@ def _build_inspection(raw: RawDocument, source: Source | None) -> RawDocumentIns
         final_record=final_record,
         final_opportunity_id=final_record.get("opportunity_id"),
         skip_reason=raw.skip_reason,
-        fallback_reason=((ai_diag.get("validated_output") or {}).get("fallback_reason") if isinstance(ai_diag.get("validated_output"), dict) else None),
+        fallback_reason=(
+            (ai_diag.get("validated_output") or {}).get("fallback_reason")
+            if isinstance(ai_diag.get("validated_output"), dict)
+            else None
+        ),
         warnings=warnings,
     )
 
@@ -125,12 +169,185 @@ def _get_raw_document(db: Session, raw_document_id: int) -> tuple[RawDocument, S
     return raw, source
 
 
+def _get_existing_opportunity(db: Session, raw: RawDocument) -> Opportunity | None:
+    return db.scalar(select(Opportunity).where(Opportunity.raw_document_id == raw.id))
+
+
+def _current_workflow_status(raw: RawDocument, diagnostics: dict[str, Any] | None = None) -> str:
+    diagnostics = diagnostics or _diagnostics(raw)
+    if raw.skip_reason:
+        return "failed"
+    final_record = diagnostics.get("final_record") or {}
+    final_status = final_record.get("status")
+    if final_status:
+        return str(final_status)
+    ai_status = (diagnostics.get("ai") or {}).get("status")
+    if ai_status:
+        return str(ai_status)
+    parser_status = (diagnostics.get("section_parser") or {}).get("state") or (diagnostics.get("section_parser") or {}).get("status")
+    if parser_status:
+        return str(parser_status)
+    return "scraped"
+
+
+def _status_label(raw: RawDocument, diagnostics: dict[str, Any], opportunity: Opportunity | None) -> str:
+    status = _current_workflow_status(raw, diagnostics)
+    if raw.skip_reason:
+        return _STATUS_LABELS["failed"]
+    if status == "published":
+        return _STATUS_LABELS["published"]
+    if opportunity and opportunity.status != "published" and opportunity.needs_admin_review:
+        return _STATUS_LABELS["needs_review"]
+    return _STATUS_LABELS.get(status, _STATUS_LABELS["scraped"])
+
+
+def _status_tone(raw: RawDocument, diagnostics: dict[str, Any], opportunity: Opportunity | None) -> str:
+    status = _current_workflow_status(raw, diagnostics)
+    if raw.skip_reason:
+        return "red"
+    if status == "published":
+        return "green"
+    if opportunity and opportunity.status != "published" and opportunity.needs_admin_review:
+        return "yellow"
+    if status == "parser_low_confidence":
+        return "yellow"
+    if status in _AI_READY_STATUSES:
+        return "green" if _is_publish_ready(raw, diagnostics) else "blue"
+    if status in {"parser_pending_admin", _READY_FOR_AI_STATUS}:
+        return "blue"
+    return "gray"
+
+
+def _is_publish_ready(raw: RawDocument, diagnostics: dict[str, Any]) -> bool:
+    if raw.skip_reason:
+        return False
+    ai_diag = diagnostics.get("ai") or {}
+    if ai_diag.get("status") not in _AI_READY_STATUSES:
+        return False
+    validated = ai_diag.get("validated_output") or {}
+    if not isinstance(validated, dict) or not validated:
+        return False
+    return not any(is_raw_metadata_summary(validated.get(field)) for field in _SUMMARY_FIELDS)
+
+
+def _stage(raw: RawDocument, diagnostics: dict[str, Any]) -> str:
+    status = _current_workflow_status(raw, diagnostics)
+    if raw.skip_reason:
+        return "failed"
+    if status == "published":
+        return "published"
+    if status in _AI_READY_STATUSES:
+        return "ready_to_publish" if _is_publish_ready(raw, diagnostics) else "ai_structured"
+    if status in {"parser_pending_admin", "parser_low_confidence", _READY_FOR_AI_STATUS}:
+        return "parsed"
+    return "scraped"
+
+
+def _recommended_action(raw: RawDocument, diagnostics: dict[str, Any], opportunity: Opportunity | None) -> str:
+    status = _current_workflow_status(raw, diagnostics)
+    parser_confidence = float(((diagnostics.get("section_parser") or {}).get("parser_confidence") or 0.0))
+    if raw.skip_reason:
+        return "Open issue"
+    if status == "published":
+        return "No action needed"
+    if opportunity and opportunity.status != "published" and opportunity.needs_admin_review:
+        return "Open review queue"
+    if status == "scraped":
+        return "Parse this job"
+    if status == "parser_low_confidence" or parser_confidence < _PARSER_LOW_CONFIDENCE_THRESHOLD:
+        return "Review parsed sections"
+    if status in {"parser_pending_admin", _READY_FOR_AI_STATUS}:
+        return "Send to AI Brain"
+    if status in _AI_READY_STATUSES:
+        return "Preview and publish" if _is_publish_ready(raw, diagnostics) else "Review AI output"
+    return "Inspect"
+
+
+def _last_result(raw: RawDocument, diagnostics: dict[str, Any], opportunity: Opportunity | None) -> str | None:
+    if raw.skip_reason:
+        return raw.skip_reason
+    status = _current_workflow_status(raw, diagnostics)
+    if status == "published":
+        return "Published to public jobs"
+    if opportunity and opportunity.status != "published" and opportunity.needs_admin_review:
+        return "Saved to review queue"
+    if status == "parser_low_confidence":
+        return "Parser finished with low confidence"
+    if status == "parser_pending_admin":
+        return "Parser completed successfully"
+    if status == _READY_FOR_AI_STATUS:
+        return "Ready for AI Brain"
+    if status == "ai_completed_pending_publish":
+        return "AI output validated"
+    if status == "fallback_ready_pending_publish":
+        return "Safe backup output prepared"
+    return None
+
+
+def _validated_payload_to_extraction(validated_payload: dict[str, Any], raw: RawDocument) -> JobOpportunityExtraction:
+    payload = dict(validated_payload)
+    payload.setdefault("record_type", "job")
+    try:
+        return JobOpportunityExtraction.model_validate(payload)
+    except Exception as exc:
+        try:
+            return official_parsed_payload_to_fallback_extraction(_parsed_payload(raw))
+        except HTTPException as parsed_exc:
+            raise HTTPException(status_code=409, detail=f"Validated output is invalid: {exc}") from parsed_exc
+
+
+def _key_info_flags(raw: RawDocument, diagnostics: dict[str, Any]) -> dict[str, str]:
+    parser_payload = ((diagnostics.get("section_parser") or {}).get("parsed_payload") or {})
+    ai_payload = ((diagnostics.get("ai") or {}).get("validated_output") or {})
+    requirements = list(ai_payload.get("requirements") or parser_payload.get("qualifications") or [])
+    responsibilities = list(
+        ai_payload.get("responsibilities")
+        or parser_payload.get("responsibilities")
+        or parser_payload.get("key_accountabilities")
+        or []
+    )
+    risky = "transferable iqama" in str(parser_payload.get("work_permit_or_iqama") or "").lower()
+    salary_present = bool(ai_payload.get("salary_text") or parser_payload.get("salary_text") or ai_payload.get("salary_min") or ai_payload.get("salary_max"))
+    deadline_present = bool(ai_payload.get("deadline_text") or parser_payload.get("deadline_text"))
+    values = {
+        "title": ai_payload.get("title") or parser_payload.get("title") or raw.raw_title,
+        "country": ai_payload.get("country") or parser_payload.get("country"),
+        "city": ai_payload.get("city") or parser_payload.get("city"),
+        "requirements": requirements,
+        "responsibilities": responsibilities,
+        "apply_link": ai_payload.get("application_url") or parser_payload.get("apply_url"),
+        "salary": salary_present,
+        "deadline": deadline_present,
+    }
+    flags: dict[str, str] = {}
+    for key in _KEY_INFO_KEYS:
+        value = values.get(key)
+        has_value = bool(value)
+        flags[key] = "found" if has_value else "missing"
+    if risky and flags["requirements"] == "found":
+        flags["requirements"] = "risky"
+    return flags
+
+
+def _parsed_location_fields(raw: RawDocument, diagnostics: dict[str, Any]) -> tuple[str | None, str | None, str | None]:
+    parser_payload = ((diagnostics.get("section_parser") or {}).get("parsed_payload") or {})
+    ai_payload = ((diagnostics.get("ai") or {}).get("validated_output") or {})
+    company = ai_payload.get("employer") or parser_payload.get("company") or (raw.metadata_json or {}).get("company")
+    country = ai_payload.get("country") or parser_payload.get("country")
+    city = ai_payload.get("city") or parser_payload.get("city")
+    return (
+        str(company) if company else None,
+        str(country) if country else None,
+        str(city) if city else None,
+    )
+
+
 def _upsert_official_opportunity(
     db: Session,
     *,
     source: Source,
     raw: RawDocument,
-    extraction,
+    extraction: JobOpportunityExtraction,
     publish: bool,
     admin_id: int | None = None,
 ) -> Opportunity:
@@ -208,7 +425,9 @@ def _upsert_official_opportunity(
     opportunity.salary_max = extraction.salary_max
     opportunity.salary_currency = extraction.salary_currency
     opportunity.salary_text = _format_salary_text(extraction.salary_min, extraction.salary_max, extraction.salary_currency)
-    opportunity.location_text = (raw.metadata_json or {}).get("location_raw") or ", ".join([item for item in [extraction.city, extraction.country] if item]) or None
+    opportunity.location_text = (raw.metadata_json or {}).get("location_raw") or ", ".join(
+        [item for item in [extraction.city, extraction.country] if item]
+    ) or None
     opportunity.deadline = parse_deadline(extraction.deadline_text)
     opportunity.posted_date = parse_deadline((raw.metadata_json or {}).get("posting_date_text"))
     opportunity.application_url = extraction.application_url or opportunity.source_page_url
@@ -222,12 +441,17 @@ def _upsert_official_opportunity(
     opportunity.lmia_status = eligibility.lmia_status
     opportunity.target_audience_tags = eligibility.target_audience_tags
     opportunity.risk_flags = eligibility.risk_flags
-    opportunity.source_trust_badge = "অফিসিয়াল পার্টনার" if source.trust_level == "official_partner" else opportunity.source_trust_badge
+    opportunity.source_trust_badge = (
+        "অফিসিয়াল পার্টনার" if source.trust_level == "official_partner" else opportunity.source_trust_badge
+    )
     opportunity.source_trust_tier = source.trust_level
     opportunity.visa_or_work_permit_info = _extract_visa_info(extraction.eligibility_text, raw.raw_text)
     opportunity.visa_or_iqama_requirement = opportunity.visa_or_work_permit_info
     opportunity.education_requirement = extraction.degree_level or _list_to_text(extraction.qualifications[:2], separator="\n")
-    opportunity.experience_requirement = next((item for item in extraction.qualifications if "experience" in item.lower() or "year" in item.lower()), None)
+    opportunity.experience_requirement = next(
+        (item for item in extraction.qualifications if "experience" in item.lower() or "year" in item.lower()),
+        None,
+    )
     opportunity.language_requirement = ", ".join(extraction.language_requirements) if extraction.language_requirements else None
     opportunity.application_process = _list_to_text(extraction.journey_steps, separator="\n")
     opportunity.required_documents = _list_to_text(extraction.documents_needed, separator="\n")
@@ -265,7 +489,7 @@ def _upsert_official_opportunity(
     opportunity.is_active = publish
     opportunity.reviewed_by = admin_id if publish else opportunity.reviewed_by
     opportunity.reviewed_at = now if publish else opportunity.reviewed_at
-    opportunity.published_at = now if publish else opportunity.published_at
+    opportunity.published_at = now if publish else None
     opportunity.updated_at = now
     opportunity.first_seen_at = opportunity.first_seen_at or now
     opportunity.last_seen_at = now
@@ -275,10 +499,404 @@ def _upsert_official_opportunity(
     opportunity.overall_rank_score = round((opportunity.trust_score * 0.6) + (opportunity.actionability_score * 0.4), 3)
     db.flush()
     if publish and not opportunity.slug:
-        from app.api.v1.endpoints.admin import _slugify  # avoid circular top-level import
+        from app.api.v1.endpoints.admin import _slugify
 
         opportunity.slug = f"{_slugify(opportunity.title or 'opportunity')}-{opportunity.id}"
     return opportunity
+
+
+def parse_one_raw_document(db: Session, raw_document_id: int) -> RawDocumentActionResult:
+    raw, source = _get_raw_document(db, raw_document_id)
+    parsed_payload = parse_official_job_detail(
+        raw.raw_html_snapshot or "",
+        raw.raw_text or "",
+        raw.metadata_json or {},
+        (raw.metadata_json or {}).get("connector_key") or source.connector_key or "",
+        raw.canonical_url or raw.source_url,
+    )
+    diagnostics = _diagnostics(raw)
+    parser_state = "parser_low_confidence" if parsed_payload.parser_confidence < _PARSER_LOW_CONFIDENCE_THRESHOLD else "parser_pending_admin"
+    diagnostics["section_parser"] = {
+        "status": "success",
+        "state": parser_state,
+        "parser_confidence": float(parsed_payload.parser_confidence),
+        "parsed_payload": parsed_payload.model_dump(mode="json"),
+        "ignored_noise_lines": list(parsed_payload.ignored_noise_lines),
+        "warnings": list(parsed_payload.parser_warnings),
+    }
+    diagnostics["ai"] = {
+        **(diagnostics.get("ai") or {}),
+        "status": _READY_FOR_AI_STATUS,
+        "input_payload": build_official_job_ai_input_payload(parsed_payload),
+        "raw_output": None,
+        "validated_output": None,
+        "validation_errors": [],
+        "repair_attempted": False,
+        "repair_success": False,
+    }
+    diagnostics["final_record"] = {
+        **(diagnostics.get("final_record") or {}),
+        "status": parser_state,
+        "published": False,
+        "fallback_used": False,
+    }
+    _save_diagnostics(raw, diagnostics)
+    return RawDocumentActionResult(
+        raw_document_id=raw.id,
+        status=parser_state,
+        message="Section parser completed",
+        opportunity_id=((diagnostics.get("final_record") or {}).get("opportunity_id")),
+        diagnostics=diagnostics,
+    )
+
+
+def run_ai_for_one_raw_document(db: Session, raw_document_id: int) -> RawDocumentActionResult:
+    raw, _source = _get_raw_document(db, raw_document_id)
+    parsed_payload = _parsed_payload(raw)
+    extraction, ai_result = run_official_job_ai_extraction(db, parsed_payload)
+    diagnostics = _diagnostics(raw)
+    status = "fallback_ready_pending_publish" if ai_result.get("fallback_used") else "ai_completed_pending_publish"
+    diagnostics["ai"] = {
+        "status": status,
+        "provider": ai_result.get("provider"),
+        "model": ai_result.get("model"),
+        "prompt_version": ai_result.get("prompt_version"),
+        "input_payload": ai_result.get("input_payload"),
+        "raw_output": ai_result.get("raw_output"),
+        "validated_output": ai_result.get("validated_output"),
+        "validation_errors": ai_result.get("validation_errors", []),
+        "repair_attempted": ai_result.get("repair_attempted", False),
+        "repair_success": ai_result.get("repair_success", False),
+    }
+    diagnostics["final_record"] = {
+        **(diagnostics.get("final_record") or {}),
+        "status": status,
+        "published": False,
+        "fallback_used": bool(ai_result.get("fallback_used")),
+    }
+    _save_diagnostics(raw, diagnostics)
+    _append_attempt(raw, extraction=extraction, review_reason=status)
+    return RawDocumentActionResult(
+        raw_document_id=raw.id,
+        status=status,
+        message="AI extraction completed",
+        opportunity_id=((diagnostics.get("final_record") or {}).get("opportunity_id")),
+        diagnostics=diagnostics,
+    )
+
+
+def use_fallback_for_one_raw_document(db: Session, raw_document_id: int) -> RawDocumentActionResult:
+    raw, _source = _get_raw_document(db, raw_document_id)
+    parsed_payload = _parsed_payload(raw)
+    extraction = official_parsed_payload_to_fallback_extraction(parsed_payload)
+    diagnostics = _diagnostics(raw)
+    diagnostics["ai"] = {
+        **(diagnostics.get("ai") or {}),
+        "status": "fallback_ready_pending_publish",
+        "input_payload": build_official_job_ai_input_payload(parsed_payload),
+        "raw_output": None,
+        "validated_output": extraction.model_dump(mode="json"),
+        "validation_errors": [],
+        "repair_attempted": False,
+        "repair_success": False,
+    }
+    diagnostics["final_record"] = {
+        **(diagnostics.get("final_record") or {}),
+        "status": "fallback_ready_pending_publish",
+        "published": False,
+        "fallback_used": True,
+    }
+    _save_diagnostics(raw, diagnostics)
+    _append_attempt(raw, extraction=extraction, review_reason="fallback_ready_pending_publish")
+    return RawDocumentActionResult(
+        raw_document_id=raw.id,
+        status="fallback_ready_pending_publish",
+        message="Safe backup output prepared",
+        opportunity_id=((diagnostics.get("final_record") or {}).get("opportunity_id")),
+        diagnostics=diagnostics,
+    )
+
+
+def publish_one_raw_document(db: Session, raw_document_id: int, admin_id: int) -> RawDocumentActionResult:
+    raw, source = _get_raw_document(db, raw_document_id)
+    diagnostics = _diagnostics(raw)
+    if raw.skip_reason:
+        raise HTTPException(status_code=409, detail="Failed items cannot be published")
+    if not _is_publish_ready(raw, diagnostics):
+        raise HTTPException(status_code=409, detail="This job is not ready to publish")
+    validated_payload = (diagnostics.get("ai") or {}).get("validated_output") or {}
+    if not isinstance(validated_payload, dict) or not validated_payload:
+        raise HTTPException(status_code=409, detail="Validated AI output not found")
+    extraction = _validated_payload_to_extraction(validated_payload, raw)
+    if any(is_raw_metadata_summary(getattr(extraction, field, None)) for field in _SUMMARY_FIELDS):
+        raise HTTPException(status_code=409, detail="AI summaries still contain raw metadata and must be fixed before publish")
+    fallback_used = bool((diagnostics.get("final_record") or {}).get("fallback_used"))
+    opportunity = _upsert_official_opportunity(
+        db,
+        source=source,
+        raw=raw,
+        extraction=extraction,
+        publish=True,
+        admin_id=admin_id,
+    )
+    diagnostics["final_record"] = {
+        "opportunity_id": opportunity.id,
+        "status": "published",
+        "published": True,
+        "fallback_used": fallback_used,
+        "review_status": "approved",
+    }
+    _save_diagnostics(raw, diagnostics)
+    return RawDocumentActionResult(
+        raw_document_id=raw.id,
+        status="published",
+        message="Opportunity published",
+        opportunity_id=opportunity.id,
+        diagnostics=diagnostics,
+    )
+
+
+def mark_one_raw_document_for_review(db: Session, raw_document_id: int, admin_id: int) -> RawDocumentActionResult:
+    raw, source = _get_raw_document(db, raw_document_id)
+    diagnostics = _diagnostics(raw)
+    validated_payload = (diagnostics.get("ai") or {}).get("validated_output") or {}
+    if isinstance(validated_payload, dict) and validated_payload:
+        extraction = _validated_payload_to_extraction(validated_payload, raw)
+    else:
+        try:
+            extraction = official_parsed_payload_to_fallback_extraction(_parsed_payload(raw))
+        except HTTPException as exc:
+            raise HTTPException(status_code=409, detail="Run parser first before sending this job to review") from exc
+    opportunity = _upsert_official_opportunity(
+        db,
+        source=source,
+        raw=raw,
+        extraction=extraction,
+        publish=False,
+        admin_id=admin_id,
+    )
+    opportunity.review_status = "needs_manual_fix"
+    opportunity.admin_status = "needs_review"
+    opportunity.needs_admin_review = True
+    opportunity.status = "pending"
+    opportunity.is_active = False
+    opportunity.reviewed_by = admin_id
+    opportunity.reviewed_at = datetime.now(UTC)
+    diagnostics["final_record"] = {
+        **(diagnostics.get("final_record") or {}),
+        "opportunity_id": opportunity.id,
+        "status": _current_workflow_status(raw, diagnostics),
+        "published": False,
+        "fallback_used": bool((diagnostics.get("final_record") or {}).get("fallback_used")),
+        "review_status": opportunity.review_status,
+    }
+    _save_diagnostics(raw, diagnostics)
+    return RawDocumentActionResult(
+        raw_document_id=raw.id,
+        status="needs_review",
+        message="Job moved to review queue",
+        opportunity_id=opportunity.id,
+        diagnostics=diagnostics,
+    )
+
+
+def _save_ai_edits(db: Session, raw_document_id: int, payload: SaveAiEditsRequest) -> RawDocumentActionResult:
+    raw, source = _get_raw_document(db, raw_document_id)
+    diagnostics = _diagnostics(raw)
+    ai_diag = diagnostics.get("ai") or {}
+    existing_payload = dict(ai_diag.get("validated_output") or {})
+    merged_payload = {**existing_payload, **payload.validated_output}
+    merged_payload.setdefault("record_type", "job")
+    extraction = _validated_payload_to_extraction(merged_payload, raw)
+    normalized_payload = extraction.model_dump(mode="json")
+    status = "fallback_ready_pending_publish" if normalized_payload.get("extraction_method") == "official_parsed_fallback" else "ai_completed_pending_publish"
+    validation_errors = [error for error in list(ai_diag.get("validation_errors") or []) if error != "summary_contains_raw_metadata"]
+    if any(is_raw_metadata_summary(normalized_payload.get(field)) for field in _SUMMARY_FIELDS):
+        validation_errors.append("summary_contains_raw_metadata")
+    diagnostics["ai"] = {
+        **ai_diag,
+        "status": status,
+        "input_payload": ai_diag.get("input_payload") or build_official_job_ai_input_payload(_parsed_payload(raw)),
+        "validated_output": normalized_payload,
+        "validation_errors": validation_errors,
+    }
+
+    existing_opportunity = _get_existing_opportunity(db, raw)
+    opportunity_id = ((diagnostics.get("final_record") or {}).get("opportunity_id"))
+    if existing_opportunity is not None or opportunity_id:
+        synced = _upsert_official_opportunity(
+            db,
+            source=source,
+            raw=raw,
+            extraction=extraction,
+            publish=False,
+        )
+        synced.admin_status = existing_opportunity.admin_status if existing_opportunity else synced.admin_status
+        synced.review_status = existing_opportunity.review_status if existing_opportunity else synced.review_status
+        synced.needs_admin_review = True
+        opportunity_id = synced.id
+
+    diagnostics["final_record"] = {
+        **(diagnostics.get("final_record") or {}),
+        "status": status,
+        "published": False,
+        "fallback_used": status == "fallback_ready_pending_publish",
+        "opportunity_id": opportunity_id,
+    }
+    _save_diagnostics(raw, diagnostics)
+    return RawDocumentActionResult(
+        raw_document_id=raw.id,
+        status=status,
+        message="AI output saved",
+        opportunity_id=opportunity_id,
+        diagnostics=diagnostics,
+    )
+
+
+def _page_summary(raw: RawDocument, opportunity: Opportunity | None) -> CrawlInspectionPageSummary:
+    diagnostics = _diagnostics(raw)
+    parser_diag = diagnostics.get("section_parser") or {}
+    ai_diag = diagnostics.get("ai") or {}
+    final_record = diagnostics.get("final_record") or {}
+    company, country, city = _parsed_location_fields(raw, diagnostics)
+    opportunity_id = final_record.get("opportunity_id") or (opportunity.id if opportunity else None)
+    return CrawlInspectionPageSummary(
+        raw_document_id=raw.id,
+        opportunity_id=opportunity_id,
+        review_opportunity_id=opportunity.id if opportunity and opportunity.needs_admin_review else None,
+        review_status=opportunity.review_status if opportunity else None,
+        title=raw.raw_title or parser_diag.get("parsed_payload", {}).get("title"),
+        company=company,
+        country=country,
+        city=city,
+        source_url=raw.source_url,
+        final_url=(diagnostics.get("crawl") or {}).get("final_url") or raw.canonical_url,
+        raw_text_length=len(raw.raw_text or ""),
+        html_captured=bool(raw.raw_html_snapshot),
+        parser_status=(parser_diag.get("state") or parser_diag.get("status")),
+        ai_status=ai_diag.get("status"),
+        publish_status=final_record.get("status"),
+        parser_confidence=float(parser_diag.get("parser_confidence") or 0.0),
+        stage=_stage(raw, diagnostics),
+        status_label=_status_label(raw, diagnostics, opportunity),
+        status_tone=_status_tone(raw, diagnostics, opportunity),
+        recommended_action=_recommended_action(raw, diagnostics, opportunity),
+        last_result=_last_result(raw, diagnostics, opportunity),
+        failed_reason=raw.skip_reason,
+        key_info_flags=_key_info_flags(raw, diagnostics),
+        warnings=list(parser_diag.get("warnings") or []),
+    )
+
+
+def _build_batch_result(
+    *,
+    raw_document_id: int,
+    title: str | None,
+    before_status: str | None,
+    after_status: str | None,
+    success: bool,
+    skipped: bool,
+    message: str,
+    opportunity_id: int | None = None,
+) -> RawDocumentBatchItemResult:
+    return RawDocumentBatchItemResult(
+        raw_document_id=raw_document_id,
+        title=title,
+        before_status=before_status,
+        after_status=after_status,
+        success=success,
+        skipped=skipped,
+        message=message,
+        opportunity_id=opportunity_id,
+    )
+
+
+def _run_batch_action(
+    db: Session,
+    *,
+    run_id: int,
+    raw_document_ids: list[int],
+    handler: Callable[[int], RawDocumentActionResult],
+) -> RawDocumentBatchActionResult:
+    _get_run(db, run_id)
+    requested_ids = list(dict.fromkeys(raw_document_ids))
+    raws = db.scalars(
+        select(RawDocument).where(
+            RawDocument.crawl_run_id == run_id,
+            RawDocument.id.in_(requested_ids or [-1]),
+        )
+    ).all()
+    raw_by_id = {raw.id: raw for raw in raws}
+    results: list[RawDocumentBatchItemResult] = []
+
+    for raw_document_id in requested_ids:
+        raw = raw_by_id.get(raw_document_id)
+        if raw is None:
+            results.append(
+                _build_batch_result(
+                    raw_document_id=raw_document_id,
+                    title=None,
+                    before_status=None,
+                    after_status=None,
+                    success=False,
+                    skipped=True,
+                    message="Raw document not found in this crawl run",
+                )
+            )
+            continue
+        before_status = _current_workflow_status(raw)
+        try:
+            action_result = handler(raw_document_id)
+            db.commit()
+            results.append(
+                _build_batch_result(
+                    raw_document_id=raw_document_id,
+                    title=raw.raw_title,
+                    before_status=before_status,
+                    after_status=action_result.status,
+                    success=True,
+                    skipped=False,
+                    message=action_result.message,
+                    opportunity_id=action_result.opportunity_id,
+                )
+            )
+        except HTTPException as exc:
+            db.rollback()
+            results.append(
+                _build_batch_result(
+                    raw_document_id=raw_document_id,
+                    title=raw.raw_title,
+                    before_status=before_status,
+                    after_status=before_status,
+                    success=False,
+                    skipped=exc.status_code < 500,
+                    message=str(exc.detail),
+                )
+            )
+        except Exception as exc:  # pragma: no cover - defensive catch for partial success guarantees
+            db.rollback()
+            results.append(
+                _build_batch_result(
+                    raw_document_id=raw_document_id,
+                    title=raw.raw_title,
+                    before_status=before_status,
+                    after_status=before_status,
+                    success=False,
+                    skipped=False,
+                    message=str(exc),
+                )
+            )
+
+    processed = len([result for result in results if result.success])
+    skipped = len([result for result in results if result.skipped])
+    failed = len([result for result in results if not result.success and not result.skipped])
+    return RawDocumentBatchActionResult(
+        total=len(requested_ids),
+        processed=processed,
+        skipped=skipped,
+        failed=failed,
+        results=results,
+    )
 
 
 @router.get("/crawl-runs/{run_id}/inspection", response_model=CrawlRunInspectionOut)
@@ -287,70 +905,97 @@ def crawl_run_inspection(
     db: Session = Depends(get_db),
     _: User = Depends(get_admin_user),
 ) -> CrawlRunInspectionOut:
-    run = db.scalar(select(CrawlRun).where(CrawlRun.id == run_id))
-    if not run:
-        raise HTTPException(status_code=404, detail="Crawl run not found")
+    run = _get_run(db, run_id)
     source = db.scalar(select(Source).where(Source.id == run.source_id))
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")
     raws = db.scalars(
         select(RawDocument).where(RawDocument.crawl_run_id == run.id).order_by(RawDocument.id.desc())
     ).all()
+    raw_ids = [raw.id for raw in raws]
+    opportunities = (
+        db.scalars(select(Opportunity).where(Opportunity.raw_document_id.in_(raw_ids or [-1]))).all()
+        if raw_ids
+        else []
+    )
+    opportunity_by_raw_id = {opportunity.raw_document_id: opportunity for opportunity in opportunities if opportunity.raw_document_id}
+
     parser_success = 0
     ai_success = 0
     pending = 0
     failed = 0
+    scraped_count = 0
+    parsed_count = 0
+    ready_for_ai_count = 0
+    ai_completed_count = 0
+    ready_to_publish_count = 0
+    published_count = 0
+    needs_review_count = 0
     fallback_reasons: dict[str, int] = {}
     opportunity_ids: list[int] = []
     pages: list[CrawlInspectionPageSummary] = []
+
     for raw in raws:
         diagnostics = _diagnostics(raw)
         parser_diag = diagnostics.get("section_parser") or {}
         ai_diag = diagnostics.get("ai") or {}
-        final_record = diagnostics.get("final_record") or {}
-        parser_state = parser_diag.get("state") or parser_diag.get("status")
-        ai_state = ai_diag.get("status")
+        status = _current_workflow_status(raw, diagnostics)
+        opportunity = opportunity_by_raw_id.get(raw.id)
+
         if parser_diag.get("status") == "success":
             parser_success += 1
+            parsed_count += 1
         if ai_diag.get("validated_output"):
             ai_success += 1
-        if parser_state in {"parser_pending_admin", "parser_low_confidence"} or ai_state in {"ai_pending_admin", "ai_completed_pending_publish", "fallback_ready_pending_publish"}:
-            pending += 1
+            ai_completed_count += 1
         if raw.skip_reason:
             failed += 1
+        if status == "scraped":
+            scraped_count += 1
+        if ai_diag.get("status") == _READY_FOR_AI_STATUS:
+            ready_for_ai_count += 1
+        if _is_publish_ready(raw, diagnostics):
+            ready_to_publish_count += 1
+        if status == "published":
+            published_count += 1
+        if opportunity and opportunity.status != "published" and opportunity.needs_admin_review:
+            needs_review_count += 1
+        if status not in {"scraped", "published"} and not raw.skip_reason:
+            pending += 1
+
         validated = ai_diag.get("validated_output") or {}
         fallback_reason = validated.get("fallback_reason") if isinstance(validated, dict) else None
         if fallback_reason:
             fallback_reasons[fallback_reason] = fallback_reasons.get(fallback_reason, 0) + 1
-        opportunity_id = final_record.get("opportunity_id")
-        if opportunity_id:
-            opportunity_ids.append(int(opportunity_id))
-        pages.append(
-            CrawlInspectionPageSummary(
-                raw_document_id=raw.id,
-                opportunity_id=opportunity_id,
-                title=raw.raw_title,
-                source_url=raw.source_url,
-                final_url=(diagnostics.get("crawl") or {}).get("final_url") or raw.canonical_url,
-                raw_text_length=len(raw.raw_text or ""),
-                html_captured=bool(raw.raw_html_snapshot),
-                parser_status=parser_state,
-                ai_status=ai_state,
-                publish_status=final_record.get("status"),
-                parser_confidence=float(parser_diag.get("parser_confidence") or 0.0),
-                warnings=list(parser_diag.get("warnings") or []),
-            )
-        )
-    run_logs = []
-    if isinstance(run.logs, dict):
-        run_logs = list(run.logs.get("messages") or [])
+        if opportunity:
+            opportunity_ids.append(opportunity.id)
+        pages.append(_page_summary(raw, opportunity))
+
+    run_logs = list((run.logs or {}).get("messages") or []) if isinstance(run.logs, dict) else []
     discovery_diagnostics = {}
     extraction_method_counts = {}
     skip_reasons = {}
     if isinstance(run.logs, dict):
-        discovery_diagnostics = {k: v for k, v in (run.logs.get("diagnostics") or {}).items() if k not in {"extraction_method_counts", "skip_reasons"}}
-        extraction_method_counts = dict((run.logs.get("diagnostics") or {}).get("extraction_method_counts") or {})
-        skip_reasons = dict((run.logs.get("diagnostics") or {}).get("skip_reasons") or {})
+        diagnostics = run.logs.get("diagnostics") or {}
+        discovery_diagnostics = {key: value for key, value in diagnostics.items() if key not in {"extraction_method_counts", "skip_reasons"}}
+        extraction_method_counts = dict(diagnostics.get("extraction_method_counts") or {})
+        skip_reasons = dict(diagnostics.get("skip_reasons") or {})
+
+    next_action_key = None
+    next_action_count = 0
+    if ready_to_publish_count:
+        next_action_key = "publish_ready_jobs"
+        next_action_count = ready_to_publish_count
+    elif ready_for_ai_count:
+        next_action_key = "send_ready_jobs_to_ai"
+        next_action_count = ready_for_ai_count
+    elif failed:
+        next_action_key = "review_failed_jobs"
+        next_action_count = failed
+    elif scraped_count:
+        next_action_key = "parse_scraped_jobs"
+        next_action_count = scraped_count
+
     return CrawlRunInspectionOut(
         run_id=run.id,
         source_id=source.id,
@@ -364,8 +1009,17 @@ def crawl_run_inspection(
         detail_pages_followed=len(raws),
         parser_success_count=parser_success,
         ai_success_count=ai_success,
+        scraped_count=scraped_count,
+        parsed_count=parsed_count,
+        ready_for_ai_count=ready_for_ai_count,
+        ai_completed_count=ai_completed_count,
+        ready_to_publish_count=ready_to_publish_count,
+        published_count=published_count,
+        needs_review_count=needs_review_count,
         failed_count=failed,
         pending_admin_review_count=pending,
+        next_action_key=next_action_key,
+        next_action_count=next_action_count,
         run_logs=run_logs,
         discovery_diagnostics=discovery_diagnostics,
         extraction_method_counts=extraction_method_counts,
@@ -392,47 +1046,9 @@ def parse_sections(
     db: Session = Depends(get_db),
     _: User = Depends(get_admin_user),
 ) -> RawDocumentActionResult:
-    raw, source = _get_raw_document(db, raw_document_id)
-    parsed_payload = parse_official_job_detail(
-        raw.raw_html_snapshot or "",
-        raw.raw_text or "",
-        raw.metadata_json or {},
-        (raw.metadata_json or {}).get("connector_key") or source.connector_key or "",
-        raw.canonical_url or raw.source_url,
-    )
-    diagnostics = _diagnostics(raw)
-    diagnostics["section_parser"] = {
-        "status": "success",
-        "state": "parser_low_confidence" if parsed_payload.parser_confidence < 0.65 else "parser_pending_admin",
-        "parser_confidence": float(parsed_payload.parser_confidence),
-        "parsed_payload": parsed_payload.model_dump(mode="json"),
-        "ignored_noise_lines": list(parsed_payload.ignored_noise_lines),
-        "warnings": list(parsed_payload.parser_warnings),
-    }
-    diagnostics["ai"] = {
-        **(diagnostics.get("ai") or {}),
-        "status": "ai_pending_admin",
-        "input_payload": build_official_job_ai_input_payload(parsed_payload),
-        "raw_output": None,
-        "validated_output": None,
-        "validation_errors": [],
-        "repair_attempted": False,
-        "repair_success": False,
-    }
-    diagnostics["final_record"] = {
-        **(diagnostics.get("final_record") or {}),
-        "status": diagnostics["section_parser"]["state"],
-        "published": False,
-        "fallback_used": False,
-    }
-    _save_diagnostics(raw, diagnostics)
+    result = parse_one_raw_document(db, raw_document_id)
     db.commit()
-    return RawDocumentActionResult(
-        raw_document_id=raw.id,
-        status=str(diagnostics["section_parser"]["state"]),
-        message="Section parser completed",
-        diagnostics=diagnostics,
-    )
+    return result
 
 
 @router.post("/raw-documents/{raw_document_id}/save-parser-edits", response_model=RawDocumentActionResult)
@@ -455,7 +1071,7 @@ def save_parser_edits(
     }
     diagnostics["ai"] = {
         **(diagnostics.get("ai") or {}),
-        "status": "ai_pending_admin",
+        "status": _READY_FOR_AI_STATUS,
         "input_payload": build_official_job_ai_input_payload(parsed_payload),
         "raw_output": None,
         "validated_output": None,
@@ -475,8 +1091,21 @@ def save_parser_edits(
         raw_document_id=raw.id,
         status="parser_pending_admin",
         message="Parser edits saved",
+        opportunity_id=((diagnostics.get("final_record") or {}).get("opportunity_id")),
         diagnostics=diagnostics,
     )
+
+
+@router.post("/raw-documents/{raw_document_id}/save-ai-edits", response_model=RawDocumentActionResult)
+def save_ai_edits(
+    raw_document_id: int,
+    payload: SaveAiEditsRequest,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_admin_user),
+) -> RawDocumentActionResult:
+    result = _save_ai_edits(db, raw_document_id, payload)
+    db.commit()
+    return result
 
 
 @router.post("/raw-documents/{raw_document_id}/run-ai", response_model=RawDocumentActionResult)
@@ -485,38 +1114,9 @@ def run_ai(
     db: Session = Depends(get_db),
     _: User = Depends(get_admin_user),
 ) -> RawDocumentActionResult:
-    raw, _source = _get_raw_document(db, raw_document_id)
-    parsed_payload = _parsed_payload(raw)
-    extraction, ai_result = run_official_job_ai_extraction(db, parsed_payload)
-    diagnostics = _diagnostics(raw)
-    status = "fallback_ready_pending_publish" if ai_result.get("fallback_used") else "ai_completed_pending_publish"
-    diagnostics["ai"] = {
-        "status": status,
-        "provider": ai_result.get("provider"),
-        "model": ai_result.get("model"),
-        "prompt_version": ai_result.get("prompt_version"),
-        "input_payload": ai_result.get("input_payload"),
-        "raw_output": ai_result.get("raw_output"),
-        "validated_output": ai_result.get("validated_output"),
-        "validation_errors": ai_result.get("validation_errors", []),
-        "repair_attempted": ai_result.get("repair_attempted", False),
-        "repair_success": ai_result.get("repair_success", False),
-    }
-    diagnostics["final_record"] = {
-        **(diagnostics.get("final_record") or {}),
-        "status": status,
-        "published": False,
-        "fallback_used": bool(ai_result.get("fallback_used")),
-    }
-    _save_diagnostics(raw, diagnostics)
-    _append_attempt(raw, extraction=extraction, review_reason=status)
+    result = run_ai_for_one_raw_document(db, raw_document_id)
     db.commit()
-    return RawDocumentActionResult(
-        raw_document_id=raw.id,
-        status=status,
-        message="AI extraction completed",
-        diagnostics=diagnostics,
-    )
+    return result
 
 
 @router.post("/raw-documents/{raw_document_id}/use-fallback", response_model=RawDocumentActionResult)
@@ -525,35 +1125,9 @@ def use_fallback(
     db: Session = Depends(get_db),
     _: User = Depends(get_admin_user),
 ) -> RawDocumentActionResult:
-    raw, _source = _get_raw_document(db, raw_document_id)
-    parsed_payload = _parsed_payload(raw)
-    extraction = official_parsed_payload_to_fallback_extraction(parsed_payload)
-    diagnostics = _diagnostics(raw)
-    diagnostics["ai"] = {
-        **(diagnostics.get("ai") or {}),
-        "status": "fallback_ready_pending_publish",
-        "input_payload": build_official_job_ai_input_payload(parsed_payload),
-        "raw_output": None,
-        "validated_output": extraction.model_dump(mode="json"),
-        "validation_errors": [],
-        "repair_attempted": False,
-        "repair_success": False,
-    }
-    diagnostics["final_record"] = {
-        **(diagnostics.get("final_record") or {}),
-        "status": "fallback_ready_pending_publish",
-        "published": False,
-        "fallback_used": True,
-    }
-    _save_diagnostics(raw, diagnostics)
-    _append_attempt(raw, extraction=extraction, review_reason="fallback_ready_pending_publish")
+    result = use_fallback_for_one_raw_document(db, raw_document_id)
     db.commit()
-    return RawDocumentActionResult(
-        raw_document_id=raw.id,
-        status="fallback_ready_pending_publish",
-        message="Deterministic fallback prepared",
-        diagnostics=diagnostics,
-    )
+    return result
 
 
 @router.post("/raw-documents/{raw_document_id}/publish", response_model=RawDocumentActionResult)
@@ -562,39 +1136,81 @@ def publish_raw_document(
     db: Session = Depends(get_db),
     admin: User = Depends(get_admin_user),
 ) -> RawDocumentActionResult:
-    raw, source = _get_raw_document(db, raw_document_id)
-    diagnostics = _diagnostics(raw)
-    validated_payload = ((diagnostics.get("ai") or {}).get("validated_output") or {})
-    fallback_used = bool((diagnostics.get("final_record") or {}).get("fallback_used"))
-    if validated_payload:
-        extraction = official_parsed_payload_to_fallback_extraction(_parsed_payload(raw)) if validated_payload.get("extraction_method") == "official_parsed_fallback" else None
-        if extraction is None:
-            from app.ingestion.schemas import JobOpportunityExtraction
-
-            extraction = JobOpportunityExtraction.model_validate(validated_payload)
-    else:
-        fallback_used = True
-        extraction = official_parsed_payload_to_fallback_extraction(_parsed_payload(raw))
-    opportunity = _upsert_official_opportunity(
-        db,
-        source=source,
-        raw=raw,
-        extraction=extraction,
-        publish=True,
-        admin_id=admin.id,
-    )
-    diagnostics["final_record"] = {
-        "opportunity_id": opportunity.id,
-        "status": "published",
-        "published": True,
-        "fallback_used": fallback_used,
-    }
-    _save_diagnostics(raw, diagnostics)
+    result = publish_one_raw_document(db, raw_document_id, admin.id)
     db.commit()
-    return RawDocumentActionResult(
-        raw_document_id=raw.id,
-        status="published",
-        message="Opportunity published",
-        opportunity_id=opportunity.id,
-        diagnostics=diagnostics,
+    return result
+
+
+@router.post("/crawl-runs/{run_id}/batch/parse-sections", response_model=RawDocumentBatchActionResult)
+def batch_parse_sections(
+    run_id: int,
+    payload: RawDocumentBatchRequest,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_admin_user),
+) -> RawDocumentBatchActionResult:
+    return _run_batch_action(
+        db,
+        run_id=run_id,
+        raw_document_ids=payload.raw_document_ids,
+        handler=lambda raw_document_id: parse_one_raw_document(db, raw_document_id),
+    )
+
+
+@router.post("/crawl-runs/{run_id}/batch/run-ai", response_model=RawDocumentBatchActionResult)
+def batch_run_ai(
+    run_id: int,
+    payload: RawDocumentBatchRequest,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_admin_user),
+) -> RawDocumentBatchActionResult:
+    return _run_batch_action(
+        db,
+        run_id=run_id,
+        raw_document_ids=payload.raw_document_ids,
+        handler=lambda raw_document_id: run_ai_for_one_raw_document(db, raw_document_id),
+    )
+
+
+@router.post("/crawl-runs/{run_id}/batch/use-fallback", response_model=RawDocumentBatchActionResult)
+def batch_use_fallback(
+    run_id: int,
+    payload: RawDocumentBatchRequest,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_admin_user),
+) -> RawDocumentBatchActionResult:
+    return _run_batch_action(
+        db,
+        run_id=run_id,
+        raw_document_ids=payload.raw_document_ids,
+        handler=lambda raw_document_id: use_fallback_for_one_raw_document(db, raw_document_id),
+    )
+
+
+@router.post("/crawl-runs/{run_id}/batch/publish", response_model=RawDocumentBatchActionResult)
+def batch_publish(
+    run_id: int,
+    payload: RawDocumentBatchRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_admin_user),
+) -> RawDocumentBatchActionResult:
+    return _run_batch_action(
+        db,
+        run_id=run_id,
+        raw_document_ids=payload.raw_document_ids,
+        handler=lambda raw_document_id: publish_one_raw_document(db, raw_document_id, admin.id),
+    )
+
+
+@router.post("/crawl-runs/{run_id}/batch/mark-review", response_model=RawDocumentBatchActionResult)
+def batch_mark_review(
+    run_id: int,
+    payload: RawDocumentBatchRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_admin_user),
+) -> RawDocumentBatchActionResult:
+    return _run_batch_action(
+        db,
+        run_id=run_id,
+        raw_document_ids=payload.raw_document_ids,
+        handler=lambda raw_document_id: mark_one_raw_document_for_review(db, raw_document_id, admin.id),
     )

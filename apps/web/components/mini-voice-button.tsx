@@ -81,6 +81,7 @@ export function MiniVoiceButton({
 
   return (
     <button
+      data-testid="mini-voice-button"
       type="button"
       onClick={handleClick}
       disabled={disabled}

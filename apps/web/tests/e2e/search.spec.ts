@@ -5,10 +5,10 @@ test("search page shows filters", async ({ page }) => {
 
   await expect(
     page.getByRole("heading", {
-      name: /যাচাইকৃত সুযোগ খুঁজুন|Find Verified Opportunities/i,
+      name: /সুযোগগুলো দেখুন|Explore Opportunities/i,
     }),
   ).toBeVisible();
 
-  await expect(page.getByText(/Categories|ক্যাটাগরি/i)).toBeVisible();
-  await expect(page.getByText(/কোন দেশে|Which country/i)).toBeVisible();
+  await expect(page.getByText(/Categories|ক্যাটাগরি/i).first()).toBeVisible();
+  await expect(page.getByText(/কোন দেশে|Which country/i).first()).toBeVisible();
 });

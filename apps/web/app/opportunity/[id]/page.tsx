@@ -22,6 +22,7 @@ import { getOpportunity, getSimilar } from "@/lib/api";
 import { getLocale } from "@/lib/i18n";
 import { pickLang, pickLangList } from "@/lib/i18n-shared";
 import { formatDate, formatDateTime, humanizeSlug } from "@/lib/utils";
+import { buildNarratedVoiceText, formatVoiceDate, getVoiceField, getVoiceList, joinVoiceParts } from "@/lib/voice-script";
 
 interface OpportunityDetailProps {
   params: Promise<{ id: string }>;
@@ -312,6 +313,36 @@ export default async function OpportunityDetailPage({
     ? new Intl.NumberFormat(locale === "bn" ? "bn-BD" : "en-US").format(opportunity.typical_salary_bdt)
     : null;
   const deadlineBadge = deadlinePill(opportunity.deadline, locale);
+  const banglaEmployerVoice =
+    getVoiceField(opportunity, "employer", "bn") ??
+    getVoiceField(opportunity, "organization", "bn") ??
+    getVoiceField(opportunity, "employer_or_organization", "bn");
+  const banglaLocationVoice =
+    getVoiceField(opportunity, "location_text", "bn") ??
+    getVoiceField(opportunity, "destination_country", "bn") ??
+    getVoiceField(opportunity, "country", "bn");
+  const banglaRequirementsVoice = joinVoiceParts(
+    [
+      getVoiceField(opportunity, "education_requirement", "bn"),
+      getVoiceField(opportunity, "experience_requirement", "bn"),
+      getVoiceField(opportunity, "language_requirement", "bn"),
+    ],
+    "bn",
+  );
+  const banglaStepsVoice = joinVoiceParts(
+    [
+      getVoiceField(opportunity, "application_process", "bn"),
+      ...getVoiceList(opportunity, "journey_steps", "bn"),
+    ],
+    "bn",
+  );
+  const banglaDocumentsVoice = joinVoiceParts(
+    [
+      getVoiceField(opportunity, "required_documents", "bn"),
+      ...getVoiceList(opportunity, "documents_needed", "bn"),
+    ],
+    "bn",
+  );
 
   const voiceSections: VoiceSection[] = [
     { label: isEn ? "Title" : "শিরোনাম", text: titleText },
@@ -325,6 +356,97 @@ export default async function OpportunityDetailPage({
     { label: isEn ? "Steps" : "আবেদনের ধাপ", text: journeySteps.join(isEn ? ". " : "। ") },
     { label: isEn ? "Documents" : "প্রয়োজনীয় কাগজপত্র", text: documentsNeeded.join(isEn ? ". " : "। ") },
   ].filter(s => s.text.trim().length > 0);
+
+  /* const voicePlaybackSections: VoiceSection[] = isEn
+    ? voiceSections
+    : [
+        {
+          ...voiceSections[0],
+          spokenText: buildNarratedVoiceText("শিরোনাম", getVoiceField(opportunity, "title", "bn"), "bn") ?? undefined,
+        },
+        {
+          ...voiceSections[1],
+          spokenText: buildNarratedVoiceText("সারসংক্ষেপ", getVoiceField(opportunity, "summary", "bn"), "bn") ?? undefined,
+        },
+        {
+          ...voiceSections[2],
+          spokenText: buildNarratedVoiceText("নিয়োগকর্তা", banglaEmployerVoice, "bn") ?? undefined,
+        },
+        {
+          ...voiceSections[3],
+          spokenText: buildNarratedVoiceText("দেশ", banglaLocationVoice, "bn") ?? undefined,
+        },
+        {
+          ...voiceSections[5],
+          spokenText: buildNarratedVoiceText("আবেদনের শেষ তারিখ", formatVoiceDate(opportunity.deadline, "bn"), "bn") ?? undefined,
+        },
+        {
+          ...voiceSections[6],
+          spokenText: buildNarratedVoiceText("যোগ্যতা", getVoiceField(opportunity, "eligibility_text", "bn"), "bn") ?? undefined,
+        },
+        {
+          ...voiceSections[7],
+          spokenText: buildNarratedVoiceText("প্রয়োজনীয়তা", banglaRequirementsVoice, "bn") ?? undefined,
+        },
+        {
+          ...voiceSections[8],
+          spokenText: buildNarratedVoiceText("আবেদনের ধাপ", banglaStepsVoice, "bn") ?? undefined,
+        },
+        {
+          ...voiceSections[9],
+          spokenText: buildNarratedVoiceText("প্রয়োজনীয় কাগজপত্র", banglaDocumentsVoice, "bn") ?? undefined,
+        },
+      ].filter((section) => Boolean(section.spokenText?.trim())); */
+
+  const safeVoicePlaybackSections: VoiceSection[] = isEn
+    ? voiceSections
+    : [
+        {
+          label: isEn ? "Title" : "à¦¶à¦¿à¦°à§‹à¦¨à¦¾à¦®",
+          text: titleText,
+          spokenText: buildNarratedVoiceText("শিরোনাম", getVoiceField(opportunity, "title", "bn"), "bn") ?? undefined,
+        },
+        {
+          label: isEn ? "Summary" : "à¦¸à¦‚à¦•à§à¦·à§‡à¦ª",
+          text: cleanSummaryText ?? "",
+          spokenText: buildNarratedVoiceText("সারসংক্ষেপ", getVoiceField(opportunity, "summary", "bn"), "bn") ?? undefined,
+        },
+        {
+          label: isEn ? "Employer" : "à¦¨à¦¿à¦¯à¦¼à§‹à¦—à¦•à¦°à§à¦¤à¦¾",
+          text: organization ?? "",
+          spokenText: buildNarratedVoiceText("নিয়োগকর্তা", banglaEmployerVoice, "bn") ?? undefined,
+        },
+        {
+          label: isEn ? "Country" : "à¦¦à§‡à¦¶",
+          text: opportunity.destination_country ?? opportunity.country ?? "",
+          spokenText: buildNarratedVoiceText("দেশ", banglaLocationVoice, "bn") ?? undefined,
+        },
+        {
+          label: isEn ? "Deadline" : "à¦¶à§‡à¦· à¦¤à¦¾à¦°à¦¿à¦–",
+          text: opportunity.deadline ? formatDate(opportunity.deadline, locale) : "",
+          spokenText: buildNarratedVoiceText("আবেদনের শেষ তারিখ", formatVoiceDate(opportunity.deadline, "bn"), "bn") ?? undefined,
+        },
+        {
+          label: isEn ? "Eligibility" : "à¦¯à§‹à¦—à§à¦¯à¦¤à¦¾",
+          text: cleanEligibilityText ?? "",
+          spokenText: buildNarratedVoiceText("যোগ্যতা", getVoiceField(opportunity, "eligibility_text", "bn"), "bn") ?? undefined,
+        },
+        {
+          label: isEn ? "Requirements" : "à¦ªà§à¦°à¦¯à¦¼à§‹à¦œà¦¨à§€à¦¯à¦¼à¦¤à¦¾",
+          text: requirementItems.join(isEn ? ". " : "à¥¤ "),
+          spokenText: buildNarratedVoiceText("প্রয়োজনীয়তা", banglaRequirementsVoice, "bn") ?? undefined,
+        },
+        {
+          label: isEn ? "Steps" : "à¦†à¦¬à§‡à¦¦à¦¨à§‡à¦° à¦§à¦¾à¦ª",
+          text: journeySteps.join(isEn ? ". " : "à¥¤ "),
+          spokenText: buildNarratedVoiceText("আবেদনের ধাপ", banglaStepsVoice, "bn") ?? undefined,
+        },
+        {
+          label: isEn ? "Documents" : "à¦ªà§à¦°à¦¯à¦¼à§‹à¦œà¦¨à§€à¦¯à¦¼ à¦•à¦¾à¦—à¦œà¦ªà¦¤à§à¦°",
+          text: documentsNeeded.join(isEn ? ". " : "à¥¤ "),
+          spokenText: buildNarratedVoiceText("প্রয়োজনীয় কাগজপত্র", banglaDocumentsVoice, "bn") ?? undefined,
+        },
+      ].filter((section) => Boolean(section.spokenText?.trim()));
 
   return (
     <main className="bg-background">
@@ -686,7 +808,9 @@ export default async function OpportunityDetailPage({
               </div>
             </Card>
 
-            <OpportunityVoicePlayer sections={voiceSections} locale={locale} />
+            {safeVoicePlaybackSections.length > 0 ? (
+              <OpportunityVoicePlayer sections={safeVoicePlaybackSections} locale={locale} />
+            ) : null}
 
             {similar.items.length > 0 && (
               <section className="space-y-3">

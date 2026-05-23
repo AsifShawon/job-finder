@@ -14,17 +14,41 @@ const PROMPTS = [
   { bn: "কানাডায় নার্স হিসেবে কাজ করতে কী লাগবে?", en: "What do I need to work as a nurse in Canada?" },
 ];
 
-export function HeroVoiceEntry({ isEn }: { isEn: boolean }) {
+interface HeroVoiceEntryProps {
+  isEn: boolean;
+  onInteractionChange?: (engaged: boolean) => void;
+}
+
+export function HeroVoiceEntry({ isEn, onInteractionChange }: HeroVoiceEntryProps) {
   const router = useRouter();
   const locale = isEn ? "en" : "bn";
   const speech = useSpeechRecognition(locale);
   const [text, setText] = useState("");
+  const [voiceStartPending, setVoiceStartPending] = useState(false);
+  const hasDraft = text.trim().length > 0;
+  const isEngaged = voiceStartPending || speech.isListening || hasDraft;
 
   useEffect(() => {
     if (speech.transcript) {
       setText(speech.transcript);
     }
   }, [speech.transcript]);
+
+  useEffect(() => {
+    if (speech.isListening || speech.error) {
+      setVoiceStartPending(false);
+    }
+  }, [speech.error, speech.isListening]);
+
+  useEffect(() => {
+    onInteractionChange?.(isEngaged);
+  }, [isEngaged, onInteractionChange]);
+
+  useEffect(() => {
+    return () => {
+      onInteractionChange?.(false);
+    };
+  }, [onInteractionChange]);
 
   useEffect(() => {
     if (!speech.isListening && speech.finalTranscript.trim()) {
@@ -53,11 +77,13 @@ export function HeroVoiceEntry({ isEn }: { isEn: boolean }) {
 
   const toggleListening = () => {
     if (speech.isListening) {
+      setVoiceStartPending(false);
       speech.stopListening();
       return;
     }
     speech.resetTranscript();
     setText("");
+    setVoiceStartPending(true);
     speech.startListening();
   };
 
@@ -78,6 +104,7 @@ export function HeroVoiceEntry({ isEn }: { isEn: boolean }) {
       <form onSubmit={submit} className="mt-3 space-y-3">
         <div className="flex items-center gap-2 md:items-start md:gap-3">
           <button
+            data-testid="hero-voice-toggle"
             type="button"
             onClick={toggleListening}
             aria-label={speech.isListening ? (isEn ? "Stop listening" : "শোনা বন্ধ করুন") : (isEn ? "Start voice input" : "ভয়েস ইনপুট শুরু করুন")}
@@ -101,6 +128,7 @@ export function HeroVoiceEntry({ isEn }: { isEn: boolean }) {
               {isEn ? "Ask Sudokkho AI" : "সুদক্ষ AI কে বলুন"}
             </label>
             <input
+              data-testid="hero-ai-input"
               id="hero-ai-question"
               value={text}
               onChange={(event) => setText(event.target.value)}

@@ -145,6 +145,14 @@ class OpportunityCategorySummary(BaseModel):
     job_count: int
 
 
+class OpportunityQuickAccessSummary(BaseModel):
+    category_key: str
+    category_label_bn: str
+    category_label_en: str
+    country: str
+    job_count: int
+
+
 # ── Search query ──────────────────────────────────────────────────────────────
 
 class PublishedSearchQuery(BaseModel):

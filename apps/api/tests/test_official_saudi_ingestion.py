@@ -70,6 +70,37 @@ def test_successfactors_detail_parse_apply_url():
     assert page.original_apply_url == "https://example.test/apply/123"
 
 
+def test_successfactors_detail_preserves_multiline_section_text() -> None:
+    html = """
+    <html>
+      <body>
+        <h1>Welder Technician</h1>
+        <h2>Job Purpose</h2>
+        <p>Maintain workshop welding operations.</p>
+        <h2>Technical Skills</h2>
+        <ul><li>Ability to read fabrication drawings</li></ul>
+        <a href="/apply/123">Apply now</a>
+      </body>
+    </html>
+    """
+
+    page = parse_successfactors_detail(
+        html,
+        "https://example.test/job/123",
+        ListingJob(
+            title="Welder Technician",
+            detail_url="https://example.test/job/123",
+            source_job_id="123",
+        ),
+        company="Example",
+        flavor="alfanar",
+    )
+
+    assert "Job Purpose" in (page.raw_text or "")
+    assert "Technical Skills" in (page.raw_text or "")
+    assert "Job Purpose\nMaintain workshop welding operations." in (page.raw_text or "")
+
+
 def test_tamimi_listing_parse_worker_role():
     html = '<div><h3>Electrical Supervisor</h3><p>Location: Dammam</p><a href="/job/electrical-supervisor">View & Apply</a></div><a href="?page=2">2</a>'
     jobs, next_pages = parse_tamimi_listing(html, "https://tamimi.sa/careers.php")

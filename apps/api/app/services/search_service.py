@@ -11,12 +11,13 @@ from app.models.entities import (
 )
 from app.schemas.opportunity import (
     OpportunityCategorySummary,
+    OpportunityQuickAccessSummary,
     PublishedOpportunityCard,
     PublishedSearchQuery,
     PublishedSearchResponse,
 )
 from app.services.embedding_service import embed_query
-from app.services.isc_taxonomy import ISC_CATEGORY_DEFINITIONS
+from app.services.isc_taxonomy import ISC_CATEGORY_DEFINITIONS, ISC_CATEGORY_LOOKUP
 
 JOB_OPPORTUNITY_TYPES = ("overseas_job", "local_job")
 
@@ -369,6 +370,44 @@ def get_opportunity_categories(db: Session) -> list[OpportunityCategorySummary]:
     ]
     items.sort(key=lambda item: (-item.job_count, item.label_en))
     return items
+
+
+def get_opportunity_quick_access(db: Session, *, limit: int = 5) -> list[OpportunityQuickAccessSummary]:
+    country_expr = func.coalesce(Opportunity.destination_country, Opportunity.country)
+    rows = db.execute(
+        select(
+            Opportunity.isc_category_key,
+            country_expr.label("country"),
+            func.count(Opportunity.id).label("job_count"),
+        )
+        .where(
+            *_published_visible_constraints(),
+            Opportunity.opportunity_type.in_(JOB_OPPORTUNITY_TYPES),
+            Opportunity.isc_category_key.is_not(None),
+            country_expr.is_not(None),
+        )
+        .group_by(Opportunity.isc_category_key, country_expr)
+    ).all()
+
+    items: list[OpportunityQuickAccessSummary] = []
+    for category_key, country, job_count in rows:
+        if not category_key or not country:
+            continue
+        definition = ISC_CATEGORY_LOOKUP.get(category_key)
+        if definition is None:
+            continue
+        items.append(
+            OpportunityQuickAccessSummary(
+                category_key=category_key,
+                category_label_bn=definition.bn,
+                category_label_en=definition.en,
+                country=country,
+                job_count=int(job_count),
+            )
+        )
+
+    items.sort(key=lambda item: (-item.job_count, item.category_label_en, item.country))
+    return items[:limit]
 
 
 def _why_matches(opp: Opportunity, q: str | None) -> str:
