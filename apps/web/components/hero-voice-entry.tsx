@@ -6,13 +6,9 @@ import { Mic2, SendHorizontal, Sparkles, X } from "lucide-react";
 
 import { useSpeechRecognition } from "@/hooks/use-speech-recognition";
 import { cn } from "@/lib/utils";
+import { getLocalizedCopy, UX_COPY } from "@/lib/ux-copy";
 
-const PROMPTS = [
-  { bn: "SSC পাসে কোন দেশে কাজ পাবো?", en: "Which countries hire SSC-pass workers?" },
-  { bn: "মালয়েশিয়া যেতে কত খরচ লাগবে?", en: "How much does it cost to go to Malaysia?" },
-  { bn: "জার্মানি Ausbildung কীভাবে করবো?", en: "How do I apply for German Ausbildung?" },
-  { bn: "কানাডায় নার্স হিসেবে কাজ করতে কী লাগবে?", en: "What do I need to work as a nurse in Canada?" },
-];
+const PROMPTS = UX_COPY.samplePrompts;
 
 interface HeroVoiceEntryProps {
   isEn: boolean;
@@ -87,18 +83,23 @@ export function HeroVoiceEntry({ isEn, onInteractionChange }: HeroVoiceEntryProp
     speech.startListening();
   };
 
-  const errorText = speech.error && speech.error !== "no-speech"
-    ? isEn
-      ? "Voice is not available. Type your question instead."
-      : "ভয়েস চালু হয়নি। প্রশ্নটি লিখে পাঠাতে পারেন।"
-    : "";
+  const errorText = (() => {
+    if (!speech.error || speech.error === "no-speech") return "";
+    if (speech.error === "not-allowed") {
+      return getLocalizedCopy(UX_COPY.voiceStates.permissionDenied, locale);
+    }
+    if (speech.error === "unsupported") {
+      return getLocalizedCopy(UX_COPY.voiceStates.unsupported, locale);
+    }
+    return getLocalizedCopy(UX_COPY.voiceStates.unsupported, locale);
+  })();
 
   return (
     <div className="w-full rounded-[28px] border border-white/70 bg-white/95 p-3.5 text-slate-950 shadow-xl backdrop-blur-md md:max-w-xl md:rounded-2xl md:border-white/20 md:p-5 md:shadow-2xl">
       <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-teal-700 md:text-sm">
         <Sparkles className="h-4 w-4" />
-        <span className="md:hidden">{isEn ? "Ask Sudokkho AI" : "সুদক্ষ AI কে বলুন"}</span>
-        <span className="hidden md:inline">{isEn ? "Sudokkho AI voice assistant" : "সুদক্ষ AI ভয়েস সহকারী"}</span>
+        <span className="md:hidden">{getLocalizedCopy(UX_COPY.heroVoiceInput.labelMobile, locale)}</span>
+        <span className="hidden md:inline">{getLocalizedCopy(UX_COPY.heroVoiceInput.label, locale)}</span>
       </div>
 
       <form onSubmit={submit} className="mt-3 space-y-3">
@@ -107,7 +108,7 @@ export function HeroVoiceEntry({ isEn, onInteractionChange }: HeroVoiceEntryProp
             data-testid="hero-voice-toggle"
             type="button"
             onClick={toggleListening}
-            aria-label={speech.isListening ? (isEn ? "Stop listening" : "শোনা বন্ধ করুন") : (isEn ? "Start voice input" : "ভয়েস ইনপুট শুরু করুন")}
+            aria-label={speech.isListening ? getLocalizedCopy(UX_COPY.heroVoiceInput.stopListeningAria, locale) : getLocalizedCopy(UX_COPY.heroVoiceInput.startListeningAria, locale)}
             className={cn(
               "relative flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-white shadow-md transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-300 md:h-16 md:w-16 md:shadow-lg",
               speech.isListening ? "bg-rose-600" : "bg-teal-600 hover:bg-teal-700",
@@ -125,31 +126,27 @@ export function HeroVoiceEntry({ isEn, onInteractionChange }: HeroVoiceEntryProp
 
           <div className="flex h-12 min-w-0 flex-1 flex-col justify-center rounded-2xl border border-slate-200 bg-slate-50 px-3 md:h-auto md:px-4 md:py-3">
             <label className="sr-only" htmlFor="hero-ai-question">
-              {isEn ? "Ask Sudokkho AI" : "সুদক্ষ AI কে বলুন"}
+              {getLocalizedCopy(UX_COPY.heroVoiceInput.label, locale)}
             </label>
             <input
               data-testid="hero-ai-input"
               id="hero-ai-question"
               value={text}
               onChange={(event) => setText(event.target.value)}
-              placeholder={speech.isListening ? (isEn ? "Listening..." : "শুনছি...") : (isEn ? "Ask about overseas jobs" : "বিদেশের চাকরি নিয়ে বলুন")}
+              placeholder={speech.isListening ? getLocalizedCopy(UX_COPY.heroVoiceInput.placeholderListening, locale) : getLocalizedCopy(UX_COPY.heroVoiceInput.placeholderIdle, locale)}
               className="w-full bg-transparent text-sm font-semibold text-slate-950 outline-none placeholder:text-slate-500 md:text-base"
             />
             <p className="mt-1 hidden min-h-5 text-xs text-slate-500 md:block">
               {speech.isListening
-                ? isEn
-                  ? "Speak naturally. We will open Sudokkho AI when you finish."
-                  : "স্বাভাবিকভাবে বলুন। শেষ হলে সুদক্ষ AI খুলবে।"
-                : isEn
-                  ? "Use voice or type your question."
-                  : "ভয়েসে বলুন অথবা লিখে প্রশ্ন করুন।"}
+                ? getLocalizedCopy(UX_COPY.heroVoiceInput.helperTextListening, locale)
+                : getLocalizedCopy(UX_COPY.heroVoiceInput.helperTextIdle, locale)}
             </p>
           </div>
 
           <button
             type="submit"
             disabled={!text.trim()}
-            aria-label={isEn ? "Send to Sudokkho AI" : "সুদক্ষ AI তে পাঠান"}
+            aria-label={getLocalizedCopy(UX_COPY.heroVoiceInput.sendAria, locale)}
             className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-navy text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300 md:h-16 md:w-14"
           >
             <SendHorizontal className="h-5 w-5 md:h-6 md:w-6" />
@@ -180,7 +177,7 @@ export function HeroVoiceEntry({ isEn, onInteractionChange }: HeroVoiceEntryProp
 
       <div className="mt-3 flex gap-2 overflow-x-auto pb-1 md:mt-4 md:flex-wrap md:overflow-visible">
         {PROMPTS.map((prompt) => {
-          const label = isEn ? prompt.en : prompt.bn;
+          const label = getLocalizedCopy(prompt, locale);
           return (
             <button
               key={prompt.en}
