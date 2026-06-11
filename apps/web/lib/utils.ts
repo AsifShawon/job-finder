@@ -84,3 +84,23 @@ export function humanizeSlug(value: string, locale: UiLocale = "bn"): string {
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
 }
+
+export function getSafeNextPath(next: string | null | undefined): string {
+  if (!next) return "/dashboard";
+
+  // Clean next by decoding first to prevent bypasses using double encoding
+  let decoded = next;
+  try {
+    decoded = decodeURIComponent(next);
+  } catch {
+    // Ignore decoding errors
+  }
+
+  // Ensure it starts with / and is not a protocol-relative URL (which starts with // or /\, or similar)
+  if (decoded.startsWith("/") && !decoded.startsWith("//") && !decoded.startsWith("/\\")) {
+    return decoded;
+  }
+
+  return "/dashboard";
+}
+

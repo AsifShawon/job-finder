@@ -1,6 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import type { Route } from "next";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 
@@ -33,6 +34,7 @@ function getErrorMessage(payload: unknown, fallback: string): string {
 
 export function RegisterForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const t = useTranslations("auth");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -59,7 +61,9 @@ export function RegisterForm() {
         setMessage(getErrorMessage(payload, t("registerFailed")));
         return;
       }
-      router.push("/onboarding");
+      const next = searchParams.get("next");
+      const target = next ? `/onboarding?next=${encodeURIComponent(next)}` : "/onboarding";
+      router.push(target as Route);
       router.refresh();
     } finally {
       setSubmitting(false);

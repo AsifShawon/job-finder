@@ -12,9 +12,14 @@ const BENEFITS = [
   "আবেদনের শেষ তারিখের রিমাইন্ডার পান",
 ];
 
-export default async function RegisterPage() {
-  const locale = await getLocale();
+export default async function RegisterPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ next?: string }>;
+}) {
+  const [locale, params] = await Promise.all([getLocale(), searchParams]);
   const isEn = locale === "en";
+  const next = params.next;
 
   return (
     <div className="min-h-screen bg-background">
@@ -67,11 +72,17 @@ export default async function RegisterPage() {
               <h2 className="text-2xl font-bold text-foreground">
                 {isEn ? "Create your account" : "ফ্রি অ্যাকাউন্ট তৈরি করুন"}
               </h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {isEn
-                  ? "Get started in seconds."
-                  : "কয়েক সেকেন্ডেই শুরু করুন।"}
-              </p>
+              {next && !isEn ? (
+                <p className="mt-2 rounded-lg bg-primary/10 p-3 text-sm font-medium text-primary leading-relaxed">
+                  আপনার প্রশ্নটি আমরা মনে রাখছি। রেজিস্ট্রেশন শেষ হলে উত্তর দেখানো হবে।
+                </p>
+              ) : (
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {isEn
+                    ? "Get started in seconds."
+                    : "কয়েক সেকেন্ডেই শুরু করুন।"}
+                </p>
+              )}
             </div>
 
             <RegisterForm />
@@ -79,7 +90,7 @@ export default async function RegisterPage() {
             <div className="mt-6 border-t border-border pt-5 text-center text-sm text-muted-foreground">
               {isEn ? "Already have an account?" : "ইতিমধ্যে অ্যাকাউন্ট আছে?"}{" "}
               <Link
-                href="/auth/login"
+                href={next ? `/auth/login?next=${encodeURIComponent(next)}` : "/auth/login"}
                 className="font-semibold text-primary hover:underline"
               >
                 {isEn ? "Sign in" : "প্রবেশ করুন"}

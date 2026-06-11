@@ -1,13 +1,14 @@
 "use client";
 
+import type { Route } from "next";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { AlertTriangle, CheckCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ISC_SECTORS } from "@/lib/isc-sectors";
-import { cn } from "@/lib/utils";
+import { cn, getSafeNextPath } from "@/lib/utils";
 
 const COUNTRIES = [
   { en: "Malaysia", bn: "মালয়েশিয়া" },
@@ -160,6 +161,7 @@ function SingleSelectList<T extends string>({
 
 export function OnboardingWizard() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const t = useTranslations("onboarding");
   const locale = useLocale() as "bn" | "en";
   const localizedCountries = COUNTRIES.map((item) => (locale === "en" ? item.en : item.bn));
@@ -236,7 +238,9 @@ export function OnboardingWizard() {
       });
     } finally {
       setSaving(false);
-      router.push("/dashboard");
+      const next = searchParams.get("next");
+      const target = getSafeNextPath(next);
+      router.push(target as Route);
       router.refresh();
     }
   };

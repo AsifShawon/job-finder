@@ -22,9 +22,14 @@ const FEATURES = [
   },
 ];
 
-export default async function LoginPage() {
-  const locale = await getLocale();
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ next?: string }>;
+}) {
+  const [locale, params] = await Promise.all([getLocale(), searchParams]);
   const isEn = locale === "en";
+  const next = params.next;
 
   return (
     <div className="min-h-screen bg-background">
@@ -91,7 +96,7 @@ export default async function LoginPage() {
             <div className="mt-6 border-t border-border pt-5 text-center text-sm text-muted-foreground">
               {isEn ? "Don't have an account?" : "অ্যাকাউন্ট নেই?"}{" "}
               <Link
-                href="/auth/register"
+                href={next ? `/auth/register?next=${encodeURIComponent(next)}` : "/auth/register"}
                 className="font-semibold text-primary hover:underline"
               >
                 {isEn ? "Create one free" : "বিনামূল্যে তৈরি করুন"}

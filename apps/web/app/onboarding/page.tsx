@@ -1,9 +1,11 @@
-import { getT } from "@/lib/i18n";
+import type { Route } from "next";
+import { getLocale, getT } from "@/lib/i18n";
 import { redirect } from "next/navigation";
 import { CheckCircle } from "lucide-react";
 
 import { OnboardingWizard } from "@/components/onboarding-wizard";
-import { requireCurrentUser } from "@/lib/server-auth-fetch";
+import { getCurrentUser } from "@/lib/server-auth-fetch";
+import { getSafeNextPath } from "@/lib/utils";
 
 const STEPS = [
   { label: "সেক্টর বেছে নিন", en: "ISC Sectors" },
@@ -12,12 +14,30 @@ const STEPS = [
   { label: "শিক্ষাগত যোগ্যতা", en: "Education" },
 ];
 
-export default async function OnboardingPage() {
-  const user = await requireCurrentUser();
-  if (user.onboarding_complete) {
-    redirect("/dashboard");
+export default async function OnboardingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ next?: string }>;
+}) {
+  const [user, params, locale] = await Promise.all([
+    getCurrentUser(),
+    searchParams,
+    getLocale(),
+  ]);
+  const next = params.next;
+
+  if (!user) {
+    const loginRedirect = next ? `/auth/login?next=${encodeURIComponent(next)}` : "/auth/login";
+    redirect(loginRedirect as Route);
   }
 
+  if (user.onboarding_complete) {
+    const target = getSafeNextPath(next);
+    redirect(target as Route);
+  }
+
+
+  const isEn = locale === "en";
   const t = await getT("onboarding");
 
   return (
@@ -73,11 +93,15 @@ export default async function OnboardingPage() {
                 সেটআপ প্রক্রিয়া
               </p>
               <h1 className="mt-1 text-xl font-bold text-foreground">{t("title")}</h1>
-              <p className="mt-1 text-sm text-muted-foreground">{t("subtitle")}</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {next && !isEn ? "আরও ভালো চাকরি দেখানোর জন্য কয়েকটি সহজ তথ্য দিন।" : t("subtitle")}
+              </p>
             </div>
             <div className="hidden lg:block mb-6">
               <h2 className="text-xl font-bold text-foreground">{t("title")}</h2>
-              <p className="mt-1 text-sm text-muted-foreground">{t("subtitle")}</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {next && !isEn ? "আরও ভালো চাকরি দেখানোর জন্য কয়েকটি সহজ তথ্য দিন।" : t("subtitle")}
+              </p>
             </div>
             <OnboardingWizard />
           </div>
@@ -86,3 +110,4 @@ export default async function OnboardingPage() {
     </div>
   );
 }
+

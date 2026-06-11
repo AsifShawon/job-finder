@@ -7,6 +7,7 @@ import { useTranslations } from "next-intl";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { getSafeNextPath } from "@/lib/utils";
 
 export function LoginForm() {
   const router = useRouter();
@@ -31,7 +32,7 @@ export function LoginForm() {
         return;
       }
       const next = searchParams.get("next");
-      const target = next?.startsWith("/") ? next : "/dashboard";
+      const target = getSafeNextPath(next);
       router.push(target as Route);
       router.refresh();
     } finally {
