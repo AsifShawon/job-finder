@@ -8,12 +8,12 @@ export interface LocalizedString {
 export const UX_COPY = {
   homepageHero: {
     title: {
-      bn: "আপনার জন্য নিরাপদ বিদেশি চাকরি খুঁজুন",
-      en: "Find Safe Overseas Jobs for You",
+      bn: "আপনার জন্য নিরাপদ চাকরি খুঁজে দিন",
+      en: "Find Safe Jobs for You",
     },
     subtitle: {
-      bn: "সরকারিভাবে যাচাই করা চাকরি, ভিসা ও খরচের সঠিক তথ্য এখানে পাবেন।",
-      en: "Get verified jobs, visas, and clear cost information directly from official sources.",
+      bn: "কী কাজ পারেন বলুন, আমরা মিল থাকা সুযোগ দেখাবো।",
+      en: "Tell us what work you can do, and we will show matching opportunities.",
     },
   },
   heroVoiceInput: {

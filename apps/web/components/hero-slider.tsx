@@ -8,52 +8,34 @@ import { ArrowRight } from "lucide-react";
 
 import { HeroVoiceEntry } from "@/components/hero-voice-entry";
 import { cn } from "@/lib/utils";
+import { getLocalizedCopy, UX_COPY } from "@/lib/ux-copy";
+import type { Locale } from "@/lib/i18n-shared";
 
 const HERO_SLIDES = [
   {
     image: "/assets/images/hero/image_1.png",
     altBn: "বিদেশে কাজের সুযোগ খুঁজছেন এমন মানুষের ব্যানার",
     altEn: "Banner showing people exploring overseas work opportunities",
-    titleBn: "বিদেশে কাজের সুযোগ খুঁজুন",
-    titleEn: "Find Your Overseas Opportunity",
-    subtitleBn: "সরকারি যাচাই করা চাকরি, বৃত্তি ও ভিসা আপডেট এক জায়গায়",
-    subtitleEn: "Verified jobs, scholarships, and visa updates in one place",
-    cta: "/search",
   },
   {
     image: "/assets/images/hero/image_2.png",
     altBn: "স্কলারশিপ ও উচ্চশিক্ষা সুযোগের প্রচ্ছদ",
     altEn: "Cover image for scholarships and higher study opportunities",
-    titleBn: "স্কলারশিপ ও প্রশিক্ষণের পথ জানুন",
-    titleEn: "Discover Scholarships and Training Paths",
-    subtitleBn: "বাংলাদেশি আবেদনকারীদের জন্য উপযোগী তথ্য আগে দেখুন",
-    subtitleEn: "See the most relevant options for Bangladeshi applicants first",
-    cta: "/search?record_type=scholarship",
   },
   {
     image: "/assets/images/hero/image_3.png",
     altBn: "নথি হাতে প্রবাস প্রস্তুতির দৃশ্য",
     altEn: "People preparing documents for migration",
-    titleBn: "আবেদনের আগে নিরাপদ তথ্য যাচাই করুন",
-    titleEn: "Verify Safe Information Before You Apply",
-    subtitleBn: "সরকারি উৎস, ট্রাস্ট ব্যাজ, এবং আবেদনযোগ্যতার তথ্য স্পষ্টভাবে দেখুন",
-    subtitleEn: "Check official sources, trust badges, and eligibility at a glance",
-    cta: "/search?trust_tier=official_gov",
   },
   {
     image: "/assets/images/hero/image_4.png",
     altBn: "নতুন দেশের সুযোগ খোঁজার ভিজ্যুয়াল",
     altEn: "Visual of exploring opportunities by destination country",
-    titleBn: "দেশভিত্তিক সুযোগ এখন আরও সহজে",
-    titleEn: "Country-Based Opportunities Made Simpler",
-    subtitleBn: "কানাডা, মালয়েশিয়া, জার্মানি, সৌদি আরবসহ জনপ্রিয় গন্তব্য একসাথে",
-    subtitleEn: "Browse popular destinations like Canada, Malaysia, Germany, and Saudi Arabia",
-    cta: "/search",
   },
 ] as const;
 
 export function HeroSlider() {
-  const locale = useLocale();
+  const locale = useLocale() as Locale;
   const isEn = locale === "en";
   const [activeIndex, setActiveIndex] = useState(0);
   const [prevIndex, setPrevIndex] = useState(-1);
@@ -74,80 +56,91 @@ export function HeroSlider() {
 
   return (
     <section className="relative overflow-hidden bg-navy text-white">
-      <div className="absolute inset-0 bg-gradient-to-t from-[#07152f]/90 via-[#07152f]/40 to-transparent" />
+      <div className="absolute inset-0 bg-gradient-to-t from-[#07152f]/90 via-[#07152f]/40 to-transparent pointer-events-none" />
 
-      <div className="relative mx-auto max-w-7xl px-4 py-4 sm:py-6">
-        <div className="relative h-[420px] overflow-hidden rounded-[2rem] border border-white/10 sm:h-[520px]">
-          {HERO_SLIDES.map((slide, index) => {
-            const isActive = activeIndex === index;
-            const isExiting = prevIndex === index;
+      <div className="relative mx-auto max-w-7xl px-4 py-4 sm:py-6 z-10">
+        <div className="relative min-h-[640px] sm:min-h-[600px] lg:h-[520px] xl:h-[560px] overflow-hidden rounded-[2rem] border border-white/10 p-4 sm:p-6 lg:p-10 flex flex-col justify-between">
+          
+          {/* Background Slides */}
+          <div className="absolute inset-0 z-0 pointer-events-none">
+            {HERO_SLIDES.map((slide, index) => {
+              const isActive = activeIndex === index;
+              const isExiting = prevIndex === index;
 
-            if (!isActive && !isExiting) return null;
+              if (!isActive && !isExiting) return null;
 
-            return (
-              <div
-                key={slide.image}
-                className={cn(
-                  "absolute inset-0",
-                  isActive ? "z-10" : "z-0",
-                )}
-              >
-                <div className="relative h-full w-full overflow-hidden">
-                  <Image
-                    src={slide.image}
-                    alt={isEn ? slide.altEn : slide.altBn}
-                    fill
-                    priority={isActive}
-                    className={cn(
-                      "object-cover",
-                      isActive ? "hero-slide-active" : "hero-slide-exit",
-                    )}
-                    sizes="(max-width: 768px) 100vw, 1280px"
-                  />
-                  {isActive && (
-                    <div className="absolute inset-0 z-30 pointer-events-none bg-primary hero-wipe-active" />
+              return (
+                <div
+                  key={slide.image}
+                  className={cn(
+                    "absolute inset-0 transition-opacity duration-1000",
+                    isActive ? "opacity-100 z-10" : "opacity-0 z-0",
                   )}
-                  <div className="absolute inset-0 bg-gradient-to-t from-[#07152f]/90 via-[#07152f]/35 to-transparent" />
-                </div>
-                
-                {isActive && (
-                  <div className="absolute inset-x-0 bottom-0 z-20 p-4 sm:p-8 lg:p-10">
-                    <div className="grid gap-3 fade-up sm:gap-5 lg:grid-cols-[minmax(0,1fr)_520px] lg:items-end">
-                      <div className="max-w-2xl space-y-3 sm:space-y-4">
-                      <span className="inline-flex rounded-full border border-white/25 bg-white/10 px-3 py-1 text-xs font-semibold backdrop-blur">
-                        {isEn ? "Verified Opportunity Platform" : "যাচাই করা সুযোগের প্ল্যাটফর্ম"}
-                      </span>
-                      <h1 data-testid="hero-slide-title" className="line-clamp-2 max-w-xl text-3xl font-bold leading-tight sm:text-4xl lg:text-5xl">
-                        {isEn ? slide.titleEn : slide.titleBn}
-                      </h1>
-                      <p className="hidden max-w-xl text-base text-slate-100 sm:block sm:text-lg">
-                        {isEn ? slide.subtitleEn : slide.subtitleBn}
-                      </p>
-                      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-                        <Link
-                          href={slide.cta}
-                          className="inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-bold text-white transition-opacity hover:opacity-90 sm:px-6 sm:py-3"
-                        >
-                          <span>{isEn ? "Explore Opportunities" : "সুযোগ খুঁজুন"}</span>
-                          <ArrowRight className="h-4 w-4" />
-                        </Link>
-                        <Link
-                          href="/auth/register"
-                          className="inline-flex items-center rounded-full border border-white/40 bg-white/10 px-5 py-2.5 text-sm font-bold text-white backdrop-blur transition-colors hover:bg-white/20 sm:px-6 sm:py-3"
-                        >
-                          {isEn ? "Free Account" : "ফ্রি অ্যাকাউন্ট"}
-                        </Link>
-                      </div>
-                      </div>
-                      <HeroVoiceEntry isEn={isEn} onInteractionChange={setPaused} />
-                    </div>
+                >
+                  <div className="relative h-full w-full overflow-hidden">
+                    <Image
+                      src={slide.image}
+                      alt={isEn ? slide.altEn : slide.altBn}
+                      fill
+                      priority={isActive}
+                      className={cn(
+                        "object-cover",
+                        isActive ? "hero-slide-active" : "hero-slide-exit",
+                      )}
+                      sizes="(max-width: 768px) 100vw, 1280px"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-[#07152f]/95 via-[#07152f]/60 to-[#07152f]/45" />
                   </div>
-                )}
-              </div>
-            );
-          })}
+                </div>
+              );
+            })}
+          </div>
 
-          <div className="absolute bottom-5 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2">
+          {/* Static Content Overlay */}
+          <div className="relative z-20 flex-1 flex flex-col justify-center w-full py-4 sm:py-6">
+            <div className="grid gap-6 lg:grid-cols-[1fr_480px] lg:items-center lg:gap-8 xl:gap-12">
+              
+              {/* Left Column: Text & CTAs */}
+              <div className="space-y-4 sm:space-y-6 text-left">
+                <span className="inline-flex rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-bold uppercase tracking-wider text-teal-300 backdrop-blur-sm">
+                  {isEn ? "Verified Opportunity Platform" : "যাচাই করা সুযোগের প্ল্যাটফর্ম"}
+                </span>
+                
+                <h1 className="text-3xl font-extrabold tracking-tight text-white sm:text-4xl md:text-5xl lg:text-5xl xl:text-6xl leading-tight">
+                  {getLocalizedCopy(UX_COPY.homepageHero.title, locale)}
+                </h1>
+                
+                <p className="text-base text-slate-200 sm:text-lg md:text-xl max-w-xl leading-relaxed">
+                  {getLocalizedCopy(UX_COPY.homepageHero.subtitle, locale)}
+                </p>
+                
+                <div className="flex flex-wrap items-center gap-3 sm:gap-4 pt-2">
+                  <Link
+                    href="/auth/register"
+                    className="touch-target inline-flex items-center justify-center rounded-full bg-primary px-6 py-3 text-sm font-bold text-white shadow-lg transition-all hover:scale-[1.02] active:scale-95 hover:opacity-90 min-w-[130px]"
+                  >
+                    {isEn ? "Free Account" : "ফ্রি অ্যাকাউন্ট"}
+                  </Link>
+                  <Link
+                    href="/search"
+                    className="touch-target inline-flex items-center justify-center gap-2 rounded-full border border-white/40 bg-white/10 px-6 py-3 text-sm font-bold text-white backdrop-blur transition-all hover:bg-white/20 hover:scale-[1.02] active:scale-95 min-w-[130px]"
+                  >
+                    <span>{isEn ? "Explore Opportunities" : "সুযোগ দেখুন"}</span>
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+                </div>
+              </div>
+
+              {/* Right Column: Voice Assistant */}
+              <div className="w-full flex justify-center lg:justify-end">
+                <HeroVoiceEntry isEn={isEn} onInteractionChange={setPaused} />
+              </div>
+              
+            </div>
+          </div>
+
+          {/* Dots Indicators */}
+          <div className="relative z-20 flex justify-center items-center gap-2 pb-2">
             {HERO_SLIDES.map((slide, index) => (
               <button
                 key={slide.image}
@@ -159,12 +152,13 @@ export function HeroSlider() {
                 aria-current={activeIndex === index ? "true" : undefined}
                 aria-label={isEn ? `View slide ${index + 1}` : `স্লাইড ${index + 1} দেখুন`}
                 className={cn(
-                  "h-2.5 rounded-full transition-all",
+                  "h-2.5 rounded-full transition-all touch-target",
                   activeIndex === index ? "w-8 bg-white" : "w-2.5 bg-white/45",
                 )}
               />
             ))}
           </div>
+
         </div>
       </div>
     </section>
