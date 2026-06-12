@@ -114,32 +114,32 @@ export const UX_COPY = {
       en: "What kind of work do you want to do?",
     },
     step1Subtitle: {
-      bn: "কমপক্ষে ২টি কাজ বেছে নিন (সর্বোচ্চ ৩টি)",
-      en: "Choose at least 2 types of work (max 3)",
+      bn: "কমপক্ষে ২টি কাজ বেছে নিন (সর্বোচ্চ ৩টি)। আপনি যেটা জানেন বা পারেন, সেটাই বেছে নিন।",
+      en: "Choose 2 to 3 types of work. Choose what you know or can do.",
     },
     step2Title: {
       bn: "আপনি কোন দেশে যেতে চান?",
-      en: "Which country do you want to go to?",
+      en: "Which countries do you want to work in?",
     },
     step2Subtitle: {
-      bn: "আপনার পছন্দের দেশগুলো বেছে নিন",
-      en: "Select your preferred countries",
+      bn: "যে দেশগুলোতে কাজ করতে আগ্রহী, সেগুলো বেছে নিন।",
+      en: "Choose the countries where you want to work.",
     },
     step3Title: {
       bn: "বর্তমানে আপনার কাজের অবস্থা কী?",
       en: "What is your current work status?",
     },
     step3Subtitle: {
-      bn: "নিচের যেকোনো একটি বেছে নিন",
-      en: "Please select one from below",
+      bn: "নিচের যেকোনো একটি বেছে নিন।",
+      en: "Please select one from below.",
     },
     step4Title: {
       bn: "আপনার পড়াশোনা কতটুকু?",
       en: "What is your education level?",
     },
     step4Subtitle: {
-      bn: "নিচের যেকোনো একটি বেছে নিন",
-      en: "Please select one from below",
+      bn: "নিচের যেকোনো একটি বেছে নিন।",
+      en: "Please select one from below.",
     },
   },
   recommendationLabels: {
