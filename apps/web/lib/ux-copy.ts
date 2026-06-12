@@ -8,12 +8,12 @@ export interface LocalizedString {
 export const UX_COPY = {
   homepageHero: {
     title: {
-      bn: "আপনার জন্য নিরাপদ চাকরি খুঁজে দিন",
-      en: "Find Safe Jobs for You",
+      bn: "আপনার জন্য নিরাপদ চাকরি খুঁজে দিই",
+      en: "Find safe jobs for you",
     },
     subtitle: {
-      bn: "কী কাজ পারেন বলুন, আমরা মিল থাকা সুযোগ দেখাবো।",
-      en: "Tell us what work you can do, and we will show matching opportunities.",
+      bn: "কী কাজ পারেন বলুন — সুদক্ষ আপনার জন্য মিল থাকা সুযোগ দেখাবে।",
+      en: "Tell us what work you can do — Sudokkho will show matching opportunities.",
     },
   },
   heroVoiceInput: {
@@ -56,20 +56,20 @@ export const UX_COPY = {
   },
   samplePrompts: [
     {
-      bn: "SSC পাসে কোন দেশে কাজ পাবো?",
-      en: "Which countries hire SSC-pass workers?",
+      bn: "SSC পাসে কী চাকরি আছে?",
+      en: "What jobs are there for SSC pass?",
     },
     {
-      bn: "মালয়েশিয়া যেতে কত খরচ লাগবে?",
-      en: "How much does it cost to go to Malaysia?",
+      bn: "ড্রাইভিং চাকরি চাই",
+      en: "I want a driving job",
     },
     {
-      bn: "জার্মানি Ausbildung কীভাবে করবো?",
-      en: "How do I apply for German Ausbildung?",
+      bn: "সৌদি যেতে কী লাগবে?",
+      en: "What do I need to go to Saudi Arabia?",
     },
     {
-      bn: "কানাডায় নার্স হিসেবে কাজ করতে কী লাগবে?",
-      en: "What do I need to work as a nurse in Canada?",
+      bn: "মালয়েশিয়ায় কাজ চাই",
+      en: "I want a job in Malaysia",
     },
   ],
   voiceStates: {

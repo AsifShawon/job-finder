@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useLocale } from "next-intl";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Mic, ShieldCheck, Sparkles } from "lucide-react";
 
 import { HeroVoiceEntry } from "@/components/hero-voice-entry";
 import { cn } from "@/lib/utils";
@@ -106,7 +106,7 @@ export function HeroSlider() {
                   {isEn ? "Verified Opportunity Platform" : "যাচাই করা সুযোগের প্ল্যাটফর্ম"}
                 </span>
                 
-                <h1 className="text-3xl font-extrabold tracking-tight text-white sm:text-4xl md:text-5xl lg:text-5xl xl:text-6xl leading-tight">
+                <h1 data-testid="hero-slide-title" className="text-3xl font-extrabold tracking-tight text-white sm:text-4xl md:text-5xl lg:text-5xl xl:text-6xl leading-tight">
                   {getLocalizedCopy(UX_COPY.homepageHero.title, locale)}
                 </h1>
                 
@@ -114,20 +114,19 @@ export function HeroSlider() {
                   {getLocalizedCopy(UX_COPY.homepageHero.subtitle, locale)}
                 </p>
                 
-                <div className="flex flex-wrap items-center gap-3 sm:gap-4 pt-2">
-                  <Link
-                    href="/auth/register"
-                    className="touch-target inline-flex items-center justify-center rounded-full bg-primary px-6 py-3 text-sm font-bold text-white shadow-lg transition-all hover:scale-[1.02] active:scale-95 hover:opacity-90 min-w-[130px]"
-                  >
-                    {isEn ? "Free Account" : "ফ্রি অ্যাকাউন্ট"}
-                  </Link>
-                  <Link
-                    href="/search"
-                    className="touch-target inline-flex items-center justify-center gap-2 rounded-full border border-white/40 bg-white/10 px-6 py-3 text-sm font-bold text-white backdrop-blur transition-all hover:bg-white/20 hover:scale-[1.02] active:scale-95 min-w-[130px]"
-                  >
-                    <span>{isEn ? "Explore Opportunities" : "সুযোগ দেখুন"}</span>
-                    <ArrowRight className="h-4 w-4" />
-                  </Link>
+                <div className="flex flex-wrap gap-2.5 pt-2 text-xs sm:text-sm text-teal-200">
+                  <span className="inline-flex items-center gap-1.5 bg-white/10 px-3 py-1.5 rounded-full border border-white/15 backdrop-blur-sm shadow-sm">
+                    <ShieldCheck className="h-4 w-4 text-teal-300 shrink-0" />
+                    <span>{isEn ? "Verified Sources" : "সরকারি/বিশ্বস্ত উৎস"}</span>
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 bg-white/10 px-3 py-1.5 rounded-full border border-white/15 backdrop-blur-sm shadow-sm">
+                    <Mic className="h-4 w-4 text-teal-300 shrink-0" />
+                    <span>{isEn ? "Ask by Voice" : "ভয়েসে প্রশ্ন করুন"}</span>
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 bg-white/10 px-3 py-1.5 rounded-full border border-white/15 backdrop-blur-sm shadow-sm">
+                    <Sparkles className="h-4 w-4 text-teal-300 shrink-0" />
+                    <span>{isEn ? "Safe Application Guide" : "নিরাপদ আবেদন নির্দেশিকা"}</span>
+                  </span>
                 </div>
               </div>
 

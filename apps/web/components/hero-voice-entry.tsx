@@ -20,6 +20,7 @@ export function HeroVoiceEntry({ isEn, onInteractionChange }: HeroVoiceEntryProp
   const locale = isEn ? "en" : "bn";
   const speech = useSpeechRecognition(locale);
   const [text, setText] = useState("");
+  const [inputMode, setInputMode] = useState<"voice" | "text">("text");
   const [voiceStartPending, setVoiceStartPending] = useState(false);
   const hasDraft = text.trim().length > 0;
   const isEngaged = voiceStartPending || speech.isListening || hasDraft;
@@ -48,9 +49,9 @@ export function HeroVoiceEntry({ isEn, onInteractionChange }: HeroVoiceEntryProp
 
   useEffect(() => {
     if (!speech.isListening && speech.finalTranscript.trim()) {
-      openCopilot(speech.finalTranscript, "voice", true);
+      setText(speech.finalTranscript);
+      setInputMode("voice");
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [speech.isListening, speech.finalTranscript]);
 
   const openCopilot = (question: string, mode: "voice" | "text", autoSpeak: boolean) => {
@@ -68,7 +69,7 @@ export function HeroVoiceEntry({ isEn, onInteractionChange }: HeroVoiceEntryProp
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    openCopilot(text, "text", false);
+    openCopilot(text, inputMode, inputMode === "voice");
   };
 
   const toggleListening = () => {
@@ -132,11 +133,14 @@ export function HeroVoiceEntry({ isEn, onInteractionChange }: HeroVoiceEntryProp
               data-testid="hero-ai-input"
               id="hero-ai-question"
               value={text}
-              onChange={(event) => setText(event.target.value)}
+              onChange={(event) => {
+                setText(event.target.value);
+                setInputMode("text");
+              }}
               placeholder={speech.isListening ? getLocalizedCopy(UX_COPY.heroVoiceInput.placeholderListening, locale) : getLocalizedCopy(UX_COPY.heroVoiceInput.placeholderIdle, locale)}
               className="w-full bg-transparent text-sm font-semibold text-slate-950 outline-none placeholder:text-slate-500 md:text-base"
             />
-            <p className="mt-1 hidden min-h-5 text-xs text-slate-500 md:block">
+            <p className="mt-1 min-h-5 text-xs text-slate-500">
               {speech.isListening
                 ? getLocalizedCopy(UX_COPY.heroVoiceInput.helperTextListening, locale)
                 : getLocalizedCopy(UX_COPY.heroVoiceInput.helperTextIdle, locale)}

@@ -103,12 +103,12 @@ export default async function HomePage() {
       <section className="mx-auto max-w-7xl space-y-8 px-4 py-8" aria-labelledby="home-categories">
         <div className="space-y-3 text-center">
           <h2 id="home-categories" className="text-2xl font-bold text-foreground">
-            {isEn ? "What are you looking for?" : "আপনি কী খুঁজছেন?"}
+            {isEn ? "Popular paths" : "আপনার জন্য জনপ্রিয় পথ"}
           </h2>
           <p className="text-muted-foreground">
             {isEn
-              ? "Browse the strongest job categories first, then expand to see every sector."
-              : "সবচেয়ে বেশি চাকরি থাকা ক্যাটাগরিগুলো আগে দেখুন, তারপর আরও দেখুন দিয়ে সব সেক্টর খুলুন।"}
+              ? "Choose from the most popular job categories"
+              : "সবচেয়ে বেশি চাকরি থাকা ক্যাটাগরিগুলো থেকে বেছে নিন"}
           </p>
         </div>
 
@@ -120,12 +120,12 @@ export default async function HomePage() {
           <div className="flex items-center justify-between gap-3">
             <div className="space-y-2">
               <h2 id="featured-opportunities" className="section-underline text-xl font-bold text-foreground">
-                {isEn ? "Trusted Opportunities" : "বিশ্বস্ত সুযোগ"}
+                {isEn ? "Trusted opportunities" : "বিশ্বস্ত সুযোগ"}
               </h2>
               <p className="text-muted-foreground">
                 {isEn
-                  ? "High-trust listings with clear application links and deadlines."
-                  : "যাচাই করা উৎস, স্পষ্ট আবেদন লিংক, আর পরিষ্কার শেষ তারিখসহ বাছাই করা সুযোগ।"}
+                  ? "Directly collected from official or high-trust sources"
+                  : "সরকারি বা নির্ভরযোগ্য প্রতিষ্ঠান থেকে সরাসরি সংগৃহীত"}
               </p>
             </div>
             <Link href={buildAllJobsHref()} className="text-sm font-semibold text-primary hover:underline">
@@ -147,12 +147,12 @@ export default async function HomePage() {
             <div className="flex items-center justify-between gap-3">
               <div className="space-y-2">
                 <h2 id="latest-opportunities" className="section-underline text-xl font-bold text-foreground">
-                  {isEn ? "Latest Opportunities" : "সর্বশেষ সুযোগ"}
+                  {isEn ? "Latest opportunities" : "সর্বশেষ সুযোগ"}
                 </h2>
                 <p className="text-muted-foreground">
                   {isEn
-                    ? "Updated listings across overseas and local jobs."
-                    : "প্রবাস ও স্থানীয় চাকরির নতুন আপডেট একসাথে দেখুন।"}
+                    ? "Recently added local and overseas jobs"
+                    : "নতুন যুক্ত হওয়া দেশ ও বিদেশের চাকরি"}
                 </p>
               </div>
               <Link href="/search?sort=newest" className="text-sm font-semibold text-primary hover:underline">
@@ -219,12 +219,12 @@ export default async function HomePage() {
         <div className="mx-auto max-w-7xl space-y-12 px-4">
           <div className="mx-auto max-w-3xl space-y-4 text-center">
             <h2 id="trust-features" className="text-3xl font-bold text-foreground sm:text-4xl">
-              {isEn ? "Why use our platform?" : "কেন আমাদের প্ল্যাটফর্ম ব্যবহার করবেন?"}
+              {isEn ? "Why use Sudokkho?" : "কেন সুদক্ষ ব্যবহার করবেন?"}
             </h2>
             <p className="text-lg text-muted-foreground">
               {isEn
-                ? "We focus on transparency and trust to help you find the right opportunities safely."
-                : "আমরা স্বচ্ছতা এবং বিশ্বাসের উপর গুরুত্ব দেই যাতে আপনি নিরাপদভাবে সঠিক সুযোগ খুঁজে পান।"}
+                ? "We help you find the right and safe jobs securely"
+                : "আমরা আপনাকে সঠিক ও নিরাপদ চাকরি খুঁজে পেতে সাহায্য করি"}
             </p>
           </div>
 
