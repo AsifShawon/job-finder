@@ -82,6 +82,31 @@
       "jobs": "Jobs",
       "scholarships": "Scholarships",
       "newToday": "New today"
+    },
+    "actionHeading": "Your next steps today",
+    "actionHelperText": "Based on your profile, saved items, and deadlines, here are the most useful actions for you.",
+    "topRecsTitle": "Top 3 opportunities for you",
+    "topRecsSubtitle": "Sorted using your preferences, destination, work type, and safety signals.",
+    "urgentTitle": "Closing soon",
+    "savedTitle": "Saved Items",
+    "savedEmptyText": "Save good opportunities to find them easily later.",
+    "searchCta": "Search opportunities",
+    "aiTitle": "Not sure which job is better?",
+    "aiSubtitle": "Ask Sudokkho AI which one fits you, what documents you need, and how to apply safely.",
+    "aiCta": "Ask a question",
+    "urgentEmptyText": "No urgent deadlines right now.",
+    "activitySummary": "Activity Summary",
+    "actions": {
+      "urgent": "Deadline closing soon — check these first",
+      "urgentCta": "View urgent",
+      "recs": "View 3 handpicked opportunities for you",
+      "recsCta": "View opportunities",
+      "saved": "Review your saved opportunities",
+      "savedCta": "View saved",
+      "ai": "Not sure which one fits? Ask Sudokkho",
+      "aiCta": "Open Sudokkho AI",
+      "profile": "Update your profile to get better recommendations",
+      "profileCta": "Update profile"
     }
   },
   "opportunity": {
