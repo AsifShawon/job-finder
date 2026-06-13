@@ -21,7 +21,7 @@ export function DashboardNav({
   return (
     <nav
       aria-label="Dashboard navigation"
-      className="scrollbar-none flex items-center gap-2 overflow-x-auto rounded-2xl bg-[#0a1f44] p-2"
+      className="scrollbar-none flex max-w-full items-center gap-1.5 overflow-x-auto rounded-xl bg-slate-100 dark:bg-slate-800/40 p-1"
     >
       {items.map(({ href, label }) => {
         const active = pathname === String(href);
@@ -31,10 +31,10 @@ export function DashboardNav({
             key={href}
             href={href}
             className={cn(
-              "whitespace-nowrap rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors",
+              "whitespace-nowrap rounded-lg px-3.5 py-1.5 text-xs sm:text-sm font-semibold transition-colors select-none",
               active
-                ? "bg-white text-[#0a1f44]"
-                : "text-slate-200 hover:bg-white/10 hover:text-white",
+                ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm"
+                : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-50/50 dark:hover:bg-slate-800/30",
             )}
           >
             {label}
