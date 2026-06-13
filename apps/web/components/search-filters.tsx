@@ -237,45 +237,6 @@ function FilterFields({
         </div>
       </div>
 
-      <label className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-background px-4 py-3">
-        <div>
-          <p className="text-sm font-semibold text-foreground">
-            {isEn ? "Apply directly from Bangladesh" : "বাংলাদেশ থেকে সরাসরি আবেদন করা যাবে"}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            {isEn ? "Show opportunities suitable for Bangladeshi applicants" : "বাংলাদেশি আবেদনকারীদের জন্য উপযোগী সুযোগ দেখান"}
-          </p>
-        </div>
-        <input
-          type="checkbox"
-          checked={values.can_apply_from_bd}
-          onChange={(event) => setValues((current) => ({ ...current, can_apply_from_bd: event.target.checked }))}
-          className="h-5 w-5 accent-primary"
-        />
-      </label>
-
-      <label className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-background px-4 py-3">
-        <div>
-          <p className="text-sm font-semibold text-foreground">
-            {isEn ? "Official sources only" : "শুধু সরকারি বা অফিসিয়াল উৎস"}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            {isEn ? "Prioritize highly trusted listings" : "সবচেয়ে বিশ্বস্ত উৎসের তালিকা আগে দেখান"}
-          </p>
-        </div>
-        <input
-          type="checkbox"
-          checked={values.official_sources_only}
-          onChange={(event) =>
-            setValues((current) => ({
-              ...current,
-              official_sources_only: event.target.checked,
-            }))
-          }
-          className="h-5 w-5 accent-primary"
-        />
-      </label>
-
       <div className="rounded-2xl border border-border bg-background p-4">
         <button
           type="button"
@@ -288,6 +249,45 @@ function FilterFields({
 
         {showMore && (
           <div className="mt-4 grid gap-4">
+            <label className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-background px-4 py-3">
+              <div>
+                <p className="text-sm font-semibold text-foreground">
+                  {isEn ? "Apply directly from Bangladesh" : "বাংলাদেশ থেকে সরাসরি আবেদন করা যাবে"}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {isEn ? "Show opportunities suitable for Bangladeshi applicants" : "বাংলাদেশি আবেদনকারীদের জন্য উপযোগী সুযোগ দেখান"}
+                </p>
+              </div>
+              <input
+                type="checkbox"
+                checked={values.can_apply_from_bd}
+                onChange={(event) => setValues((current) => ({ ...current, can_apply_from_bd: event.target.checked }))}
+                className="h-5 w-5 accent-primary"
+              />
+            </label>
+
+            <label className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-background px-4 py-3">
+              <div>
+                <p className="text-sm font-semibold text-foreground">
+                  {isEn ? "Official sources only" : "শুধু সরকারি বা অফিসিয়াল উৎস"}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {isEn ? "Prioritize highly trusted listings" : "সবচেয়ে বিশ্বস্ত উৎসের তালিকা আগে দেখান"}
+                </p>
+              </div>
+              <input
+                type="checkbox"
+                checked={values.official_sources_only}
+                onChange={(event) =>
+                  setValues((current) => ({
+                    ...current,
+                    official_sources_only: event.target.checked,
+                  }))
+                }
+                className="h-5 w-5 accent-primary"
+              />
+            </label>
+
             <div className="space-y-2">
               <label className="block text-sm font-semibold text-foreground">
                 {isEn ? "Deadline within" : "কত দিনের মধ্যে শেষ"}

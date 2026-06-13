@@ -366,9 +366,65 @@ function cardVoiceText(item: RichCardItem, locale: Locale, title: string, summar
   );
 }
 
+function getTrustStatus(item: RichCardItem, locale: Locale) {
+  if (isOfficialPartnerLabel(item.source_trust_badge)) {
+    return {
+      label: locale === "bn" ? "অফিশিয়াল পার্টনার" : "Official Partner",
+      tone: "positive" as const,
+      description: locale === "bn" ? "অফিশিয়াল পার্টনার থেকে সংগৃহীত" : "Collected from an official partner",
+    };
+  }
+  if (isOfficialSourceLabel(item.source_trust_badge)) {
+    return {
+      label: locale === "bn" ? "অফিশিয়াল সোর্স" : "Official Source",
+      tone: "positive" as const,
+      description: locale === "bn" ? "অফিশিয়াল সোর্স থেকে সংগৃহীত" : "Collected from an official source",
+    };
+  }
+  if (isVerifiedSourceLabel(item.source_trust_badge)) {
+    return {
+      label: locale === "bn" ? "যাচাইকৃত উৎস" : "Verified Source",
+      tone: "positive" as const,
+      description: locale === "bn" ? "যাচাইকৃত উৎস থেকে সংগৃহীত" : "Collected from a verified source",
+    };
+  }
+  // Unknown or Needs Review
+  return {
+    label: locale === "bn" ? "যাচাই প্রয়োজন" : "Needs Verification",
+    tone: "warning" as const,
+    description: locale === "bn" ? "তথ্য যাচাই করে আবেদন করুন" : "Verify information before applying",
+  };
+}
+
+function getFormattedSalary(item: RichCardItem, locale: Locale) {
+  const text = pickLang(item, "salary_text", locale)?.trim();
+  if (text) return text;
+  if (item.salary_min != null) {
+    const currency = item.salary_currency ?? "BDT";
+    const min = new Intl.NumberFormat(locale === "bn" ? "bn-BD" : "en-US").format(item.salary_min);
+    if (item.salary_max != null) {
+      const max = new Intl.NumberFormat(locale === "bn" ? "bn-BD" : "en-US").format(item.salary_max);
+      return `${min} - ${max} ${currency}`;
+    }
+    return `${min} ${currency}`;
+  }
+  return locale === "bn" ? "বেতন উল্লেখ নেই" : "Salary not mentioned";
+}
+
+function getApplyFromBdText(item: RichCardItem, locale: Locale) {
+  if (item.can_apply_from_bd === true) {
+    return locale === "bn" ? "বাংলাদেশ থেকে আবেদন: হ্যাঁ" : "Apply from Bangladesh: Yes";
+  }
+  if (item.can_apply_from_bd === false) {
+    return locale === "bn" ? "বাংলাদেশ থেকে আবেদন: না" : "Apply from Bangladesh: No";
+  }
+  return locale === "bn" ? "বাংলাদেশ থেকে আবেদন: জানা নেই" : "Apply from Bangladesh: Unknown";
+}
+
 function countryText(item: RichCardItem, locale: Locale) {
   return item.destination_country ?? item.country ?? pickLang(item, "location_text", locale) ?? fallbackLocationText(item);
 }
+
 
 function locationDetailText(item: RichCardItem, locale: Locale) {
   const country = item.destination_country ?? item.country;
@@ -670,7 +726,7 @@ export function OpportunityCard({
               </Link>
             </h3>
             {experienceCallout ? (
-              <p className="mt-3 inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-sm font-bold text-emerald-800">
+              <p className="mt-2 inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-sm font-bold text-emerald-800">
                 <Sparkles className="h-4 w-4 shrink-0" />
                 <span>{experienceCallout}</span>
               </p>
@@ -690,31 +746,82 @@ export function OpportunityCard({
           </div>
         </div>
 
-        <ul className="mt-4 grid gap-2 text-sm text-slate-600 sm:grid-cols-2 xl:grid-cols-3">
-          {facts.map((fact) => {
-            const Icon = fact.icon;
+        <ul className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+          {/* Salary Fact */}
+          <li className="flex items-start gap-2.5 rounded-2xl bg-slate-50/80 p-3 text-slate-700">
+            <BriefcaseBusiness className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
+            <div className="min-w-0">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+                {locale === "bn" ? "বেতন" : "Salary"}
+              </p>
+              <p className="text-sm font-semibold text-slate-900 truncate">
+                {getFormattedSalary(item, locale)}
+              </p>
+            </div>
+          </li>
 
+          {/* Deadline Fact */}
+          {(() => {
+            const isUrgent = item.deadline ? (daysUntil(item.deadline) ?? 99) <= 7 : false;
             return (
-              <li
-                key={`${item.id}-${fact.key}`}
-                className={cn(
-                  "flex items-start gap-2 rounded-2xl bg-slate-50/80 px-3 py-2.5",
-                  fact.emphasis ? "text-amber-800" : "text-slate-700",
-                )}
-              >
-                <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", fact.emphasis ? "text-amber-600" : "text-slate-400")} />
+              <li className={cn(
+                "flex items-start gap-2.5 rounded-2xl p-3",
+                isUrgent ? "bg-amber-50 text-amber-800" : "bg-slate-50/80 text-slate-700"
+              )}>
+                <CalendarClock className={cn("mt-0.5 h-4 w-4 shrink-0", isUrgent ? "text-amber-600" : "text-slate-400")} />
                 <div className="min-w-0">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400">
-                    {fact.label}
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+                    {locale === "bn" ? "শেষ তারিখ" : "Deadline"}
                   </p>
-                  <p className="line-clamp-1 text-sm font-medium text-current">{fact.value}</p>
+                  <p className="text-sm font-semibold text-current truncate">
+                    {item.deadline ? formatDate(item.deadline, locale) : (locale === "bn" ? "শেষ তারিখ উল্লেখ নেই" : "Deadline not mentioned")}
+                  </p>
                 </div>
               </li>
             );
-          })}
+          })()}
+
+          {/* Apply from Bangladesh Fact */}
+          <li className="flex items-start gap-2.5 rounded-2xl bg-slate-50/80 p-3 text-slate-700">
+            <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
+            <div className="min-w-0">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+                {locale === "bn" ? "বাংলাদেশ থেকে আবেদন" : "Apply from BD"}
+              </p>
+              <p className="text-sm font-semibold text-slate-900 truncate">
+                {getApplyFromBdText(item, locale)}
+              </p>
+            </div>
+          </li>
+
+          {/* Safety / Verification Fact */}
+          {(() => {
+            const status = getTrustStatus(item, locale);
+            const isWarning = status.tone === "warning";
+            return (
+              <li className={cn(
+                "flex items-start gap-2.5 rounded-2xl p-3",
+                isWarning ? "bg-amber-50 text-amber-800 border border-amber-200" : "bg-slate-50/80 text-slate-700"
+              )}>
+                {isWarning ? (
+                  <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                ) : (
+                  <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                )}
+                <div className="min-w-0">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+                    {locale === "bn" ? "নিরাপত্তা" : "Safety"}
+                  </p>
+                  <p className="text-sm font-semibold text-current truncate" title={status.description}>
+                    {status.description}
+                  </p>
+                </div>
+              </li>
+            );
+          })()}
         </ul>
 
-        <p className="mt-4 line-clamp-3 text-sm leading-6 text-slate-600">{summary}</p>
+        <p className="mt-3.5 line-clamp-2 text-sm leading-relaxed text-slate-600">{summary}</p>
 
         <div className="mt-5 border-t border-slate-200 pt-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

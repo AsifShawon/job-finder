@@ -139,7 +139,29 @@
     "button": "Search",
     "filters": "Filters",
     "noResults": "No results found",
-    "results": "{total} opportunities found"
+    "results": "{total} opportunities found",
+    "guidedHeading": "Find opportunities for you",
+    "guidedSubtitle": "Type work, country, education, or experience — Sudokkho will show matching opportunities.",
+    "chips": {
+      "ssc": "SSC Pass Jobs",
+      "driving": "Driving Jobs",
+      "saudi": "Saudi Arabia Jobs",
+      "malaysia": "Malaysia Jobs",
+      "bdApply": "Apply from Bangladesh",
+      "deadline": "Has Deadline"
+    },
+    "tabs": {
+      "all": "All Opportunities",
+      "forMe": "For me",
+      "byCountry": "By country",
+      "byWork": "By work type",
+      "trusted": "Trusted",
+      "closingSoon": "Closing soon"
+    },
+    "loginCtaTitle": "Sign in easily",
+    "loginCtaDesc": "Please sign in or create a free account to view personalized opportunities.",
+    "loginBtn": "Sign in",
+    "registerBtn": "Register"
   },
   "admin": {
     "sources": "Source Registry",

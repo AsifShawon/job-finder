@@ -5,7 +5,7 @@ test("search page shows filters", async ({ page }) => {
 
   await expect(
     page.getByRole("heading", {
-      name: /সুযোগগুলো দেখুন|Explore Opportunities/i,
+      name: /আপনার জন্য সুযোগ খুঁজুন|Find opportunities for you/i,
     }),
   ).toBeVisible();
 
