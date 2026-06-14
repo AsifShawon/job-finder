@@ -28,20 +28,19 @@ Production-oriented monorepo for ingesting, ranking, and serving verified overse
 
 ## Quick Start
 1. Copy env files:
-   - `cp apps/api/.env.example apps/api/.env`
-   - `cp apps/web/.env.example apps/web/.env`
+   - `cp .env.local.example .env.local`
 2. Start stack:
-   - `docker compose -f infrastructure/docker-compose.yml up --build`
-3. Run migrations:
-   - `docker compose -f infrastructure/docker-compose.yml exec api alembic upgrade head`
-4. Seed data:
-   - `docker compose -f infrastructure/docker-compose.yml exec api python /workspace/scripts/seed.py`
-5. Open services:
+   - `sh scripts/local-up.sh`
+3. Seed data, if needed:
+   - `docker compose --env-file .env.local -f infrastructure/docker-compose.yml -f infrastructure/docker-compose.local.yml exec api python /workspace/scripts/seed.py`
+4. Open services:
    - Web: http://localhost:3000
    - API docs: http://localhost:8000/docs
    - Flower: http://localhost:5555
    - MinIO console: http://localhost:9001
    - SearXNG: http://localhost:8080
+
+See [`DEPLOYMENT.md`](DEPLOYMENT.md) for local and VPS production deployment.
 
 ## Useful Commands
 - `make up`

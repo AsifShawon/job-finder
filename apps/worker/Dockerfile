@@ -21,3 +21,5 @@ RUN pip install --no-cache-dir -r /tmp/requirements.txt \
     && python -m playwright install chromium
 
 COPY . /workspace
+
+CMD ["celery", "-A", "worker.celery_app:celery_app", "worker", "--loglevel=INFO", "--pool=solo", "--concurrency=1"]

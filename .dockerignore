@@ -10,6 +10,10 @@ apps/web/node_modules
 **/.ruff_cache
 .env
 .env.local
+.env.prod
+.env.development
+.env.test
+.env.production
 *.log
 coverage
 dist

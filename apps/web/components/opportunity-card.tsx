@@ -64,21 +64,35 @@ const COUNTRY_CODE_MAP: Record<string, string> = {
   "saudi arabia": "SA",
   saudi: "SA",
   ksa: "SA",
+  "সৌদি আরব": "SA",
+  "সৌদি": "SA",
   qatar: "QA",
+  "কাতার": "QA",
   oman: "OM",
+  "ওমান": "OM",
   bahrain: "BH",
+  "বাহরাইন": "BH",
   kuwait: "KW",
+  "কুয়েত": "KW",
+  "সংযুক্ত আরব আমিরাত": "AE",
+  "ইউএই": "AE",
   "united arab emirates": "AE",
   uae: "AE",
   dubai: "AE",
   abu_dhabi: "AE",
   malaysia: "MY",
+  "মালয়েশিয়া": "MY",
+  "মালয়েশিয়া": "MY",
   singapore: "SG",
+  "সিঙ্গাপুর": "SG",
   japan: "JP",
+  "জাপান": "JP",
   "south korea": "KR",
   korea: "KR",
   romania: "RO",
+  "রোমানিয়া": "RO",
   italy: "IT",
+  "ইতালি": "IT",
   germany: "DE",
   poland: "PL",
   portugal: "PT",
@@ -90,9 +104,12 @@ const COUNTRY_CODE_MAP: Record<string, string> = {
   america: "US",
   australia: "AU",
   jordan: "JO",
+  "জর্ডান": "JO",
   iraq: "IQ",
   brunei: "BN",
+  "ব্রুনাই": "BN",
   maldives: "MV",
+  "মালদ্বীপ": "MV",
   "united kingdom": "GB",
   uk: "GB",
 };
@@ -508,8 +525,8 @@ function badgeClasses(tone: "default" | "positive" | "warning") {
 
 function flagChipClasses(variant: "large" | "compact") {
   return variant === "large"
-    ? "fade-up rounded-full border border-emerald-100 bg-slate-50/95 px-4 py-2 text-base font-bold text-slate-700 shadow-sm"
-    : "fade-up rounded-full border border-slate-200 bg-slate-50/95 px-2.5 py-1 text-xs font-semibold text-slate-700 shadow-sm";
+    ? "fade-up rounded-full border border-emerald-100 bg-white/80 backdrop-blur-sm px-4 py-2 text-base font-bold text-slate-700 shadow-sm"
+    : "fade-up rounded-full border border-slate-200 bg-white/80 backdrop-blur-sm px-2.5 py-1 text-xs font-semibold text-slate-700 shadow-sm";
 }
 
 function SaveButton({
@@ -594,91 +611,121 @@ export function OpportunityCard({
 
   if (resolvedVariant === "compact") {
     return (
-      <article className="flex h-full flex-col rounded-[26px] border border-slate-200 bg-white p-4 shadow-card transition-all hover:border-primary/20 hover:shadow-card-hover">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex flex-wrap gap-2">
-            {badges.slice(0, 3).map((badge) => (
-              <span
-                key={`${item.id}-${badge.label}`}
-                className={cn(
-                  "inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold leading-none",
-                  badgeClasses(badge.tone),
-                )}
-              >
-                {badge.label}
-              </span>
-            ))}
+      <article className="relative overflow-hidden flex h-full flex-col rounded-[26px] border border-slate-200 bg-white shadow-card transition-all hover:border-primary/20 hover:shadow-card-hover">
+        {/* Faded Background Flag (Top Right) */}
+        {countryCode ? (
+          <div className="absolute top-0 right-0 w-36 h-28 pointer-events-none select-none z-0 overflow-hidden rounded-tr-[26px] opacity-[0.18] dark:opacity-[0.24]">
+            <img
+              src={`https://flagcdn.com/w160/${countryCode.toLowerCase()}.png`}
+              alt=""
+              className="w-full h-full object-cover object-right-top"
+            />
+            {/* Gradient Overlays to fade the flag to the bottom and left */}
+            <div className="absolute inset-0 bg-gradient-to-l from-transparent via-white/50 to-white dark:via-slate-900/50 dark:to-slate-900" />
+            <div className="absolute inset-0 bg-gradient-to-b from-transparent via-white/50 to-white dark:via-slate-900/50 dark:to-slate-900" />
           </div>
+        ) : null}
 
-          {country ? (
-            <div className={cn("shrink-0 inline-flex items-center gap-1.5", flagChipClasses("compact"))}>
-              {countryCode ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={`https://flagcdn.com/w20/${countryCode.toLowerCase()}.png`}
-                  width={16}
-                  height={12}
-                  alt=""
-                  className="rounded-[2px] object-cover"
-                />
-              ) : null}
-              <span>{country}</span>
+        <div className="relative z-10 flex flex-1 flex-col p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex flex-wrap gap-2">
+              {badges.slice(0, 3).map((badge) => (
+                <span
+                  key={`${item.id}-${badge.label}`}
+                  className={cn(
+                    "inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold leading-none",
+                    badgeClasses(badge.tone),
+                  )}
+                >
+                  {badge.label}
+                </span>
+              ))}
             </div>
-          ) : null}
-        </div>
 
-        <div className="mt-4 flex items-start justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <h3 className="text-base font-bold leading-6 text-slate-900">
-              <Link href={detailUrl} className="line-clamp-2 hover:text-primary">
-                {title}
-              </Link>
-            </h3>
-            {experienceCallout ? (
-              <p className="mt-2 inline-flex items-center gap-2 text-sm font-bold text-slate-900">
-                <Sparkles className="h-4 w-4 shrink-0 text-emerald-600" />
-                <span>{experienceCallout}</span>
-              </p>
+            {country ? (
+              <div className={cn("shrink-0 inline-flex items-center gap-1.5", flagChipClasses("compact"))}>
+                {countryCode ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={`https://flagcdn.com/w20/${countryCode.toLowerCase()}.png`}
+                    width={16}
+                    height={12}
+                    alt=""
+                    className="rounded-[2px] object-cover"
+                  />
+                ) : null}
+                <span>{country}</span>
+              </div>
             ) : null}
           </div>
 
-          <div className="flex shrink-0 items-center gap-2">
-            <MiniVoiceButton
-              text={spokenText}
-              locale={locale}
-              size="touch"
-              ariaLabel={TEXT[locale].listen}
-              className="border-border"
-              disabled={!spokenText}
-            />
-            <SaveButton saved={saved} saving={saving} onClick={toggleSave} locale={locale} />
+          <div className="mt-4 flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <h3 className="text-base font-bold leading-6 text-slate-900">
+                <Link href={detailUrl} className="line-clamp-2 hover:text-primary">
+                  {title}
+                </Link>
+              </h3>
+              {experienceCallout ? (
+                <p className="mt-2 inline-flex items-center gap-2 text-sm font-bold text-slate-900">
+                  <Sparkles className="h-4 w-4 shrink-0 text-emerald-600" />
+                  <span>{experienceCallout}</span>
+                </p>
+              ) : null}
+            </div>
+
+            <div className="flex shrink-0 items-center gap-2">
+              <MiniVoiceButton
+                text={spokenText}
+                locale={locale}
+                size="touch"
+                ariaLabel={TEXT[locale].listen}
+                className="border-border"
+                disabled={!spokenText}
+              />
+              <SaveButton saved={saved} saving={saving} onClick={toggleSave} locale={locale} />
+            </div>
           </div>
-        </div>
 
-        <div className="mt-3 space-y-2">
-          {compactItemFacts.map((fact) => (
-            <p key={`${item.id}-${fact}`} className="line-clamp-1 text-sm text-slate-600">
-              {fact}
-            </p>
-          ))}
-          <p className="line-clamp-2 text-sm leading-6 text-slate-600">{summary}</p>
-        </div>
+          <div className="mt-3 space-y-2 flex-1">
+            {compactItemFacts.map((fact) => (
+              <p key={`${item.id}-${fact}`} className="line-clamp-1 text-sm text-slate-600">
+                {fact}
+              </p>
+            ))}
+            <p className="line-clamp-2 text-sm leading-6 text-slate-600">{summary}</p>
+          </div>
 
-        <div className="mt-4 flex items-center justify-end pt-2">
-          <Link
-            href={detailUrl}
-            className="inline-flex min-h-11 w-full items-center justify-center rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
-          >
-            {TEXT[locale].details}
-          </Link>
+          <div className="mt-4 flex items-center justify-end pt-2">
+            <Link
+              href={detailUrl}
+              className="inline-flex min-h-11 w-full items-center justify-center rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+            >
+              {TEXT[locale].details}
+            </Link>
+          </div>
         </div>
       </article>
     );
   }
 
   return (
-    <article className="overflow-hidden rounded-[30px] border border-slate-200 bg-white shadow-card transition-all hover:border-primary/20 hover:shadow-card-hover">
-      <div className="p-4 sm:p-5 lg:p-6">
+    <article className="relative overflow-hidden rounded-[30px] border border-slate-200 bg-white shadow-card transition-all hover:border-primary/20 hover:shadow-card-hover">
+      {/* Faded Background Flag (Top Right) */}
+      {countryCode ? (
+        <div className="absolute top-0 right-0 w-48 h-36 md:w-56 md:h-40 pointer-events-none select-none z-0 overflow-hidden rounded-tr-[30px] opacity-[0.18] dark:opacity-[0.24]">
+          <img
+            src={`https://flagcdn.com/w320/${countryCode.toLowerCase()}.png`}
+            alt=""
+            className="w-full h-full object-cover object-right-top"
+          />
+          {/* Gradient Overlays to fade the flag to the bottom and left */}
+          <div className="absolute inset-0 bg-gradient-to-l from-transparent via-white/50 to-white dark:via-slate-900/50 dark:to-slate-900" />
+          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-white/50 to-white dark:via-slate-900/50 dark:to-slate-900" />
+        </div>
+      ) : null}
+
+      <div className="relative z-10 p-4 sm:p-5 lg:p-6">
         {matchText ? (
           <div className="mb-4 rounded-2xl border border-teal-200 bg-teal-50 px-3.5 py-3 text-sm text-teal-800">
             <p className="font-semibold">{TEXT[locale].matchPrefix}</p>

@@ -230,5 +230,19 @@
     "nowReading": "Now reading",
     "notSupported": "Audio not supported in your browser",
     "complete": "Done reading"
+  },
+  "copilot": {
+    "title": "Sudokkho AI",
+    "subtitle": "Ask about jobs, countries, costs, documents, or safe application steps.",
+    "emptyTitle": "What do you want to know?",
+    "shortAnswerLabel": "Short answer",
+    "matchingOppsLabel": "Matching opportunities",
+    "whyMatchLabel": "Why these match",
+    "safetyLabel": "Safety note",
+    "nextStepsLabel": "Next steps",
+    "safetyReminder": "Before paying money or sharing personal documents, verify the official source and employer.",
+    "unknownFieldsReminder": "Some information is not clear in the source — verify before applying.",
+    "viewMore": "View more",
+    "voiceError": "Voice input is unavailable. You can type your question."
   }
 }

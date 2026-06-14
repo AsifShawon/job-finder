@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 
 import { OpportunityCard } from "@/components/opportunity-card";
+import { CopilotOpportunityMiniCard } from "@/components/copilot-opportunity-mini-card";
 import { useSpeechRecognition } from "@/hooks/use-speech-recognition";
 import { useVoiceOutput } from "@/hooks/use-voice-output";
 import type {
@@ -39,9 +40,10 @@ import { cn } from "@/lib/utils";
 
 const PROMPTS = [
   { bn: "SSC পাসে কোন দেশে কাজ পাবো?", en: "Which countries hire SSC-pass workers?" },
-  { bn: "মালয়েশিয়া যেতে কত খরচ লাগবে?", en: "How much does it cost to go to Malaysia?" },
-  { bn: "জার্মানি Ausbildung কীভাবে করবো?", en: "How do I apply for German Ausbildung?" },
-  { bn: "কানাডায় নার্স হিসেবে কাজ করতে কী লাগবে?", en: "What do I need to work as a nurse in Canada?" },
+  { bn: "ড্রাইভিং চাকরির জন্য কী লাগবে?", en: "What is needed for a driving job?" },
+  { bn: "সৌদি যেতে কী কী কাগজ লাগে?", en: "What documents are needed to go to Saudi Arabia?" },
+  { bn: "বাংলাদেশ থেকে আবেদন করা যায় এমন চাকরি দেখান", en: "Show me jobs that can be applied for from Bangladesh" },
+  { bn: "কোন চাকরিটা আমার জন্য ভালো?", en: "Which job is good for me?" },
 ];
 
 type Locale = "bn" | "en";
@@ -439,7 +441,10 @@ export function SudokkhoChatShell({
       });
 
       if (voice.enabled && streamedContent.trim()) {
-        await voice.speak(streamedContent);
+        const textToSpeak = getShortAnswerForSpeech(streamedContent);
+        if (textToSpeak) {
+          await voice.speak(textToSpeak);
+        }
       }
       await loadConversationList({ preferredConversationId: conversation.id, autoOpenFirst: false });
     } catch (error) {
@@ -548,7 +553,11 @@ export function SudokkhoChatShell({
               </span>
               <span>
                 <span className="block text-sm font-bold">{isEn ? "Sudokkho AI" : "সুদক্ষ AI"}</span>
-                <span className="block text-xs text-slate-500">{isEn ? "Overseas job guide" : "বিদেশের চাকরি সহকারী"}</span>
+                <span className="block text-[10px] text-slate-500 sm:text-xs max-w-[180px] sm:max-w-[400px] md:max-w-none truncate">
+                  {isEn 
+                    ? "Ask about jobs, countries, costs, documents, or safe application steps." 
+                    : "চাকরি, দেশ, খরচ, কাগজপত্র বা নিরাপদ আবেদন নিয়ে প্রশ্ন করুন।"}
+                </span>
               </span>
             </Link>
           </div>
@@ -749,6 +758,100 @@ interface BubbleProps {
   onFollowUp: (text: string) => void;
 }
 
+interface StructuredSections {
+  shortAnswer: string;
+  whyMatch: string;
+  safety: string;
+  nextSteps: string;
+}
+
+function parseStructuredAnswer(content: string): StructuredSections {
+  const sections: StructuredSections = {
+    shortAnswer: "",
+    whyMatch: "",
+    safety: "",
+    nextSteps: "",
+  };
+
+  const hasTags = content.includes("[SHORT_ANSWER]") || 
+                  content.includes("[WHY_MATCH]") || 
+                  content.includes("[SAFETY]") || 
+                  content.includes("[NEXT_STEPS]");
+
+  if (!hasTags) {
+    sections.shortAnswer = content;
+    return sections;
+  }
+
+  const tags = [
+    { tag: "[SHORT_ANSWER]", key: "shortAnswer" },
+    { tag: "[WHY_MATCH]", key: "whyMatch" },
+    { tag: "[SAFETY]", key: "safety" },
+    { tag: "[NEXT_STEPS]", key: "nextSteps" },
+  ] as const;
+
+  const matches: { index: number; tag: string; key: keyof StructuredSections }[] = [];
+  for (const t of tags) {
+    let pos = content.indexOf(t.tag);
+    while (pos !== -1) {
+      matches.push({ index: pos, tag: t.tag, key: t.key });
+      pos = content.indexOf(t.tag, pos + 1);
+    }
+  }
+
+  matches.sort((a, b) => a.index - b.index);
+
+  if (matches.length === 0) {
+    sections.shortAnswer = content;
+    return sections;
+  }
+
+  if (matches[0].index > 0) {
+    sections.shortAnswer = content.substring(0, matches[0].index).trim();
+  }
+
+  for (let i = 0; i < matches.length; i++) {
+    const current = matches[i];
+    const next = matches[i + 1];
+    const start = current.index + current.tag.length;
+    const end = next ? next.index : content.length;
+    const text = content.substring(start, end).trim();
+    sections[current.key] = text;
+  }
+
+  return sections;
+}
+
+function getShortAnswerForSpeech(content: string): string {
+  if (content.includes("[SHORT_ANSWER]")) {
+    const start = content.indexOf("[SHORT_ANSWER]") + "[SHORT_ANSWER]".length;
+    let end = content.length;
+    const nextTags = ["[WHY_MATCH]", "[SAFETY]", "[NEXT_STEPS]"];
+    for (const tag of nextTags) {
+      const pos = content.indexOf(tag);
+      if (pos !== -1 && pos < end) {
+        end = pos;
+      }
+    }
+    content = content.substring(start, end);
+  } else {
+    const firstTags = ["[WHY_MATCH]", "[SAFETY]", "[NEXT_STEPS]"];
+    let end = content.length;
+    for (const tag of firstTags) {
+      const pos = content.indexOf(tag);
+      if (pos !== -1 && pos < end) {
+        end = pos;
+      }
+    }
+    content = content.substring(0, end);
+  }
+
+  return content
+    .replace(/\[#\d+\]/g, "")
+    .replace(/[*#_`~]/g, "")
+    .trim();
+}
+
 function ChatMessageBubble({
   message,
   locale,
@@ -763,14 +866,40 @@ function ChatMessageBubble({
 }: BubbleProps) {
   const assistant = message.role === "assistant";
   const citations = message.citations ?? [];
-  const followUps = message.suggested_follow_ups ?? [];
+  
+  const followUps = message.suggested_follow_ups && message.suggested_follow_ups.length > 0 
+    ? message.suggested_follow_ups 
+    : (isEn 
+        ? [
+            { text: "What documents are needed for this job?" },
+            { text: "Can I apply from Bangladesh?" },
+            { text: "Which job is safer?" },
+            { text: "Show jobs with salary mentioned" },
+            { text: "Show jobs with deadline closing soon" },
+          ]
+        : [
+            { text: "এই চাকরির জন্য কী কাগজ লাগবে?" },
+            { text: "বাংলাদেশ থেকে আবেদন করা যাবে?" },
+            { text: "কোন চাকরিটা বেশি নিরাপদ?" },
+            { text: "বেতন উল্লেখ আছে এমন চাকরি দেখান" },
+            { text: "শেষ তারিখ কাছের চাকরি দেখান" },
+          ]
+      );
+
+  const [showAllCitations, setShowAllCitations] = useState(false);
+  const sections = parseStructuredAnswer(message.content);
+
+  const hasUnknown = message.content.toLowerCase().includes("unknown") || 
+                     message.content.includes("স্পষ্ট নেই") || 
+                     message.content.includes("অজানা") ||
+                     citations.some(c => !c.deadline || c.salary_min === null || !c.salary_text);
 
   return (
-    <article className={cn("flex", assistant ? "justify-start" : "justify-end")}>
-      <div className={cn("max-w-[92%] space-y-3 md:max-w-[82%]", assistant && citations.length > 0 ? "w-full" : "")}>
+    <article className={cn("flex w-full", assistant ? "justify-start" : "justify-end")}>
+      <div className={cn("max-w-[95%] space-y-3 md:max-w-[85%]", assistant ? "w-full" : "")}>
         <div
           className={cn(
-            "rounded-2xl px-4 py-3 shadow-sm",
+            "rounded-2xl px-4 py-3.5 shadow-sm",
             assistant
               ? message.failed
                 ? "border border-rose-200 bg-rose-50 text-rose-800"
@@ -785,30 +914,120 @@ function ChatMessageBubble({
             </span>
             <span>{formatMessageTime(message.created_at, locale)}</span>
           </div>
-          <div className="whitespace-pre-wrap text-sm leading-7 md:text-base">
-            {message.content || (message.pending ? (isEn ? "Thinking..." : "ভাবছি...") : "")}
-          </div>
+
+          {assistant ? (
+            <div className="space-y-4">
+              {/* 1. Short Answer */}
+              <div className="space-y-1">
+                <h5 className="text-[11px] font-black uppercase tracking-wider text-slate-400">
+                  {isEn ? "Short Answer" : "সংক্ষিপ্ত উত্তর"}
+                </h5>
+                <div className="whitespace-pre-wrap text-sm leading-relaxed md:text-base font-bold text-slate-800">
+                  {sections.shortAnswer || (message.pending ? (isEn ? "Thinking..." : "ভাবছি...") : "")}
+                </div>
+              </div>
+
+              {/* 2. Related Opportunities */}
+              {!message.pending && citations.length > 0 && (
+                <div className="space-y-2 pt-1">
+                  <h5 className="text-[11px] font-black uppercase tracking-wider text-slate-400">
+                    {isEn ? "Matching Opportunities" : "মিল পাওয়া সুযোগ"}
+                  </h5>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {citations.slice(0, showAllCitations ? citations.length : 3).map((citation) => (
+                      <CopilotOpportunityMiniCard
+                        key={citation.opportunity_id}
+                        item={citation}
+                      />
+                    ))}
+                  </div>
+                  {citations.length > 3 && !showAllCitations && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAllCitations(true)}
+                      className="w-full text-center py-2 text-xs font-bold text-teal-600 hover:text-teal-700 bg-teal-50/50 rounded-xl transition border border-teal-150 hover:bg-teal-50 min-h-[44px]"
+                    >
+                      {isEn ? "View more" : "আরও দেখুন"} ({citations.length - 3})
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* 3. Why Match */}
+              {!message.pending && sections.whyMatch && (
+                <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-3 space-y-1">
+                  <h5 className="text-[11px] font-black uppercase tracking-wider text-slate-500">
+                    {isEn ? "Why these match" : "কেন এগুলো মিলেছে"}
+                  </h5>
+                  <div className="whitespace-pre-wrap text-sm text-slate-700 leading-relaxed font-medium">
+                    {sections.whyMatch}
+                  </div>
+                </div>
+              )}
+
+              {/* 4. Safety Note */}
+              {!message.pending && !message.failed && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-3 space-y-1">
+                  <h5 className="text-[11px] font-black uppercase tracking-wider text-amber-800">
+                    {isEn ? "Safety Note" : "সতর্কতা"}
+                  </h5>
+                  <p className="text-xs sm:text-sm text-amber-950 font-bold leading-relaxed">
+                    {isEn 
+                      ? "Before paying money or sharing personal documents, verify the official source and employer." 
+                      : "টাকা বা ব্যক্তিগত কাগজ দেওয়ার আগে অফিসিয়াল উৎস ও নিয়োগকারী যাচাই করুন।"}
+                  </p>
+                  {(hasUnknown || sections.safety) && (
+                    <div className="text-xs text-amber-700 leading-relaxed border-t border-amber-200/40 pt-1 mt-1 font-medium">
+                      {sections.safety ? sections.safety : (
+                        isEn 
+                          ? "Some information is not clear in the source — verify before applying." 
+                          : "কিছু তথ্য উৎসে স্পষ্ট নেই — আবেদন করার আগে যাচাই করুন।"
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 5. Next Steps */}
+              {!message.pending && sections.nextSteps && (
+                <div className="rounded-xl border border-teal-100 bg-teal-50/20 p-3 space-y-1">
+                  <h5 className="text-[11px] font-black uppercase tracking-wider text-teal-800">
+                    {isEn ? "Next steps" : "এরপর কী করবেন"}
+                  </h5>
+                  <div className="whitespace-pre-wrap text-sm text-teal-900 leading-relaxed font-bold">
+                    {sections.nextSteps}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="whitespace-pre-wrap text-sm leading-7 md:text-base font-bold">
+              {message.content}
+            </div>
+          )}
+
           {message.pending ? (
             <div className="mt-3 inline-flex items-center gap-2 text-xs font-semibold text-teal-700">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              {isEn ? "Searching verified opportunities" : "যাচাই করা তথ্য খোঁজা হচ্ছে"}
+              {isEn ? "Searching verified opportunities..." : "যাচাই করা তথ্য খোঁজা হচ্ছে..."}
             </div>
           ) : null}
+
           {assistant && !message.pending && !message.failed ? (
             <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
               {isSpeaking ? (
                 <>
-                  <button type="button" onClick={voiceStatus === "paused" ? onResume : onPause} className="inline-flex h-8 items-center gap-1 rounded-lg bg-teal-50 px-3 text-xs font-bold text-teal-700">
+                  <button type="button" onClick={voiceStatus === "paused" ? onResume : onPause} className="inline-flex h-10 items-center gap-1 rounded-lg bg-teal-50 px-3 text-xs font-bold text-teal-700 min-h-[44px]">
                     {voiceStatus === "paused" ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
                     {voiceStatus === "paused" ? (isEn ? "Resume" : "চালান") : (isEn ? "Pause" : "থামান")}
                   </button>
-                  <button type="button" onClick={onStop} className="inline-flex h-8 items-center gap-1 rounded-lg bg-slate-100 px-3 text-xs font-bold text-slate-700">
+                  <button type="button" onClick={onStop} className="inline-flex h-10 items-center gap-1 rounded-lg bg-slate-100 px-3 text-xs font-bold text-slate-700 min-h-[44px]">
                     <StopCircle className="h-3.5 w-3.5" />
                     {isEn ? "Stop" : "বন্ধ"}
                   </button>
                 </>
               ) : (
-                <button type="button" onClick={onSpeak} className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 px-3 text-xs font-bold text-slate-700 hover:border-teal-300 hover:text-teal-700">
+                <button type="button" onClick={onSpeak} className="inline-flex h-10 items-center gap-1 rounded-lg border border-slate-200 px-3 text-xs font-bold text-slate-700 hover:border-teal-300 hover:text-teal-750 min-h-[44px]">
                   <Volume2 className="h-3.5 w-3.5" />
                   {isEn ? "Listen" : "শুনুন"}
                 </button>
@@ -817,23 +1036,8 @@ function ChatMessageBubble({
           ) : null}
         </div>
 
-        {assistant && citations.length > 0 ? (
-          <div className="space-y-3">
-            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-slate-500">
-              <span className="h-px flex-1 bg-slate-200" />
-              {isEn ? "Related opportunities" : "সম্পর্কিত সুযোগ"}
-              <span className="h-px flex-1 bg-slate-200" />
-            </div>
-            <div className="flex gap-3 overflow-x-auto pb-2 md:grid md:grid-cols-2 md:overflow-visible">
-              {citations.slice(0, 4).map((citation) => (
-                <div key={citation.opportunity_id} className="min-w-[300px] md:min-w-0">
-                  <OpportunityCard item={citationToCard(citation)} variant="compact" />
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : assistant && !message.pending && followUps.length > 0 ? (
-          <div className="flex flex-wrap gap-2">
+        {assistant && !message.pending && followUps.length > 0 ? (
+          <div className="flex flex-wrap gap-2 pt-1">
             {followUps.map((item) => (
               <SuggestedPrompt key={item.text} item={item} onClick={() => onFollowUp(item.text)} />
             ))}
@@ -849,7 +1053,7 @@ function SuggestedPrompt({ item, onClick }: { item: CopilotSuggestedFollowUp; on
     <button
       type="button"
       onClick={onClick}
-      className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:border-teal-300 hover:text-teal-700"
+      className="rounded-full border border-slate-200 bg-white px-3.5 py-2.5 text-xs sm:text-sm font-bold text-slate-700 hover:border-teal-300 hover:text-teal-750 min-h-[44px] inline-flex items-center justify-center transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-300"
     >
       {item.text}
     </button>
@@ -869,20 +1073,12 @@ interface ComposerProps {
 
 function VoiceComposer({ value, onChange, onSend, disabled, streaming, onStopGenerating, locale, isEn }: ComposerProps) {
   const speech = useSpeechRecognition(locale);
-  const [quickVoice, setQuickVoice] = useState(false);
 
   useEffect(() => {
     if (speech.transcript) {
       onChange(speech.transcript);
     }
   }, [onChange, speech.transcript]);
-
-  useEffect(() => {
-    if (quickVoice && !speech.isListening && speech.finalTranscript.trim()) {
-      onSend();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [quickVoice, speech.isListening, speech.finalTranscript]);
 
   const toggleVoice = () => {
     if (speech.isListening) {
@@ -897,22 +1093,43 @@ function VoiceComposer({ value, onChange, onSend, disabled, streaming, onStopGen
   const voiceError = speech.error && speech.error !== "no-speech"
     ? isEn
       ? "Voice input is unavailable. You can type your question."
-      : "ভয়েস ইনপুট চালু হয়নি। প্রশ্ন লিখে পাঠাতে পারেন।"
+      : "ভয়েস চালু হয়নি। আপনি প্রশ্ন লিখেও পাঠাতে পারেন।"
     : "";
+
+  let statusText = "";
+  if (speech.isListening) {
+    statusText = isEn ? "Listening - please speak..." : "মাইক চালু আছে - কথা বলুন...";
+  } else if (disabled || streaming) {
+    statusText = isEn ? "Sending..." : "পাঠানো হচ্ছে...";
+  } else if (voiceError) {
+    statusText = voiceError;
+  } else if (speech.transcript && !speech.isListening) {
+    statusText = isEn ? "Transcript ready. You can edit and send." : "ভয়েস রেকর্ড হয়েছে। আপনি এটি পরিবর্তন করে পাঠাতে পারেন।";
+  }
 
   return (
     <div className="space-y-2">
-      {speech.isListening ? (
-        <div className="flex items-center justify-between gap-3 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-semibold text-teal-800">
+      {statusText ? (
+        <div className={cn(
+          "flex items-center justify-between gap-3 rounded-xl border px-3 py-2 text-xs font-semibold",
+          speech.isListening 
+            ? "border-teal-200 bg-teal-50 text-teal-800"
+            : voiceError 
+              ? "border-rose-200 bg-rose-50 text-rose-805"
+              : "border-slate-200 bg-slate-50 text-slate-700"
+        )}>
           <span className="inline-flex items-center gap-2">
-            <span className="h-2.5 w-2.5 animate-ping rounded-full bg-teal-600" />
-            {isEn ? "Listening. Tap mic to stop." : "শুনছি। বন্ধ করতে মাইকে চাপুন।"}
+            {speech.isListening && <span className="h-2 w-2 animate-ping rounded-full bg-teal-600" />}
+            <span>{statusText}</span>
           </span>
-          <button type="button" onClick={() => { speech.abortListening(); speech.resetTranscript(); onChange(""); }} aria-label={isEn ? "Clear transcript" : "ট্রান্সক্রিপ্ট মুছুন"}>
-            <X className="h-4 w-4" />
-          </button>
+          {speech.isListening && (
+            <button type="button" onClick={() => { speech.abortListening(); speech.resetTranscript(); onChange(""); }} aria-label={isEn ? "Clear transcript" : "ট্রান্সক্রিপ্ট মুছুন"}>
+              <X className="h-4 w-4" />
+            </button>
+          )}
         </div>
       ) : null}
+
       <div className="flex items-end gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-lg focus-within:border-teal-400 focus-within:ring-4 focus-within:ring-teal-100">
         <button
           type="button"
@@ -920,7 +1137,7 @@ function VoiceComposer({ value, onChange, onSend, disabled, streaming, onStopGen
           disabled={disabled}
           aria-label={speech.isListening ? (isEn ? "Stop listening" : "শোনা বন্ধ করুন") : (isEn ? "Start voice input" : "ভয়েস ইনপুট শুরু করুন")}
           className={cn(
-            "flex h-14 w-14 shrink-0 items-center justify-center rounded-xl text-white transition disabled:opacity-50",
+            "flex h-14 w-14 shrink-0 items-center justify-center rounded-xl text-white transition disabled:opacity-50 min-h-[44px]",
             speech.isListening ? "bg-rose-600" : "bg-teal-600 hover:bg-teal-700",
           )}
         >
@@ -944,7 +1161,7 @@ function VoiceComposer({ value, onChange, onSend, disabled, streaming, onStopGen
           <button
             type="button"
             onClick={onStopGenerating}
-            className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-white"
+            className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-white min-h-[44px]"
             aria-label={isEn ? "Stop generating" : "উত্তর তৈরি বন্ধ করুন"}
           >
             <StopCircle className="h-6 w-6" />
@@ -954,24 +1171,12 @@ function VoiceComposer({ value, onChange, onSend, disabled, streaming, onStopGen
             type="button"
             onClick={onSend}
             disabled={disabled || !value.trim()}
-            className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-navy text-white transition hover:bg-slate-800 disabled:bg-slate-300"
+            className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-navy text-white transition hover:bg-slate-800 disabled:bg-slate-300 min-h-[44px]"
             aria-label={isEn ? "Send message" : "বার্তা পাঠান"}
           >
             {disabled ? <Loader2 className="h-5 w-5 animate-spin" /> : <SendHorizontal className="h-6 w-6" />}
           </button>
         )}
-      </div>
-      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
-        <label className="inline-flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={quickVoice}
-            onChange={(event) => setQuickVoice(event.target.checked)}
-            className="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
-          />
-          {isEn ? "Quick voice send after pause" : "থামলে ভয়েস প্রশ্ন পাঠান"}
-        </label>
-        {voiceError ? <span className="text-rose-600">{voiceError}</span> : null}
       </div>
     </div>
   );
@@ -984,7 +1189,7 @@ function EmptyState({ isEn, onPrompt }: { isEn: boolean; onPrompt: (text: string
         <Sparkles className="h-9 w-9" />
       </div>
       <h1 className="mt-6 text-3xl font-black tracking-tight text-slate-950 md:text-4xl">
-        {isEn ? "Talk directly about overseas jobs" : "বিদেশের চাকরি নিয়ে সরাসরি কথা বলুন"}
+        {isEn ? "What do you want to know?" : "কী জানতে চান?"}
       </h1>
       <p className="mt-3 max-w-xl text-base text-slate-600">
         {isEn ? "Ask, speak by voice, and find verified opportunities." : "প্রশ্ন করুন, ভয়েসে বলুন, যাচাই করা সুযোগ খুঁজুন।"}
@@ -997,7 +1202,7 @@ function EmptyState({ isEn, onPrompt }: { isEn: boolean; onPrompt: (text: string
               key={prompt.en}
               type="button"
               onClick={() => onPrompt(text)}
-              className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-left text-sm font-bold text-slate-800 shadow-sm hover:border-teal-300 hover:text-teal-700"
+              className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-left text-sm font-bold text-slate-800 shadow-sm hover:border-teal-300 hover:text-teal-700 min-h-[44px]"
             >
               <span>{text}</span>
               <ChevronRight className="h-4 w-4 shrink-0" />

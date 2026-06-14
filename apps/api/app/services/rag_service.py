@@ -77,9 +77,15 @@ def answer_question(
 
     if not matches:
         empty_msg = (
-            "আমি আপনার প্রশ্নের সঙ্গে মিলে এমন কোনো প্রকাশিত সুযোগ খুঁজে পাইনি। অনুগ্রহ করে অন্যভাবে জিজ্ঞাসা করুন বা পরে আবার চেষ্টা করুন।"
+            "[SHORT_ANSWER]\nএই প্রশ্নের সাথে মিল থাকা প্রকাশিত সুযোগ এখন পাওয়া যায়নি। আপনি দেশ, কাজের ধরন বা পড়াশোনা লিখে আবার চেষ্টা করতে পারেন।\n\n"
+            "[WHY_MATCH]\nকোনো মিল পাওয়া যায়নি।\n\n"
+            "[SAFETY]\nটাকা বা ব্যক্তিগত কাগজ দেওয়ার আগে অফিশিয়াল উৎস ও নিয়োগকারী যাচাই করুন।\n\n"
+            "[NEXT_STEPS]\nদেশ, কাজের ধরন বা পড়াশোনা পরিবর্তন করে নতুনভাবে প্রশ্ন করুন।"
             if locale_norm == "bn"
-            else "I couldn't find any published opportunities matching your question. Try rephrasing or check back later."
+            else "[SHORT_ANSWER]\nNo matching opportunities found for this query. You can try searching by country, job type, or education.\n\n"
+            "[WHY_MATCH]\nNo opportunities matched.\n\n"
+            "[SAFETY]\nBefore paying money or sharing personal documents, verify the official source and employer.\n\n"
+            "[NEXT_STEPS]\nTry searching for different terms or countries."
         )
         return CopilotAnswer(
             answer=empty_msg,
@@ -164,23 +170,26 @@ def _generate_answer(
     follow_up_language = "Bangla" if locale == "bn" else "English"
 
     prompt = (
-        "You are a helpful assistant for a Bangladeshi overseas-opportunity "
-        "platform. Answer the user's question using ONLY the information in the "
-        "context below. The audience is a rural Bangladeshi job-seeker - use "
-        "simple, respectful, plain language.\n\n"
+        "You are a helpful Bangla-first job adviser for low-literacy Bangladeshi workers. "
+        "Answer the user's question using ONLY the provided context. If unknown, say unknown.\n\n"
+        "Do not invent salary, visa, deadline, cost, eligibility, or Bangladesh applicability. "
+        "If a piece of information is missing, state clearly that it is not mentioned in the source.\n\n"
         f"Respond in {lang_label}.\n"
         f"Write follow-up suggestions in {follow_up_language}.\n\n"
-        "Use the conversation history only to understand continuity and pronouns. "
-        "Use fresh retrieval context for facts.\n\n"
-        "Explain why a job may fit the user, education/experience needed, Bangladesh suitability, "
-        "documents, warnings, and safe application steps when present. Never claim guaranteed visa, "
-        "guaranteed job, or guaranteed selection.\n\n"
-        "Cite specific opportunities by their ID number in square brackets, "
-        "e.g. [#42], so the UI can deep-link them. Mention 2-3 most relevant "
-        "opportunities. If the context doesn't contain a good match, say so honestly.\n\n"
+        "Use simple, respectful, very short sentences. Avoid long paragraphs.\n\n"
+        "You MUST structure the 'answer' property in the JSON output using the following exact tag blocks. "
+        "Do not omit any tags. Keep the text under each tag short and focused.\n\n"
+        "[SHORT_ANSWER]\n"
+        "Write 1 or 2 very simple sentences answering the user's question. If no matching opportunities are found, state it simply.\n\n"
+        "[WHY_MATCH]\n"
+        "Briefly explain why the matching opportunities (mention them by title) fit the user's query.\n\n"
+        "[SAFETY]\n"
+        "Highlight any warnings or missing details in the context (like missing salary, visa, cost, or eligibility). If unknown, say it is not clear in the source.\n\n"
+        "[NEXT_STEPS]\n"
+        "Tell the user exactly what to do next (e.g. read the details card below, check the deadline, or verify documents).\n\n"
         "Return strict JSON with this exact shape:\n"
-        "{\"answer\": \"...\", \"suggested_follow_ups\": [\"...\", \"...\", \"...\"]}\n"
-        "The suggested_follow_ups list must contain 0 to 3 short, concrete next questions.\n\n"
+        "{\"answer\": \"[SHORT_ANSWER]\\n...\\n[WHY_MATCH]\\n...\\n[SAFETY]\\n...\\n[NEXT_STEPS]\\n...\", \"suggested_follow_ups\": [\"...\", \"...\", \"...\"]}\n"
+        "The suggested_follow_ups list must contain 1 to 3 short, concrete, next follow-up questions in the user's language.\n\n"
         f"CONVERSATION HISTORY:\n{history_text}\n\n"
         f"USER QUESTION:\n{question}\n\n"
         f"CONTEXT (top-{len(matches)} retrieved opportunities):\n{context}\n"
@@ -307,11 +316,19 @@ def _to_citation(opp: Opportunity, *, saved_ids: set[int]) -> CopilotCitation:
 
 def _fallback_answer(matches: list[Opportunity], locale: str) -> str:
     if locale == "bn":
-        intro = "AI উপলব্ধ নেই - আপনার প্রশ্নের সঙ্গে মেলে এমন সুযোগগুলো নিচে দেওয়া হলো:"
+        return (
+            "[SHORT_ANSWER]\nআপনার প্রশ্নের সাথে মিল থাকা সুযোগগুলো নিচে দেওয়া হলো।\n\n"
+            "[WHY_MATCH]\nনিচের সুযোগগুলো আপনার প্রশ্নের সাথে প্রাসঙ্গিক।\n\n"
+            "[SAFETY]\nকোনো প্রকার আর্থিক লেনদেন করার পূর্বে সতর্ক থাকুন।\n\n"
+            "[NEXT_STEPS]\nনিচের চাকরিগুলোর বিস্তারিত লিংকে ক্লিক করে অফিশিয়াল তথ্য যাচাই করুন।"
+        )
     else:
-        intro = "AI is unavailable - here are the opportunities most relevant to your question:"
-    bullets = [f"- [#{o.id}] {o.title}" + (f" ({o.country})" if o.country else "") for o in matches]
-    return intro + "\n" + "\n".join(bullets)
+        return (
+            "[SHORT_ANSWER]\nHere are the opportunities most relevant to your question.\n\n"
+            "[WHY_MATCH]\nThese matches are retrieved based on content relevance.\n\n"
+            "[SAFETY]\nVerify the employer and official source before making any payments.\n\n"
+            "[NEXT_STEPS]\nTap details on the cards below to review official information."
+        )
 
 
 def _normalize_follow_ups(raw: object, *, locale: str, matches: list[Opportunity]) -> list[str]:
@@ -330,6 +347,21 @@ def _normalize_follow_ups(raw: object, *, locale: str, matches: list[Opportunity
 
 
 def _fallback_follow_ups(matches: list[Opportunity], locale: str) -> list[str]:
+    if not matches:
+        if locale == "bn":
+            return [
+                "সৌদি কাজ",
+                "মালয়েশিয়া কাজ",
+                "ড্রাইভিং চাকরি",
+                "বাংলাদেশ থেকে আবেদন",
+            ]
+        else:
+            return [
+                "Saudi Arabia jobs",
+                "Malaysia jobs",
+                "Driving jobs",
+                "Apply from Bangladesh",
+            ]
     top = matches[0] if matches else None
     if locale == "bn":
         suggestions = [

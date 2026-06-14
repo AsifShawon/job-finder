@@ -24,13 +24,18 @@ async function callStream(path: string, token: string | undefined, body: unknown
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  console.log("[DEBUG] Next.js stream route handler called with conversation ID:", id);
   const body = await request.json();
+  console.log("[DEBUG] Next.js stream route body:", body);
   const cookieStore = await cookies();
   const accessToken = cookieStore.get(ACCESS_TOKEN_COOKIE)?.value;
   const refreshToken = cookieStore.get(REFRESH_TOKEN_COOKIE)?.value;
+  console.log("[DEBUG] Next.js access token present:", !!accessToken, "refresh token present:", !!refreshToken);
   const path = `/api/v1/copilot/conversations/${id}/messages/stream`;
 
+  console.log("[DEBUG] Calling backend path:", path);
   let backend = await callStream(path, accessToken, body);
+  console.log("[DEBUG] Backend response status:", backend.status);
   let nextAccessToken: string | null = null;
   let nextRefreshToken: string | null = null;
 

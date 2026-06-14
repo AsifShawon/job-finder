@@ -1,26 +1,22 @@
 services:
   postgres:
     image: pgvector/pgvector:pg16
-    container_name: ooi_postgres
     environment:
-      POSTGRES_DB: ooi
-      POSTGRES_USER: ooi
-      POSTGRES_PASSWORD: ooi
-    ports:
-      - "5432:5432"
+      POSTGRES_DB: ${POSTGRES_DB:-ooi}
+      POSTGRES_USER: ${POSTGRES_USER:-ooi}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ooi}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ooi -d ooi"]
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 10s
       timeout: 5s
       retries: 10
 
   redis:
     image: redis:7-alpine
-    container_name: ooi_redis
-    ports:
-      - "6380:6379"
+    volumes:
+      - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -29,22 +25,15 @@ services:
 
   minio:
     image: minio/minio:latest
-    container_name: ooi_minio
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    ports:
-      - "9000:9000"
-      - "9001:9001"
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     volumes:
       - minio_data:/data
 
   searxng:
     image: searxng/searxng:latest
-    container_name: ooi_searxng
-    ports:
-      - "8080:8080"
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8080/ >/dev/null 2>&1 || exit 1"]
       interval: 15s
@@ -55,26 +44,21 @@ services:
     build:
       context: ..
       dockerfile: apps/api/Dockerfile
-    container_name: ooi_api
-    env_file:
-      - ../apps/api/.env
     environment:
-      DATABASE_URL: postgresql+psycopg://ooi:ooi@postgres:5432/ooi
-      REDIS_URL: redis://redis:6379/0
-      MINIO_ENDPOINT: minio:9000
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
-      MINIO_BUCKET: raw-docs
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://ooi:ooi@postgres:5432/ooi}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-raw-docs}
+      MINIO_SECURE: ${MINIO_SECURE:-false}
+      SEARCH_PROVIDER_BASE_URL: ${SEARCH_PROVIDER_BASE_URL:-http://searxng:8080}
       PYTHONPATH: /workspace/apps/api:/workspace/apps/worker
-      WATCHFILES_FORCE_POLLING: "true"
-    volumes:
-      - ..:/workspace
-      - fastembed_cache:/root/.cache/fastembed
     working_dir: /workspace/apps/api
-    command: sh -c "pip install --no-cache-dir -r /workspace/apps/api/requirements.txt && alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     depends_on:
       postgres:
-        condition: service_healthy  # <--- This is the issue
+        condition: service_healthy
       redis:
         condition: service_healthy
       minio:
@@ -82,31 +66,24 @@ services:
       searxng:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready')\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3)\""]
       interval: 10s
       timeout: 5s
       retries: 12
-    ports:
-      - "8000:8000"
 
   worker:
     build:
       context: ..
       dockerfile: apps/worker/Dockerfile
-    container_name: ooi_worker
-    env_file:
-      - ../apps/api/.env
     environment:
-      DATABASE_URL: postgresql+psycopg://ooi:ooi@postgres:5432/ooi
-      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://ooi:ooi@postgres:5432/ooi}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      SEARCH_PROVIDER_BASE_URL: ${SEARCH_PROVIDER_BASE_URL:-http://searxng:8080}
       PYTHONPATH: /workspace/apps/api:/workspace/apps/worker
-    volumes:
-      - ..:/workspace
-      - fastembed_cache:/root/.cache/fastembed
     working_dir: /workspace/apps/worker
-    command: sh -c "pip install --no-cache-dir -r /workspace/apps/worker/requirements.txt && celery -A worker.celery_app:celery_app worker --loglevel=INFO --pool=solo --concurrency=1"
+    command: celery -A worker.celery_app:celery_app worker --loglevel=INFO --pool=solo --concurrency=1
     depends_on:
-      api:
+      postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -117,17 +94,12 @@ services:
     build:
       context: ..
       dockerfile: apps/worker/Dockerfile
-    container_name: ooi_beat
-    env_file:
-      - ../apps/api/.env
     environment:
-      DATABASE_URL: postgresql+psycopg://ooi:ooi@postgres:5432/ooi
-      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://ooi:ooi@postgres:5432/ooi}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       PYTHONPATH: /workspace/apps/api:/workspace/apps/worker
-    volumes:
-      - ..:/workspace
     working_dir: /workspace/apps/worker
-    command: sh -c "pip install --no-cache-dir -r /workspace/apps/worker/requirements.txt && celery -A worker.celery_app:celery_app beat --loglevel=INFO"
+    command: celery -A worker.celery_app:celery_app beat --loglevel=INFO
     depends_on:
       worker:
         condition: service_started
@@ -136,47 +108,37 @@ services:
     build:
       context: ..
       dockerfile: apps/worker/Dockerfile
-    container_name: ooi_flower
-    env_file:
-      - ../apps/api/.env
     environment:
-      DATABASE_URL: postgresql+psycopg://ooi:ooi@postgres:5432/ooi
-      REDIS_URL: redis://redis:6379/0
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://ooi:ooi@postgres:5432/ooi}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${REDIS_URL:-redis://redis:6379/0}
       PYTHONPATH: /workspace/apps/api:/workspace/apps/worker
-    volumes:
-      - ..:/workspace
     working_dir: /workspace/apps/worker
-    command: sh -c "pip install --no-cache-dir -r /workspace/apps/worker/requirements.txt && celery -A worker.celery_app:celery_app flower --port=5555"
+    command: celery -A worker.celery_app:celery_app flower --port=5555
     depends_on:
       redis:
         condition: service_healthy
-    ports:
-      - "5555:5555"
 
   web:
     build:
       context: ..
       dockerfile: apps/web/Dockerfile
-    container_name: ooi_web
+      target: prod
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
     environment:
-      SERVER_API_BASE_URL: http://api:8000
-      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
-    volumes:
-      - ..:/workspace
-      - web_node_modules:/workspace/node_modules
-      - web_next_cache:/workspace/apps/web/.next
+      SERVER_API_BASE_URL: ${SERVER_API_BASE_URL:-http://api:8000}
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
     working_dir: /workspace
-    command: sh -c "npm ci --legacy-peer-deps && npm --workspace apps/web run dev -- --hostname 0.0.0.0 --port 3000"
+    command: npm --workspace apps/web run start -- --hostname 0.0.0.0 --port 3000
     depends_on:
       api:
-        condition: service_started
-    ports:
-      - "3000:3000"
+        condition: service_healthy
 
 volumes:
   postgres_data:
+  redis_data:
   minio_data:
   fastembed_cache:
   web_node_modules:

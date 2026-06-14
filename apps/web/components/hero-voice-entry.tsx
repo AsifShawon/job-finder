@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Mic2, SendHorizontal, Sparkles, X } from "lucide-react";
+import { Mic, SendHorizontal, Sparkles, X } from "lucide-react";
 
 import { useSpeechRecognition } from "@/hooks/use-speech-recognition";
 import { cn } from "@/lib/utils";
@@ -104,28 +104,10 @@ export function HeroVoiceEntry({ isEn, onInteractionChange }: HeroVoiceEntryProp
       </div>
 
       <form onSubmit={submit} className="mt-3 space-y-3">
-        <div className="flex items-center gap-2 md:items-start md:gap-3">
-          <button
-            data-testid="hero-voice-toggle"
-            type="button"
-            onClick={toggleListening}
-            aria-label={speech.isListening ? getLocalizedCopy(UX_COPY.heroVoiceInput.stopListeningAria, locale) : getLocalizedCopy(UX_COPY.heroVoiceInput.startListeningAria, locale)}
-            className={cn(
-              "relative flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-white shadow-md transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-300 md:h-16 md:w-16 md:shadow-lg",
-              speech.isListening ? "bg-rose-600" : "bg-teal-600 hover:bg-teal-700",
-            )}
-          >
-            {speech.isListening ? (
-              <>
-                <span className="absolute h-8 w-8 animate-ping rounded-full bg-white/30 md:h-10 md:w-10" />
-                <span className="h-3.5 w-3.5 rounded-full bg-white md:h-4 md:w-4" />
-              </>
-            ) : (
-              <Mic2 className="h-5 w-5 md:h-7 md:w-7" />
-            )}
-          </button>
-
-          <div className="flex h-12 min-w-0 flex-1 flex-col justify-center rounded-2xl border border-slate-200 bg-slate-50 px-3 md:h-auto md:px-4 md:py-3">
+        <div className="flex items-center gap-2 md:gap-3">
+          {/* Main Input Pill (WhatsApp Style - Highlighted) */}
+          <div className="flex flex-1 items-center gap-1.5 rounded-full border-2 border-slate-300 bg-white px-4 py-1.5 focus-within:border-teal-600 focus-within:ring-2 focus-within:ring-teal-500/20 shadow-sm transition-all duration-200">
+            {/* Input Element */}
             <label className="sr-only" htmlFor="hero-ai-question">
               {getLocalizedCopy(UX_COPY.heroVoiceInput.label, locale)}
             </label>
@@ -138,36 +120,67 @@ export function HeroVoiceEntry({ isEn, onInteractionChange }: HeroVoiceEntryProp
                 setInputMode("text");
               }}
               placeholder={speech.isListening ? getLocalizedCopy(UX_COPY.heroVoiceInput.placeholderListening, locale) : getLocalizedCopy(UX_COPY.heroVoiceInput.placeholderIdle, locale)}
-              className="w-full bg-transparent text-sm font-semibold text-slate-950 outline-none placeholder:text-slate-500 md:text-base"
+              className="min-w-0 flex-1 bg-transparent text-sm font-semibold text-slate-900 outline-none placeholder:text-slate-400 md:text-base py-1"
             />
-            <p className="mt-1 min-h-5 text-xs text-slate-500">
-              {speech.isListening
-                ? getLocalizedCopy(UX_COPY.heroVoiceInput.helperTextListening, locale)
-                : getLocalizedCopy(UX_COPY.heroVoiceInput.helperTextIdle, locale)}
-            </p>
+
+            {/* Right Mic Toggle Button inside Input Pill (Shown when empty OR when actively listening) */}
+            {(!hasDraft || speech.isListening) && (
+              <button
+                data-testid="hero-voice-toggle"
+                type="button"
+                onClick={toggleListening}
+                aria-label={speech.isListening ? getLocalizedCopy(UX_COPY.heroVoiceInput.stopListeningAria, locale) : getLocalizedCopy(UX_COPY.heroVoiceInput.startListeningAria, locale)}
+                className={cn(
+                  "relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all focus-visible:outline-none",
+                  speech.isListening 
+                    ? "bg-rose-500 text-white animate-pulse" 
+                    : "text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                )}
+              >
+                {speech.isListening ? (
+                  <>
+                    <span className="absolute inset-0 animate-ping rounded-full bg-rose-400/30" />
+                    <Mic className="h-5 w-5" />
+                  </>
+                ) : (
+                  <Mic className="h-5 w-5" />
+                )}
+              </button>
+            )}
           </div>
 
-          <button
-            type="submit"
-            disabled={!text.trim()}
-            aria-label={getLocalizedCopy(UX_COPY.heroVoiceInput.sendAria, locale)}
-            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-navy text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300 md:h-16 md:w-14"
-          >
-            <SendHorizontal className="h-5 w-5 md:h-6 md:w-6" />
-          </button>
+          {/* Send Button (Outside/next to the pill. Shown when there is text AND not actively listening) */}
+          {(hasDraft && !speech.isListening) && (
+            <button
+              type="submit"
+              aria-label={getLocalizedCopy(UX_COPY.heroVoiceInput.sendAria, locale)}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#00a884] text-white hover:bg-[#008f72] shadow-md transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
+            >
+              <SendHorizontal className="h-5 w-5 text-white" />
+            </button>
+          )}
         </div>
 
         {speech.isListening ? (
-          <div className="flex items-center gap-1.5 px-1" aria-hidden="true">
-            {[0, 1, 2, 3, 4].map((item) => (
-              <span
-                key={item}
-                className="h-4 w-1.5 animate-pulse rounded-full bg-teal-500 md:h-5"
-                style={{ animationDelay: `${item * 90}ms` }}
-              />
-            ))}
+          <div className="flex items-center justify-between px-2 text-xs text-rose-500 font-medium">
+            <span>{getLocalizedCopy(UX_COPY.heroVoiceInput.helperTextListening, locale)}</span>
+            <div className="flex items-center gap-1" aria-hidden="true">
+              {[0, 1, 2, 3, 4].map((item) => (
+                <span
+                  key={item}
+                  className="h-3 w-1 animate-pulse rounded-full bg-rose-500"
+                  style={{ animationDelay: `${item * 90}ms` }}
+                />
+              ))}
+            </div>
           </div>
-        ) : null}
+        ) : !hasDraft ? (
+          <p className="min-h-5 px-2 text-xs text-slate-400">
+            {getLocalizedCopy(UX_COPY.heroVoiceInput.helperTextIdle, locale)}
+          </p>
+        ) : (
+          <div className="min-h-5" />
+        )}
 
         {errorText ? (
           <div className="flex items-center justify-between gap-2 rounded-xl bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700">

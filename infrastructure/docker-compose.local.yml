@@ -1,0 +1,69 @@
+services:
+  postgres:
+    ports:
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
+
+  redis:
+    ports:
+      - "${REDIS_HOST_PORT:-6380}:6379"
+
+  minio:
+    ports:
+      - "${MINIO_API_HOST_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_HOST_PORT:-9001}:9001"
+
+  searxng:
+    ports:
+      - "${SEARXNG_HOST_PORT:-8080}:8080"
+
+  api:
+    env_file:
+      - ../.env.local
+    environment:
+      DEBUG: "true"
+      WATCHFILES_FORCE_POLLING: "true"
+    volumes:
+      - ..:/workspace
+      - fastembed_cache:/root/.cache/fastembed
+    command: sh -c "pip install --no-cache-dir -r /workspace/apps/api/requirements.txt && alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    ports:
+      - "${API_HOST_PORT:-8000}:8000"
+
+  worker:
+    env_file:
+      - ../.env.local
+    volumes:
+      - ..:/workspace
+      - fastembed_cache:/root/.cache/fastembed
+    command: sh -c "pip install --no-cache-dir -r /workspace/apps/worker/requirements.txt && celery -A worker.celery_app:celery_app worker --loglevel=INFO --pool=solo --concurrency=1"
+
+  beat:
+    env_file:
+      - ../.env.local
+    volumes:
+      - ..:/workspace
+    command: sh -c "pip install --no-cache-dir -r /workspace/apps/worker/requirements.txt && celery -A worker.celery_app:celery_app beat --loglevel=INFO"
+
+  flower:
+    env_file:
+      - ../.env.local
+    volumes:
+      - ..:/workspace
+    command: sh -c "pip install --no-cache-dir -r /workspace/apps/worker/requirements.txt && celery -A worker.celery_app:celery_app flower --port=5555"
+    ports:
+      - "${FLOWER_HOST_PORT:-5555}:5555"
+
+  web:
+    build:
+      target: dev
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+    env_file:
+      - ../.env.local
+    volumes:
+      - ..:/workspace
+      - web_node_modules:/workspace/node_modules
+      - web_next_cache:/workspace/apps/web/.next
+    command: sh -c "npm ci --legacy-peer-deps && npm --workspace apps/web run dev -- --hostname 0.0.0.0 --port 3000"
+    ports:
+      - "${WEB_HOST_PORT:-3000}:3000"

@@ -1,28 +1,28 @@
-COMPOSE_FILE=infrastructure/docker-compose.yml
+COMPOSE_LOCAL=docker compose --env-file .env.local -f infrastructure/docker-compose.yml -f infrastructure/docker-compose.local.yml
 
 up:
-docker compose -f $(COMPOSE_FILE) up --build
+	$(COMPOSE_LOCAL) up --build
 
 down:
-docker compose -f $(COMPOSE_FILE) down -v
+	$(COMPOSE_LOCAL) down
 
 logs:
-docker compose -f $(COMPOSE_FILE) logs -f
+	$(COMPOSE_LOCAL) logs -f
 
 migrate:
-docker compose -f $(COMPOSE_FILE) exec api alembic upgrade head
+	$(COMPOSE_LOCAL) exec api alembic upgrade head
 
 seed:
-docker compose -f $(COMPOSE_FILE) exec api python /workspace/scripts/seed.py
+	$(COMPOSE_LOCAL) exec api python /workspace/scripts/seed.py
 
 create-admin:
-docker compose -f $(COMPOSE_FILE) exec api python /workspace/scripts/create_admin.py
+	$(COMPOSE_LOCAL) exec api python /workspace/scripts/create_admin.py
 
 worker:
-docker compose -f $(COMPOSE_FILE) exec worker celery -A worker.celery_app:celery_app worker --loglevel=INFO --pool=solo --concurrency=1
+	$(COMPOSE_LOCAL) exec worker celery -A worker.celery_app:celery_app worker --loglevel=INFO --pool=solo --concurrency=1
 
 beat:
-docker compose -f $(COMPOSE_FILE) exec beat celery -A worker.celery_app:celery_app beat --loglevel=INFO
+	$(COMPOSE_LOCAL) exec beat celery -A worker.celery_app:celery_app beat --loglevel=INFO
 
 reindex:
-docker compose -f $(COMPOSE_FILE) exec api python /workspace/scripts/reindex_embeddings.py
+	$(COMPOSE_LOCAL) exec api python /workspace/scripts/reindex_embeddings.py
