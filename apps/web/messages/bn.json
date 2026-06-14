@@ -132,7 +132,26 @@
       "policy_update": "নীতি আপডেট"
     },
     "match": "{score}% মিল",
-    "urgentDeadline": "শেষ হতে {days} দিন বাকি"
+    "urgentDeadline": "শেষ হতে {days} দিন বাকি",
+    "safeApplyGuide": "নিরাপদ আবেদন গাইড",
+    "safeApplySubtitle": "এই সুযোগটি বুঝে আবেদন করার আগে গুরুত্বপূর্ণ তথ্যগুলো দেখে নিন।",
+    "applyLinkUnavailable": "আবেদনের লিংক নেই",
+    "whatIsThisJob": "১. এই চাকরিটা কী?",
+    "canIApply": "২. আমি আবেদন করতে পারবো?",
+    "salaryAndBenefits": "৩. বেতন/সুবিধা কত?",
+    "documentsNeeded": "৪. কী কী কাগজ লাগবে?",
+    "howToApplySafely": "৫. কীভাবে নিরাপদে আবেদন করবো?",
+    "salaryNotSpecified": "এই উৎসে বেতন বা সুবিধার তথ্য স্পষ্টভাবে দেওয়া নেই।",
+    "documentsNotSpecified": "কাগজপত্রের তালিকা উল্লেখ নেই। আবেদন করার আগে অফিসিয়াল উৎসে যাচাই করুন।",
+    "safetyWarningText": "ব্যক্তিগত নথি বা টাকা দেওয়ার আগে নিয়োগকারী ও অফিসিয়াল উৎস যাচাই করুন।",
+    "officialSourceDetails": "অফিশিয়াল উৎসের বিস্তারিত",
+    "applyFromBd": "বাংলাদেশ থেকে আবেদন",
+    "workPermitRequired": "ওয়ার্ক পারমিট / ইকামা প্রয়োজন",
+    "internationalApplicants": "আন্তর্জাতিক প্রার্থী",
+    "yes": "হ্যাঁ",
+    "no": "না",
+    "unknown": "জানা নেই",
+    "welcome": "স্বাগতম"
   },
   "search": {
     "placeholder": "চাকরি, বৃত্তি বা নীতি খুঁজুন...",

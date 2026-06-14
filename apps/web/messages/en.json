@@ -132,7 +132,26 @@
       "policy_update": "Policy update"
     },
     "match": "{score}% match",
-    "urgentDeadline": "{days} days left"
+    "urgentDeadline": "{days} days left",
+    "safeApplyGuide": "Safe Apply Guide",
+    "safeApplySubtitle": "Review the important details before applying for this opportunity.",
+    "applyLinkUnavailable": "Apply link unavailable",
+    "whatIsThisJob": "1. What is this job?",
+    "canIApply": "2. Can I apply?",
+    "salaryAndBenefits": "3. Salary and benefits",
+    "documentsNeeded": "4. Documents needed",
+    "howToApplySafely": "5. How to apply safely",
+    "salaryNotSpecified": "This source does not clearly mention salary or benefits.",
+    "documentsNotSpecified": "Documents are not listed. Check the official source before applying.",
+    "safetyWarningText": "Before sharing documents or paying money, verify the employer and official source.",
+    "officialSourceDetails": "Official source details",
+    "applyFromBd": "Apply from Bangladesh",
+    "workPermitRequired": "Work permit / Iqama required",
+    "internationalApplicants": "International applicants",
+    "yes": "Yes",
+    "no": "No",
+    "unknown": "Unknown",
+    "welcome": "Welcome"
   },
   "search": {
     "placeholder": "Search jobs, scholarships, policies...",

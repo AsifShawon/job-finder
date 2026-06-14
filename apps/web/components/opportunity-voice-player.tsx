@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Loader2, Pause, Play, Square, Volume2 } from "lucide-react";
 
@@ -104,10 +104,30 @@ export function OpportunityVoicePlayer({
     setSectionIndex(0);
   }
 
+  const playRef = useRef(play);
+  const resumeRef = useRef(resume);
+  const stateRef = useRef(state);
+  playRef.current = play;
+  resumeRef.current = resume;
+  stateRef.current = state;
+
+  useEffect(() => {
+    const handleTrigger = () => {
+      document.getElementById("voice-player")?.scrollIntoView({ behavior: "smooth" });
+      if (stateRef.current === "idle") {
+        playRef.current();
+      } else if (stateRef.current === "paused") {
+        resumeRef.current();
+      }
+    };
+    window.addEventListener("trigger-voice-play", handleTrigger);
+    return () => window.removeEventListener("trigger-voice-play", handleTrigger);
+  }, []);
+
   const currentSection = sections[sectionIndex];
 
   return (
-    <section className="rounded-2xl border border-border bg-card p-4 shadow-card sm:p-5">
+    <section id="voice-player" className="rounded-2xl border border-border bg-card p-4 shadow-card sm:p-5">
       <div className="flex items-center gap-2">
         <Volume2 className="h-4 w-4 shrink-0 text-primary" />
         <span className="text-sm font-semibold text-foreground">

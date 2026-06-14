@@ -151,7 +151,7 @@ export function HeroSlider() {
                 aria-current={activeIndex === index ? "true" : undefined}
                 aria-label={isEn ? `View slide ${index + 1}` : `স্লাইড ${index + 1} দেখুন`}
                 className={cn(
-                  "h-2.5 rounded-full transition-all touch-target",
+                  "h-2.5 rounded-full transition-all relative after:absolute after:-inset-4",
                   activeIndex === index ? "w-8 bg-white" : "w-2.5 bg-white/45",
                 )}
               />

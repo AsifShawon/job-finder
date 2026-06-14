@@ -6,9 +6,11 @@ import {
   Briefcase,
   Calendar,
   CheckCircle,
+  ChevronDown,
   ExternalLink,
   FileText,
   MapPin,
+  ShieldAlert,
   ShieldCheck,
 } from "lucide-react";
 
@@ -18,8 +20,10 @@ import { OpportunityVoicePlayer, type VoiceSection } from "@/components/opportun
 import { ShareButton } from "@/components/share-button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { DetailActionButtons } from "@/components/detail-action-buttons";
+import { MobileStickyBottomBar } from "@/components/mobile-sticky-bottom-bar";
 import { getOpportunity, getSimilar } from "@/lib/api";
-import { getLocale } from "@/lib/i18n";
+import { getLocale, getT } from "@/lib/i18n";
 import { pickLang, pickLangList } from "@/lib/i18n-shared";
 import { formatDate, formatDateTime, humanizeSlug } from "@/lib/utils";
 import { buildNarratedVoiceText, formatVoiceDate, getVoiceField, getVoiceList, joinVoiceParts } from "@/lib/voice-script";
@@ -235,6 +239,7 @@ export default async function OpportunityDetailPage({
     getSimilar(id),
     getLocale(),
   ]);
+  const t = await getT("opportunity");
   const isEn = locale === "en";
   const opportunityUrl = `/opportunity/${id}`;
   const applyHref = opportunity.application_url ?? opportunity.original_apply_url ?? opportunity.source_url;
@@ -357,117 +362,114 @@ export default async function OpportunityDetailPage({
     { label: isEn ? "Documents" : "প্রয়োজনীয় কাগজপত্র", text: documentsNeeded.join(isEn ? ". " : "। ") },
   ].filter(s => s.text.trim().length > 0);
 
-  /* const voicePlaybackSections: VoiceSection[] = isEn
-    ? voiceSections
-    : [
-        {
-          ...voiceSections[0],
-          spokenText: buildNarratedVoiceText("শিরোনাম", getVoiceField(opportunity, "title", "bn"), "bn") ?? undefined,
-        },
-        {
-          ...voiceSections[1],
-          spokenText: buildNarratedVoiceText("সারসংক্ষেপ", getVoiceField(opportunity, "summary", "bn"), "bn") ?? undefined,
-        },
-        {
-          ...voiceSections[2],
-          spokenText: buildNarratedVoiceText("নিয়োগকর্তা", banglaEmployerVoice, "bn") ?? undefined,
-        },
-        {
-          ...voiceSections[3],
-          spokenText: buildNarratedVoiceText("দেশ", banglaLocationVoice, "bn") ?? undefined,
-        },
-        {
-          ...voiceSections[5],
-          spokenText: buildNarratedVoiceText("আবেদনের শেষ তারিখ", formatVoiceDate(opportunity.deadline, "bn"), "bn") ?? undefined,
-        },
-        {
-          ...voiceSections[6],
-          spokenText: buildNarratedVoiceText("যোগ্যতা", getVoiceField(opportunity, "eligibility_text", "bn"), "bn") ?? undefined,
-        },
-        {
-          ...voiceSections[7],
-          spokenText: buildNarratedVoiceText("প্রয়োজনীয়তা", banglaRequirementsVoice, "bn") ?? undefined,
-        },
-        {
-          ...voiceSections[8],
-          spokenText: buildNarratedVoiceText("আবেদনের ধাপ", banglaStepsVoice, "bn") ?? undefined,
-        },
-        {
-          ...voiceSections[9],
-          spokenText: buildNarratedVoiceText("প্রয়োজনীয় কাগজপত্র", banglaDocumentsVoice, "bn") ?? undefined,
-        },
-      ].filter((section) => Boolean(section.spokenText?.trim())); */
+  const q1SpokenBn = joinVoiceParts([
+    buildNarratedVoiceText("শিরোনাম", getVoiceField(opportunity, "title", "bn"), "bn"),
+    buildNarratedVoiceText("নিয়োগকর্তা", banglaEmployerVoice, "bn"),
+    buildNarratedVoiceText("দেশ", banglaLocationVoice, "bn"),
+    buildNarratedVoiceText("সারসংক্ষেপ", getVoiceField(opportunity, "summary", "bn"), "bn")
+  ], "bn") ?? "";
+
+  const applyBdTextBn = opportunity.can_apply_from_bd === true
+    ? "বাংলাদেশ থেকে আবেদন করা যাবে।"
+    : opportunity.can_apply_from_bd === false
+      ? "বাংলাদেশ থেকে আবেদন করা যাবে না।"
+      : "বাংলাদেশ থেকে আবেদন করার বিষয়টি জানা নেই।";
+  const permitTextBn = opportunity.requires_existing_work_permit === true
+    ? "ওয়ার্ক পারমিট প্রয়োজন।"
+    : opportunity.requires_existing_work_permit === false
+      ? "ওয়ার্ক পারমিট প্রয়োজন নেই।"
+      : "";
+  const q2SpokenBn = joinVoiceParts([
+    applyBdTextBn,
+    permitTextBn,
+    cleanEligibilityText ? `যোগ্যতা, ${cleanEligibilityText}` : null,
+    cleanEducationRequirementText ? `শিক্ষাগত যোগ্যতা, ${cleanEducationRequirementText}` : null,
+    cleanExperienceRequirementText ? `অভিজ্ঞতা, ${cleanExperienceRequirementText}` : null,
+    cleanLanguageRequirementText ? `ভাষার দক্ষতা, ${cleanLanguageRequirementText}` : null
+  ], "bn") ?? "";
+
+  const q3SpokenBn = joinVoiceParts([
+    salaryText ? `বেতন ও সুবিধা, ${salaryText}` : (opportunity.salary_min != null ? `বেতন, ${opportunity.salary_min} ${opportunity.salary_currency ?? ""}` : "এই উৎসে বেতন বা সুবিধার তথ্য স্পষ্টভাবে দেওয়া নেই।"),
+    salaryBdt ? `আনুমানিক মাসিক আয়, ${salaryBdt} টাকা` : null
+  ], "bn") ?? "";
+
+  const q4SpokenBn = joinVoiceParts([
+    cleanRequiredDocumentsText ? `প্রয়োজনীয় কাগজপত্র, ${cleanRequiredDocumentsText}` : null,
+    documentsNeeded.length > 0 ? `প্রয়োজনীয় নথিপত্র, ${documentsNeeded.join("। ")}` : "কাগজপত্রের তালিকা উল্লেখ নেই।"
+  ], "bn") ?? "";
+
+  const q5SpokenBn = joinVoiceParts([
+    banglaStepsVoice ? `আবেদনের ধাপ, ${banglaStepsVoice}` : null,
+    "নিরাপত্তা সতর্কতা, ব্যক্তিগত নথি বা টাকা দেওয়ার আগে নিয়োগকারী ও অফিসিয়াল উৎস যাচাই করুন।"
+  ], "bn") ?? "";
+
+  const q1SpokenEn = joinVoiceParts([
+    buildNarratedVoiceText("Title", titleText, "en"),
+    buildNarratedVoiceText("Employer", organization, "en"),
+    buildNarratedVoiceText("Location", opportunity.destination_country ?? opportunity.country, "en"),
+    buildNarratedVoiceText("Summary", cleanSummaryText, "en")
+  ], "en") ?? "";
+
+  const applyBdTextEn = opportunity.can_apply_from_bd === true
+    ? "You can apply from Bangladesh."
+    : opportunity.can_apply_from_bd === false
+      ? "You cannot apply from Bangladesh."
+      : "Apply from Bangladesh is unknown.";
+  const permitTextEn = opportunity.requires_existing_work_permit === true
+    ? "Work permit is required."
+    : opportunity.requires_existing_work_permit === false
+      ? "Work permit is not required."
+      : "";
+  const q2SpokenEn = joinVoiceParts([
+    applyBdTextEn,
+    permitTextEn,
+    cleanEligibilityText,
+    cleanEducationRequirementText ? `Education: ${cleanEducationRequirementText}` : null,
+    cleanExperienceRequirementText ? `Experience: ${cleanExperienceRequirementText}` : null,
+    cleanLanguageRequirementText ? `Language: ${cleanLanguageRequirementText}` : null
+  ], "en") ?? "";
+
+  const q3SpokenEn = joinVoiceParts([
+    salaryText ? `Salary and benefits: ${salaryText}` : (opportunity.salary_min != null ? `Salary: ${opportunity.salary_min} ${opportunity.salary_currency ?? ""}` : "This source does not clearly mention salary or benefits."),
+    salaryBdt ? `Estimated monthly income: ${salaryBdt} BDT` : null
+  ], "en") ?? "";
+
+  const q4SpokenEn = joinVoiceParts([
+    cleanRequiredDocumentsText ? `Required documents: ${cleanRequiredDocumentsText}` : null,
+    documentsNeeded.length > 0 ? `Documents needed: ${documentsNeeded.join(". ")}` : "Documents are not listed."
+  ], "en") ?? "";
+
+  const q5SpokenEn = joinVoiceParts([
+    cleanApplicationProcessText ? `Application steps: ${cleanApplicationProcessText}` : null,
+    journeySteps.length > 0 ? `Journey steps: ${journeySteps.join(". ")}` : null,
+    "Safety warning: Before sharing documents or paying money, verify the employer and official source."
+  ], "en") ?? "";
 
   const safeVoicePlaybackSections: VoiceSection[] = isEn
-    ? voiceSections
+    ? [
+        { label: "1. What is this job?", text: q1SpokenEn, spokenText: q1SpokenEn },
+        { label: "2. Can I apply?", text: q2SpokenEn, spokenText: q2SpokenEn },
+        { label: "3. Salary and benefits", text: q3SpokenEn, spokenText: q3SpokenEn },
+        { label: "4. Documents needed", text: q4SpokenEn, spokenText: q4SpokenEn },
+        { label: "5. How to apply safely", text: q5SpokenEn, spokenText: q5SpokenEn },
+      ].filter(s => s.text.trim().length > 0)
     : [
-        {
-          label: isEn ? "Title" : "à¦¶à¦¿à¦°à§‹à¦¨à¦¾à¦®",
-          text: titleText,
-          spokenText: buildNarratedVoiceText("শিরোনাম", getVoiceField(opportunity, "title", "bn"), "bn") ?? undefined,
-        },
-        {
-          label: isEn ? "Summary" : "à¦¸à¦‚à¦•à§à¦·à§‡à¦ª",
-          text: cleanSummaryText ?? "",
-          spokenText: buildNarratedVoiceText("সারসংক্ষেপ", getVoiceField(opportunity, "summary", "bn"), "bn") ?? undefined,
-        },
-        {
-          label: isEn ? "Employer" : "à¦¨à¦¿à¦¯à¦¼à§‹à¦—à¦•à¦°à§à¦¤à¦¾",
-          text: organization ?? "",
-          spokenText: buildNarratedVoiceText("নিয়োগকর্তা", banglaEmployerVoice, "bn") ?? undefined,
-        },
-        {
-          label: isEn ? "Country" : "à¦¦à§‡à¦¶",
-          text: opportunity.destination_country ?? opportunity.country ?? "",
-          spokenText: buildNarratedVoiceText("দেশ", banglaLocationVoice, "bn") ?? undefined,
-        },
-        {
-          label: isEn ? "Deadline" : "à¦¶à§‡à¦· à¦¤à¦¾à¦°à¦¿à¦–",
-          text: opportunity.deadline ? formatDate(opportunity.deadline, locale) : "",
-          spokenText: buildNarratedVoiceText("আবেদনের শেষ তারিখ", formatVoiceDate(opportunity.deadline, "bn"), "bn") ?? undefined,
-        },
-        {
-          label: isEn ? "Eligibility" : "à¦¯à§‹à¦—à§à¦¯à¦¤à¦¾",
-          text: cleanEligibilityText ?? "",
-          spokenText: buildNarratedVoiceText("যোগ্যতা", getVoiceField(opportunity, "eligibility_text", "bn"), "bn") ?? undefined,
-        },
-        {
-          label: isEn ? "Requirements" : "à¦ªà§à¦°à¦¯à¦¼à§‹à¦œà¦¨à§€à¦¯à¦¼à¦¤à¦¾",
-          text: requirementItems.join(isEn ? ". " : "à¥¤ "),
-          spokenText: buildNarratedVoiceText("প্রয়োজনীয়তা", banglaRequirementsVoice, "bn") ?? undefined,
-        },
-        {
-          label: isEn ? "Steps" : "à¦†à¦¬à§‡à¦¦à¦¨à§‡à¦° à¦§à¦¾à¦ª",
-          text: journeySteps.join(isEn ? ". " : "à¥¤ "),
-          spokenText: buildNarratedVoiceText("আবেদনের ধাপ", banglaStepsVoice, "bn") ?? undefined,
-        },
-        {
-          label: isEn ? "Documents" : "à¦ªà§à¦°à¦¯à¦¼à§‹à¦œà¦¨à§€à¦¯à¦¼ à¦•à¦¾à¦—à¦œà¦ªà¦¤à§à¦°",
-          text: documentsNeeded.join(isEn ? ". " : "à¥¤ "),
-          spokenText: buildNarratedVoiceText("প্রয়োজনীয় কাগজপত্র", banglaDocumentsVoice, "bn") ?? undefined,
-        },
-      ].filter((section) => Boolean(section.spokenText?.trim()));
+        { label: "১. এই চাকরিটা কী?", text: q1SpokenBn, spokenText: q1SpokenBn },
+        { label: "২. আমি আবেদন করতে পারবো?", text: q2SpokenBn, spokenText: q2SpokenBn },
+        { label: "৩. বেতন/সুবিধা কত?", text: q3SpokenBn, spokenText: q3SpokenBn },
+        { label: "৪. কী কী কাগজ লাগবে?", text: q4SpokenBn, spokenText: q4SpokenBn },
+        { label: "৫. কীভাবে নিরাপদে আবেদন করবো?", text: q5SpokenBn, spokenText: q5SpokenBn },
+      ].filter(s => s.text.trim().length > 0);
 
   return (
-    <main className="bg-background">
-      <div className="sticky top-0 z-40 border-b border-border bg-card/95 px-4 py-3 backdrop-blur md:hidden">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
-          {deadlineBadge && (
-            <span className={"inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold " + deadlineBadge.className}>
-              {deadlineBadge.text}
-            </span>
-          )}
-          <a
-            href={applyHref}
-            target="_blank"
-            rel="noreferrer"
-            className="touch-target inline-flex items-center justify-center rounded-xl bg-primary px-4 py-3 text-sm font-bold text-white"
-            aria-label={isEn ? "Apply now" : "আবেদন করুন"}
-          >
-            {isEn ? "Apply" : "আবেদন করুন"} ↗
-          </a>
-        </div>
-      </div>
+    <main className="bg-background pb-24 md:pb-6">
+      {/* Mobile Sticky Bottom Action Bar */}
+      <MobileStickyBottomBar
+        opportunityId={id}
+        initialSaved={opportunity.is_saved}
+        applyHref={applyHref}
+        locale={locale}
+      />
 
       <div className="mx-auto max-w-7xl space-y-8 px-4 py-6">
         <nav className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -482,343 +484,445 @@ export default async function OpportunityDetailPage({
           <span className="line-clamp-1 text-foreground">{titleText}</span>
         </nav>
 
-        <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
-          <div className="space-y-5">
-            <section className="space-y-6">
-              <div className="space-y-4">
-                <div className="flex flex-wrap items-center gap-3">
-                  <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-bold text-primary uppercase tracking-wider">
-                    {opportunity.opportunity_type ? humanizeSlug(opportunity.opportunity_type, locale) : (isEn ? "Opportunity" : "সুযোগ")}
-                  </span>
-                  <TrustTierBadge tier={opportunity.trust_tier} locale={locale} />
-                  {!opportunity.is_active && (
-                    <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-700">
-                      {isEn ? "Expired" : "মেয়াদ শেষ"}
-                    </span>
-                  )}
-                </div>
-
-                <h1 className="text-3xl font-extrabold text-foreground sm:text-4xl lg:text-5xl leading-tight">
-                  {titleText}
-                </h1>
-
-                <div className="flex flex-wrap items-center gap-x-6 gap-y-3 text-base text-muted-foreground">
-                  {(opportunity.employer || opportunity.organization || organization) && (
-                    <div className="flex items-center gap-2">
-                      <Briefcase className="h-5 w-5 text-primary/60" />
-                      <span className="font-semibold text-foreground">{opportunity.employer || opportunity.organization || organization}</span>
-                    </div>
-                  )}
-                  {(opportunity.city || opportunity.country) && (
-                    <div className="flex items-center gap-2">
-                      <MapPin className="h-5 w-5 text-primary/60" />
-                      <span>{[opportunity.city, opportunity.country].filter(Boolean).join(", ")}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Quick Facts Summary */}
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                <div className="rounded-3xl border border-border bg-card p-6 shadow-sm">
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className="p-2 rounded-xl bg-primary/10">
-                      <Calendar className="h-5 w-5 text-primary" />
-                    </div>
-                    <span className="text-sm font-bold text-muted-foreground">{isEn ? "Deadline" : "শেষ তারিখ"}</span>
-                  </div>
-                  <p className="text-lg font-bold text-foreground">
-                    {opportunity.deadline ? formatDate(opportunity.deadline, locale) : (isEn ? "Not specified" : "উল্লেখ নেই")}
-                  </p>
-                </div>
-
-                <div className="rounded-3xl border border-border bg-card p-6 shadow-sm">
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className="p-2 rounded-xl bg-emerald-100">
-                      <Banknote className="h-5 w-5 text-emerald-700" />
-                    </div>
-                    <span className="text-sm font-bold text-muted-foreground">{isEn ? "Salary/Funding" : "বেতন বা ফান্ডিং"}</span>
-                  </div>
-                  <p className="text-lg font-bold text-foreground">
-                    {salaryText ?? (opportunity.salary_min != null ? `${opportunity.salary_min} ${opportunity.salary_currency ?? ""}` : (isEn ? "Not specified" : "উল্লেখ নেই"))}
-                  </p>
-                </div>
-
-                <div className="rounded-3xl border border-border bg-card p-6 shadow-sm sm:col-span-2 lg:col-span-1">
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className="p-2 rounded-xl bg-blue-100">
-                      <ShieldCheck className="h-5 w-5 text-blue-700" />
-                    </div>
-                    <span className="text-sm font-bold text-muted-foreground">{isEn ? "Trust Source" : "উৎস ও বিশ্বাস"}</span>
-                  </div>
-                  <p className="text-lg font-bold text-foreground">
-                    {opportunity.trust_tier === "official_gov"
-                      ? (isEn ? "Official Government" : "সরাসরি সরকারি উৎস")
-                      : (isEn ? "Verified Platform" : "যাচাইকৃত তথ্য")}
-                  </p>
-                </div>
-              </div>
-            </section>
-
-
-
-            {(cleanSummaryBn || cleanSummaryEn) && (
-              <section className="space-y-4">
-                <h2 className="text-2xl font-bold text-foreground">
-                  {isEn ? "Detailed Summary" : "বিস্তারিত সারসংক্ষেপ"}
-                </h2>
-                <div className="rounded-3xl border border-border bg-card p-6 shadow-sm">
-                  <BilingualSummary
-                    summaryBn={cleanSummaryBn}
-                    summaryEn={cleanSummaryEn}
-                    initialLocale={locale}
-                  />
-                </div>
-              </section>
+        {/* Safe Apply Guide Header */}
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-3 py-1 text-xs font-bold text-primary uppercase tracking-wider">
+              {t("safeApplyGuide")}
+            </span>
+            <TrustTierBadge tier={opportunity.trust_tier} locale={locale} />
+            {!opportunity.is_active && (
+              <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-700">
+                {isEn ? "Expired" : "মেয়াদ শেষ"}
+              </span>
             )}
+          </div>
+          <h1 className="text-3xl font-extrabold text-foreground sm:text-4xl lg:text-5xl leading-tight">
+            {titleText}
+          </h1>
+          <p className="text-base text-muted-foreground font-medium">
+            {t("safeApplySubtitle")}
+          </p>
+        </div>
 
-            <div className="rounded-2xl bg-blue-50 p-4 text-sm text-foreground dark:bg-blue-900/20">
-              <h2 className="text-lg font-bold text-foreground">
-                {isEn ? "Can you apply for this?" : "এই চাকরিতে আবেদন করতে পারবেন কি?"}
-              </h2>
-              <div className="mt-4 space-y-3">
-                <div className="flex items-center justify-between gap-3">
-                  <span>{isEn ? "Apply from Bangladesh" : "বাংলাদেশ থেকে আবেদন"}</span>
-                  <span className="font-semibold">
-                    {formatEligibilityValue(
-                      opportunity.can_apply_from_bd,
-                      locale,
-                      { bn: "হ্যাঁ", en: "Yes" },
-                      { bn: "না", en: "No" },
-                    )}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <span>{isEn ? "Work permit required" : "ওয়ার্ক পারমিট লাগবে"}</span>
-                  <span className="font-semibold">
-                    {formatEligibilityValue(
-                      opportunity.requires_existing_work_permit,
-                      locale,
-                      { bn: "হ্যাঁ", en: "Yes" },
-                      { bn: "না", en: "No" },
-                    )}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <span>{isEn ? "International applicants" : "আন্তর্জাতিক প্রার্থী"}</span>
-                  <span className="font-semibold">
-                    {formatEligibilityValue(
-                      opportunity.open_to_international_candidates,
-                      locale,
-                      { bn: "স্বাগতম", en: "Welcome" },
-                      { bn: "না", en: "Not accepted" },
-                    )}
-                  </span>
-                </div>
-                {cleanExperienceRequirementText && (
-                  <div className="flex items-start justify-between gap-3 border-t border-blue-100 pt-3 dark:border-blue-800">
-                    <span>{isEn ? "Experience required" : "অভিজ্ঞতা"}</span>
-                    <span className="max-w-[60%] text-right font-semibold">{cleanExperienceRequirementText}</span>
-                  </div>
-                )}
-                <div className="flex items-start justify-between gap-3 border-t border-blue-100 pt-3 dark:border-blue-800">
-                  <span>{isEn ? "Visa / Iqama" : "ভিসা / ইকামা"}</span>
-                  <span className="max-w-[60%] text-right font-semibold">{cleanVisaInfoText ?? getNotSpecified(locale)}</span>
-                </div>
-                {cleanEligibilityText && (
-                  <div className="flex items-start justify-between gap-3 border-t border-blue-100 pt-3 dark:border-blue-800">
-                    <span>{isEn ? "Eligibility note" : "যোগ্যতার নোট"}</span>
-                    <span className="max-w-[60%] text-right font-semibold">{cleanEligibilityText}</span>
-                  </div>
-                )}
-              </div>
+        {/* Top Hero Summary Card */}
+        <Card className="p-6 md:p-8 border border-primary/20 shadow-lg bg-gradient-to-br from-card to-primary/5 rounded-[30px] space-y-6">
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="space-y-1">
+              <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{isEn ? "Employer" : "নিয়োগকর্তা"}</span>
+              <p className="text-lg font-bold text-foreground flex items-center gap-2">
+                <Briefcase className="h-5 w-5 text-primary shrink-0" />
+                <span>{organization ?? getNotSpecified(locale)}</span>
+              </p>
             </div>
+            <div className="space-y-1">
+              <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{isEn ? "Location" : "দেশ/শহর"}</span>
+              <p className="text-lg font-bold text-foreground flex items-center gap-2">
+                <MapPin className="h-5 w-5 text-primary shrink-0" />
+                <span>{[opportunity.city, opportunity.destination_country ?? opportunity.country].filter(Boolean).join(", ") || getNotSpecified(locale)}</span>
+              </p>
+            </div>
+            <div className="space-y-1">
+              <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{isEn ? "Deadline" : "শেষ তারিখ"}</span>
+              <p className="text-lg font-bold text-foreground flex items-center gap-2">
+                <Calendar className="h-5 w-5 text-primary shrink-0" />
+                <span>{opportunity.deadline ? formatDate(opportunity.deadline, locale) : getNotSpecified(locale)}</span>
+              </p>
+            </div>
+            <div className="space-y-1">
+              <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{isEn ? "Salary" : "বেতন"}</span>
+              <p className="text-lg font-bold text-foreground flex items-center gap-2">
+                <Banknote className="h-5 w-5 text-success shrink-0" />
+                <span>{salaryText ?? (opportunity.salary_min != null ? `${opportunity.salary_min} ${opportunity.salary_currency ?? ""}` : getNotSpecified(locale))}</span>
+              </p>
+            </div>
+            <div className="space-y-1">
+              <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{isEn ? "Source Trust" : "উৎস ও বিশ্বাস"}</span>
+              <p className="text-lg font-bold text-foreground flex items-center gap-2">
+                <ShieldCheck className="h-5 w-5 text-blue-600 shrink-0" />
+                <span>
+                  {opportunity.trust_tier === "official_gov"
+                    ? (isEn ? "Official Government" : "সরাসরি সরকারি উৎস")
+                    : (opportunity.trust_tier === "official_partner"
+                      ? (isEn ? "Official Partner" : "অফিশিয়াল অংশীদার")
+                      : (isEn ? "Verified Platform" : "যাচাইকৃত তথ্য"))}
+                </span>
+              </p>
+            </div>
+            <div className="space-y-1">
+              <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{isEn ? "Apply from BD" : "বাংলাদেশ থেকে আবেদন"}</span>
+              <p className="text-lg font-bold text-foreground flex items-center gap-2">
+                <CheckCircle className="h-5 w-5 text-emerald-600 shrink-0" />
+                <span>
+                  {opportunity.can_apply_from_bd === true
+                    ? (isEn ? "Yes" : "হ্যাঁ")
+                    : opportunity.can_apply_from_bd === false
+                      ? (isEn ? "No" : "না")
+                      : (isEn ? "Unknown" : "জানা নেই")}
+                </span>
+              </p>
+            </div>
+          </div>
 
-            {salaryBdt && (
-              <div className="rounded-xl bg-green-50 p-3 text-center text-lg font-bold text-foreground dark:bg-green-900/20">
-                {isEn
-                  ? `💰 Estimated monthly income: ৳${salaryBdt}`
-                  : `💰 আনুমানিক মাসিক আয়: ৳${salaryBdt} টাকা`}
-              </div>
-            )}
+          <div className="border-t border-border pt-6 flex flex-wrap items-center justify-between gap-4">
+            <DetailActionButtons
+              opportunityId={id}
+              initialSaved={opportunity.is_saved}
+              applyHref={applyHref}
+              locale={locale}
+              variant="hero"
+            />
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-muted-foreground">{isEn ? "Share:" : "শেয়ার:"}</span>
+              <ShareButton url={opportunityUrl} title={titleText} mode="quick" showLabel={false} />
+            </div>
+          </div>
+        </Card>
 
-            <section className="space-y-3" aria-label={isEn ? "Opportunity details" : "সুযোগের বিস্তারিত"}>
-              <SourceJobDetails sections={richSections} isEn={isEn} />
-              <DetailAccordion
-                title={isEn ? "Requirements" : "যা যা লাগবে"}
-                content={requirementItems}
-                defaultOpen={richSections.length === 0}
-              />
-              {journeySteps.length > 0 && (
-                <Card>
-                  <h2 className="section-underline text-xl font-bold text-foreground">
-                    {isEn ? "📋 Application steps" : "📋 আবেদনের ধাপগুলো"}
-                  </h2>
-                  <div className="mt-4 space-y-4">
-                    {journeySteps.map((step, index) => (
-                      <div key={`${step}-${index}`} className="relative flex gap-3">
-                        <div className="flex flex-col items-center">
-                          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-xs font-bold text-white">
-                            {index + 1}
-                          </span>
-                          {index < journeySteps.length - 1 && (
-                            <span className="mt-1 h-full w-0.5 bg-primary/30" />
-                          )}
-                        </div>
-                        <p className="pt-1 text-muted-foreground">{step}</p>
-                      </div>
-                    ))}
+        <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
+          <div className="space-y-6">
+            
+            {/* 5-Question Section Layout */}
+            
+            {/* Section 1: What is this job? */}
+            <Card className="p-6 md:p-8 space-y-4 rounded-[26px] border border-border shadow-sm">
+              <h2 className="text-xl font-bold text-foreground flex items-center gap-2">
+                <Briefcase className="h-5 w-5 text-primary shrink-0" />
+                <span>{t("whatIsThisJob")}</span>
+              </h2>
+              <div className="pl-7 space-y-4">
+                {(cleanSummaryBn || cleanSummaryEn) ? (
+                  <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+                    <BilingualSummary
+                      summaryBn={cleanSummaryBn}
+                      summaryEn={cleanSummaryEn}
+                      initialLocale={locale}
+                    />
                   </div>
-                </Card>
-              )}
+                ) : (
+                  <p className="text-muted-foreground text-sm">{isEn ? "No summary available." : "কোনো সারসংক্ষেপ পাওয়া যায়নি।"}</p>
+                )}
+                <div className="text-sm text-muted-foreground space-y-2">
+                  <p><strong className="text-foreground">{isEn ? "Employer:" : "নিয়োগকর্তা:"}</strong> {organization ?? getNotSpecified(locale)}</p>
+                  <p><strong className="text-foreground">{isEn ? "Location:" : "লোকেশন:"}</strong> {[opportunity.city, opportunity.destination_country ?? opportunity.country].filter(Boolean).join(", ") || getNotSpecified(locale)}</p>
+                  {opportunity.opportunity_type && (
+                    <p><strong className="text-foreground">{isEn ? "Job Type:" : "কাজের ধরন:"}</strong> {humanizeSlug(opportunity.opportunity_type, locale)}</p>
+                  )}
+                </div>
+              </div>
+            </Card>
 
-              {documentsNeeded.length > 0 && (
-                <Card>
-                  <h2 className="section-underline text-xl font-bold text-foreground">
-                    {isEn ? "📄 Documents needed" : "📄 যা যা লাগবে"}
-                  </h2>
-                  <ul className="mt-4 space-y-2 text-muted-foreground">
+            {/* Section 2: Can I apply? */}
+            <Card className="p-6 md:p-8 space-y-4 rounded-[26px] border border-border shadow-sm">
+              <h2 className="text-xl font-bold text-foreground flex items-center gap-2">
+                <CheckCircle className="h-5 w-5 text-primary shrink-0" />
+                <span>{t("canIApply")}</span>
+              </h2>
+              <div className="pl-7 space-y-4">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-900 border border-border">
+                    <span className="text-sm text-muted-foreground">{t("applyFromBd")}</span>
+                    <span className="font-semibold text-sm">
+                      {formatEligibilityValue(opportunity.can_apply_from_bd, locale, { bn: "হ্যাঁ", en: "Yes" }, { bn: "না", en: "No" })}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-900 border border-border">
+                    <span className="text-sm text-muted-foreground">{t("workPermitRequired")}</span>
+                    <span className="font-semibold text-sm">
+                      {formatEligibilityValue(opportunity.requires_existing_work_permit, locale, { bn: "হ্যাঁ", en: "Yes" }, { bn: "না", en: "No" })}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-900 border border-border">
+                    <span className="text-sm text-muted-foreground">{t("internationalApplicants")}</span>
+                    <span className="font-semibold text-sm">
+                      {formatEligibilityValue(opportunity.open_to_international_candidates, locale, { bn: "স্বাগতম", en: "Welcome" }, { bn: "না", en: "No" })}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="border-t border-border pt-4 space-y-3 text-sm">
+                  <div className="flex justify-between items-start gap-4">
+                    <span className="text-muted-foreground min-w-[120px]">{t("education")}</span>
+                    <span className="font-semibold text-foreground text-right">{cleanEducationRequirementText ?? getNotSpecified(locale)}</span>
+                  </div>
+                  <div className="flex justify-between items-start gap-4 border-t border-slate-100 dark:border-slate-800 pt-2">
+                    <span className="text-muted-foreground min-w-[120px]">{t("experience")}</span>
+                    <span className="font-semibold text-foreground text-right">{cleanExperienceRequirementText ?? getNotSpecified(locale)}</span>
+                  </div>
+                  <div className="flex justify-between items-start gap-4 border-t border-slate-100 dark:border-slate-800 pt-2">
+                    <span className="text-muted-foreground min-w-[120px]">{t("language")}</span>
+                    <span className="font-semibold text-foreground text-right">{cleanLanguageRequirementText ?? getNotSpecified(locale)}</span>
+                  </div>
+                  <div className="flex justify-between items-start gap-4 border-t border-slate-100 dark:border-slate-800 pt-2">
+                    <span className="text-muted-foreground min-w-[120px]">{t("visaIqama")}</span>
+                    <span className="font-semibold text-foreground text-right">{cleanVisaInfoText ?? getNotSpecified(locale)}</span>
+                  </div>
+                  {cleanEligibilityText && (
+                    <div className="flex justify-between items-start gap-4 border-t border-slate-100 dark:border-slate-800 pt-2">
+                      <span className="text-muted-foreground min-w-[120px]">{isEn ? "Eligibility Note" : "যোগ্যতার নোট"}</span>
+                      <span className="font-semibold text-foreground text-right">{cleanEligibilityText}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </Card>
+
+            {/* Section 3: Salary and benefits */}
+            <Card className="p-6 md:p-8 space-y-4 rounded-[26px] border border-border shadow-sm">
+              <h2 className="text-xl font-bold text-foreground flex items-center gap-2">
+                <Banknote className="h-5 w-5 text-primary shrink-0" />
+                <span>{t("salaryAndBenefits")}</span>
+              </h2>
+              <div className="pl-7 space-y-4">
+                {(salaryText || opportunity.salary_min != null || salaryBdt) ? (
+                  <div className="space-y-3">
+                    <p className="text-lg font-bold text-primary">
+                      {salaryText ?? `${opportunity.salary_min}${opportunity.salary_max ? ` - ${opportunity.salary_max}` : ""} ${opportunity.salary_currency ?? ""}`}
+                    </p>
+                    {salaryBdt && (
+                      <div className="inline-flex items-center gap-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/20 px-4 py-2 text-sm font-bold text-emerald-800 dark:text-emerald-400">
+                        <span>💰 {isEn ? `Estimated Monthly Income: ৳${salaryBdt}` : `আনুমানিক মাসিক আয়: ৳${salaryBdt} টাকা`}</span>
+                      </div>
+                    )}
+                    {opportunity.funding_type && (
+                      <p className="text-sm text-muted-foreground"><strong className="text-foreground">{isEn ? "Funding Type:" : "ফান্ডিং টাইপ:"}</strong> {opportunity.funding_type}</p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="p-4 rounded-2xl bg-amber-50/50 dark:bg-amber-950/10 border border-amber-200/30 text-sm text-amber-800 dark:text-amber-400">
+                    {t("salaryNotSpecified")}
+                  </div>
+                )}
+              </div>
+            </Card>
+
+            {/* Section 4: Documents needed */}
+            <Card className="p-6 md:p-8 space-y-4 rounded-[26px] border border-border shadow-sm">
+              <h2 className="text-xl font-bold text-foreground flex items-center gap-2">
+                <FileText className="h-5 w-5 text-primary shrink-0" />
+                <span>{t("documentsNeeded")}</span>
+              </h2>
+              <div className="pl-7 space-y-4">
+                {documentsNeeded.length > 0 ? (
+                  <ul className="space-y-2.5 text-muted-foreground text-sm">
                     {documentsNeeded.map((doc, index) => (
-                      <li key={`${doc}-${index}`} className="flex items-start gap-2">
-                        <span className="text-base">□</span>
+                      <li key={`${doc}-${index}`} className="flex items-start gap-2.5">
+                        <span className="mt-1 flex h-4 w-4 shrink-0 items-center justify-center rounded border border-primary text-primary font-bold text-[10px]">✓</span>
                         <span>{doc}</span>
                       </li>
                     ))}
                   </ul>
-                  <p className="mt-3 text-sm text-muted-foreground">
-                    {isEn
-                      ? "Keep your documents ready before applying."
-                      : "নথি প্রস্তুত রাখুন আবেদনের আগে"}
-                  </p>
-                </Card>
-              )}
-              <DetailAccordion
-                title={isEn ? "Salary and Support" : "বেতন ও সহায়তা"}
-                content={[
-                  salaryText,
-                  opportunity.salary_min != null
-                    ? `${opportunity.salary_min}${opportunity.salary_max ? ` - ${opportunity.salary_max}` : ""} ${opportunity.salary_currency ?? ""}`.trim()
-                    : null,
-                  opportunity.funding_type,
-                ].filter(Boolean) as string[]}
-              />
-              <DetailAccordion
-                title={isEn ? "Documents" : "নথিপত্র"}
-                content={documentDetails}
-              />
-              <DetailAccordion
-                title={isEn ? "Application Process" : "আবেদন প্রক্রিয়া"}
-                content={processDetails}
-              />
-            </section>
-
-            {opportunity.document_url && (
-              <Card>
-                <h2 className="section-underline text-xl font-bold text-foreground">
-                  {isEn ? "Official Circular" : "মূল সার্কুলার"}
-                </h2>
-                <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="flex items-start gap-3">
-                    <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-rose-50 dark:bg-rose-900/20">
-                      <FileText className="h-5 w-5 text-rose-600 dark:text-rose-400" />
-                    </div>
-                    <div>
-                      <p className="font-semibold text-foreground">
-                        {isEn ? "Download the original document" : "মূল নথি দেখুন"}
-                      </p>
-                      <p className="text-sm text-muted-foreground">{opportunity.document_url}</p>
-                    </div>
+                ) : (
+                  <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-border text-sm text-muted-foreground">
+                    {t("documentsNotSpecified")}
                   </div>
+                )}
+              </div>
+            </Card>
+
+            {/* Section 5: How to apply safely */}
+            <Card className="p-6 md:p-8 space-y-6 rounded-[26px] border border-border shadow-sm">
+              <h2 className="text-xl font-bold text-foreground flex items-center gap-2">
+                <ShieldCheck className="h-5 w-5 text-primary shrink-0" />
+                <span>{t("howToApplySafely")}</span>
+              </h2>
+              <div className="pl-7 space-y-6">
+                {journeySteps.length > 0 ? (
+                  <div className="space-y-4">
+                    {journeySteps.map((step, index) => (
+                      <div key={`${step}-${index}`} className="relative flex gap-3">
+                        <div className="flex flex-col items-center">
+                          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-xs font-bold text-white shadow-sm">
+                            {index + 1}
+                          </span>
+                          {index < journeySteps.length - 1 && (
+                            <span className="mt-1 h-full w-0.5 bg-primary/20" />
+                          )}
+                        </div>
+                        <p className="pt-1 text-sm text-muted-foreground leading-relaxed">{step}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    {isEn
+                      ? "Follow the link below to apply directly on the official source."
+                      : "অফিশিয়াল লিংকের মাধ্যমে সরাসরি আবেদন করতে নিচের বাটনে ক্লিক করুন।"}
+                  </p>
+                )}
+
+                {/* Safety Warning Card */}
+                <div className="flex items-start gap-3 rounded-2xl border border-rose-200/50 bg-rose-50/50 dark:bg-rose-950/15 p-4">
+                  <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-rose-600 dark:text-rose-400" />
+                  <div>
+                    <p className="font-bold text-rose-950 dark:text-rose-400 text-sm">
+                      {isEn ? "Safety Warning" : "নিরাপত্তা সতর্কতা"}
+                    </p>
+                    <p className="mt-1.5 text-xs text-rose-900/80 dark:text-rose-300 leading-relaxed font-medium">
+                      {t("safetyWarningText")}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="border-t border-border pt-4 flex flex-wrap items-center justify-between gap-4">
+                  {applyHref ? (
+                    <a
+                      href={applyHref}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="touch-target inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-bold text-white shadow-sm transition-opacity hover:opacity-90"
+                    >
+                      <span>{isEn ? "Official Apply Link" : "অফিশিয়াল আবেদনের লিংক"}</span>
+                      <ExternalLink className="h-4 w-4" />
+                    </a>
+                  ) : (
+                    <span className="text-xs text-muted-foreground font-semibold bg-slate-100 px-3 py-2 rounded-lg">{t("applyLinkUnavailable")}</span>
+                  )}
+                  
                   <a
-                    href={opportunity.document_url}
+                    href={opportunity.source_page_url || opportunity.source_url}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-border px-4 py-3 text-sm font-semibold text-foreground transition-colors hover:border-primary hover:text-primary"
+                    className="text-xs font-semibold text-primary hover:underline flex items-center gap-1"
                   >
-                    <FileText className="h-4 w-4" />
-                    <span>{isEn ? "Open PDF" : "PDF খুলুন"}</span>
+                    <span>{isEn ? "View Original Source Page" : "মূল সোর্স পেজ দেখুন"}</span>
+                    <ExternalLink className="h-3 w-3" />
                   </a>
                 </div>
-              </Card>
-            )}
-
-            <div className="flex items-start gap-3 rounded-2xl border border-warning/30 bg-warning/10 p-4">
-              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-warning" />
-              <div>
-                <p className="font-semibold text-foreground">
-                  {isEn ? "Safety warning" : "নিরাপত্তা সতর্কতা"}
-                </p>
-                <p className="mt-2 text-sm text-muted-foreground">
-                  {isEn
-                    ? "Verify the employer, official source, and any requested payment before sharing personal documents."
-                    : "ব্যক্তিগত নথি বা অর্থ দেওয়ার আগে নিয়োগকারী, সরকারি উৎস, এবং প্রক্রিয়া অবশ্যই যাচাই করুন।"}
-                </p>
               </div>
-            </div>
+            </Card>
+
+            {/* Expandable Accordion: Official Source Details */}
+            <details className="group rounded-[26px] border border-border bg-card p-6 shadow-sm">
+              <summary className="flex cursor-pointer items-center justify-between font-bold text-lg text-foreground list-none focus:outline-none">
+                <span>{t("officialSourceDetails")}</span>
+                <span className="transition-transform duration-200 group-open:rotate-180">
+                  <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                </span>
+              </summary>
+              <div className="mt-6 space-y-6 border-t border-border pt-6">
+                <SourceJobDetails sections={richSections} isEn={isEn} />
+                <DetailAccordion
+                  title={isEn ? "Requirements (Raw)" : "যা যা লাগবে (বিস্তারিত)"}
+                  content={requirementItems}
+                  defaultOpen={richSections.length === 0}
+                />
+                <DetailAccordion
+                  title={isEn ? "Salary and Support (Raw)" : "বেতন ও সহায়তা (বিস্তারিত)"}
+                  content={[
+                    salaryText,
+                    opportunity.salary_min != null
+                      ? `${opportunity.salary_min}${opportunity.salary_max ? ` - ${opportunity.salary_max}` : ""} ${opportunity.salary_currency ?? ""}`.trim()
+                      : null,
+                    opportunity.funding_type,
+                  ].filter(Boolean) as string[]}
+                />
+                <DetailAccordion
+                  title={isEn ? "Documents (Raw)" : "নথিপত্র (বিস্তারিত)"}
+                  content={documentDetails}
+                />
+                <DetailAccordion
+                  title={isEn ? "Application Process (Raw)" : "আবেদন প্রক্রিয়া (বিস্তারিত)"}
+                  content={processDetails}
+                />
+
+                {opportunity.document_url && (
+                  <Card className="p-4 border border-border">
+                    <h3 className="text-base font-bold text-foreground">
+                      {isEn ? "Official Circular" : "মূল সার্কুলার"}
+                    </h3>
+                    <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex items-start gap-3">
+                        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-rose-50 dark:bg-rose-900/20">
+                          <FileText className="h-5 w-5 text-rose-600 dark:text-rose-400" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-semibold text-sm text-foreground truncate">
+                            {isEn ? "Download circular document" : "মূল সার্কুলার নথি ডাউনলোড করুন"}
+                          </p>
+                          <p className="text-xs text-muted-foreground truncate">{opportunity.document_url}</p>
+                        </div>
+                      </div>
+                      <a
+                        href={opportunity.document_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-border px-4 py-2.5 text-xs font-semibold text-foreground hover:border-primary hover:text-primary transition-colors shrink-0"
+                      >
+                        <FileText className="h-4 w-4" />
+                        <span>{isEn ? "Open PDF" : "PDF খুলুন"}</span>
+                      </a>
+                    </div>
+                  </Card>
+                )}
+              </div>
+            </details>
 
             <Link
               href="/search"
-              className="inline-flex items-center gap-1.5 text-sm font-semibold text-muted-foreground transition-colors hover:text-primary"
+              className="inline-flex items-center gap-1.5 text-sm font-semibold text-muted-foreground transition-colors hover:text-primary pt-2"
             >
               <ArrowLeft className="h-4 w-4" />
               {isEn ? "Back to search" : "অনুসন্ধানে ফিরুন"}
             </Link>
           </div>
 
+          {/* Desktop Right Sidebar */}
           <aside className="space-y-4">
-            <Card>
-              <a
-                href={applyHref}
-                target="_blank"
-                rel="noreferrer"
-                className="touch-target inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-bold text-white transition-opacity hover:opacity-90"
-                aria-label={isEn ? "Apply now" : "আবেদন করুন"}
-              >
-                <ExternalLink className="h-4 w-4" />
-                <span>{isEn ? "Apply Now" : "এখনই আবেদন করুন"}</span>
-              </a>
-
-              <div className="mt-3 flex items-center justify-between">
-                <span className="text-sm font-medium text-muted-foreground">
-                  {isEn ? "Share" : "শেয়ার"}
+            <Card className="p-5 border border-border space-y-4">
+              <DetailActionButtons
+                opportunityId={id}
+                initialSaved={opportunity.is_saved}
+                applyHref={applyHref}
+                locale={locale}
+                variant="sidebar"
+              />
+              <div className="flex items-center justify-between border-t border-border pt-4">
+                <span className="text-xs font-semibold text-muted-foreground">
+                  {isEn ? "Share Opportunity" : "সুযোগটি শেয়ার করুন"}
                 </span>
                 <ShareButton url={opportunityUrl} title={titleText} />
               </div>
-
-              <div className="mt-4 space-y-3 border-t border-border pt-4 text-sm">
+              <div className="text-xs text-muted-foreground space-y-2.5 pt-2 border-t border-border">
                 {opportunity.deadline && (
                   <div className="flex items-center justify-between gap-3">
-                    <span className="text-muted-foreground">{isEn ? "Deadline" : "শেষ তারিখ"}</span>
-                    <span className="font-semibold text-foreground">{formatDate(opportunity.deadline, locale)}</span>
+                    <span>{isEn ? "Deadline:" : "শেষ তারিখ:"}</span>
+                    <span className="font-bold text-foreground">{formatDate(opportunity.deadline, locale)}</span>
                   </div>
                 )}
                 <div className="flex items-center justify-between gap-3">
-                  <span className="text-muted-foreground">{isEn ? "Added" : "যোগ করা হয়েছে"}</span>
+                  <span>{isEn ? "Added:" : "যোগ করা হয়েছে:"}</span>
                   <span className="font-semibold text-foreground">{formatDateTime(opportunity.created_at, locale)}</span>
                 </div>
-                {(opportunity.salary_min != null || salaryText) && (
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-muted-foreground">{isEn ? "Salary" : "বেতন"}</span>
-                    <span className="inline-flex items-center gap-1 font-semibold text-foreground">
-                      <Banknote className="h-4 w-4 text-success" />
-                      {salaryText ?? `${opportunity.salary_min} ${opportunity.salary_currency ?? ""}`}
-                    </span>
-                  </div>
-                )}
               </div>
             </Card>
 
+            {/* Voice Player */}
             {safeVoicePlaybackSections.length > 0 ? (
               <OpportunityVoicePlayer sections={safeVoicePlaybackSections} locale={locale} />
             ) : null}
 
+            {/* Safety Reminder Card */}
+            <div className="p-4 rounded-2xl border border-warning/30 bg-warning/5 text-xs space-y-1.5">
+              <div className="flex items-center gap-2 font-bold text-amber-800 dark:text-amber-500">
+                <AlertTriangle className="h-4 w-4" />
+                <span>{isEn ? "Safe Apply Reminder" : "নিরাপদ আবেদন অনুস্মারক"}</span>
+              </div>
+              <p className="text-muted-foreground leading-relaxed font-medium">
+                {isEn 
+                  ? "Sudokkho always recommends verifying the official details and never paying money to unverified agents."
+                  : "সুদক্ষ সবসময় অফিসিয়াল তথ্য যাচাই করার এবং কোনো যাচাই না করা এজেন্টকে টাকা না দেওয়ার পরামর্শ দেয়।"}
+              </p>
+            </div>
+
+            {/* Similar Opportunities */}
             {similar.items.length > 0 && (
-              <section className="space-y-3">
-                <h3 className="section-underline text-base font-semibold text-foreground">
+              <section className="space-y-3 pt-2">
+                <h3 className="text-sm font-bold text-foreground uppercase tracking-wider">
                   {isEn ? "Similar Opportunities" : "একই ধরনের সুযোগ"}
                 </h3>
                 <div className="space-y-3">
-                  {similar.items.slice(0, 3).map((item) => (
+                  {similar.items.slice(0, 2).map((item) => (
                     <OpportunityCard key={item.id} item={item} variant="compact" />
                   ))}
                 </div>
